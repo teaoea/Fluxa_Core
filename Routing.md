@@ -70,3 +70,13 @@ Fake-IP 还原为原域名后匹配域名及真实地址的 CIDR，不对合成�
 Fake-IP 专用预分配复用 DNS 的输入验证和合成响应构造，排除项直接拒绝，不再为无法生成映射的请求向上游查询；常规 DNS 查询的排除项仍真实解析。新增七项真实套接字测试覆盖前置拒绝、规则优先级、数值 UDP/模式、混合地址策略、Fake-IP/代次与无网络预分配。HTTP/MITM 尚未统一接入，不代表 TUN 或网关转发。
 
 发布前本机验证：94 项 Rust 测试、严格 Clippy、九组实际 Swift FFI、SwiftFormat 及严格 SwiftLint（零违规）通过。包含 DNS 阶段的截止时间和跨线程取消；最低系统及其他平台未运行。
+
+## 路由决策执行（2026-10-10）
+
+内核 v1.1.0 构建源码 8731c18c8937b355c4afb9e45dcd425e38966a96，最终标签 6b41fedb9ed2e82527f2bfa210b11738d6d1ab0c，仅有 Package.swift 二进制校验值差异。实际 crates.io 包 VCS 一致，61 个归档条目不包含 Swift 或二进制；GitHub Actions 38048325048 成功，94 项 Rust 测试、九组真实 Swift FFI、严格 Clippy 与远程 Swift 包 11 项测试通过。发布前 SwiftFormat 和严格 SwiftLint 零违规。
+
+框架 SHA-256 60fe0b3f6fb0f4d9f3bfa157eafef10d615a2f9e5c6b4ac0dc0cafe70fa0d913；测试服务 SHA-256 48e91317264f5b4edc4222fcbbea82b597e4df7b7259da3756821fc3943088d0。Fluxa 0.9.0 / build 9 固定远程 1.1.0，49 项客户端测试零失败、无跳过；验证 YAML → 四种 DNS 传输 → TCP/UDP 实际路由连接、前序地址拒绝、域名放行优先、未实现代理拒绝及 Fake-IP 还原后匹配。格式、严格 SwiftLint、资源一致性和 Xcode 27 固定依赖解析通过，无本地内核目录引用或 Rust 构建。
+
+规则按顺序执行：遇到需要真实地址的前序 CIDR 先解析，不跳过它；任一候选被拒绝或使用不可用代理，整次连接失败，不切换地址族绕过。已能确定的拒绝在 DNS 前失败。Fake-IP 专用预分配不访问上游，排除项明确拒绝；连接阶段还原域名并用真实 DNS。界面展示真实对端及命中规则，仅手动发送本次输入，不保存历史。
+
+环境为 macOS 27.2 ARM64 / Xcode 27.0，页面与 macOS 宿主已编译。最低 macOS 14 实际运行、其他架构/平台、GUI 交互、真机 VPN、TUN/网关及远端代理协议未验收。活动连接管理与 HTTP/MITM 共用链迁移待独立交付。main 未合并，用户标注图不提交。
