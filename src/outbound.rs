@@ -54,6 +54,11 @@ struct Connection {
     socket: Socket,
     cancel: watch::Sender<bool>,
     _lease: ByteLease,
+    address: SocketAddr,
+    transport: Transport,
+    revision: u64,
+    idle_timeout: Duration,
+    usage: Mutex<resources::Usage>,
 }
 impl Connection {
     fn close(&self) {
@@ -85,19 +90,23 @@ pub struct Read {
 struct State {
     registry: Registry<Arc<Connection>>,
     stopped: bool,
+    network: Arc<NetworkSnapshot>,
 }
 pub struct Manager {
-    state: Mutex<State>,
+    state: Arc<Mutex<State>>,
+    reaper: Mutex<Option<tokio::task::JoinHandle<()>>>,
     generation: watch::Sender<u64>,
 }
 impl Default for Manager {
     fn default() -> Self {
         let (generation, _) = watch::channel(0);
         Self {
-            state: Mutex::new(State {
+            state: Arc::new(Mutex::new(State {
                 registry: Registry::default(),
                 stopped: false,
-            }),
+                network: Arc::new(NetworkSnapshot::default()),
+            })),
+            reaper: Mutex::new(None),
             generation,
         }
     }
@@ -119,11 +128,46 @@ impl Manager {
             .await?
             .id)
     }
+    /// 具有配置上下文的数值诊断也拒绝合成池地址，不混用前后配置。
+    pub async fn open_configured_numeric(
+        &self,
+        address: SocketAddr,
+        transport: Transport,
+        policy: Policy,
+        milliseconds: u64,
+    ) -> Result<u64> {
+        if address.port() == 0 || address.ip().is_unspecified() {
+            return Err(Error::InvalidInput);
+        }
+        policy.check_support()?;
+        let snapshot = self.network_snapshot()?;
+        if snapshot
+            .resolver
+            .as_ref()
+            .is_some_and(|dns| dns.is_fake_ip(address.ip()))
+        {
+            return Err(Error::Unsupported);
+        }
+        Ok(self
+            .establish_with(snapshot, duration(milliseconds)?, dial(address, transport))
+            .await?
+            .id)
+    }
     async fn establish(
         &self,
         deadline: Duration,
         future: impl std::future::Future<Output = Result<Dialed>>,
     ) -> Result<Opened> {
+        self.establish_with(self.network_snapshot()?, deadline, future)
+            .await
+    }
+    async fn establish_with(
+        &self,
+        snapshot: Arc<NetworkSnapshot>,
+        deadline: Duration,
+        future: impl std::future::Future<Output = Result<Dialed>>,
+    ) -> Result<Opened> {
+        self.start_reaper()?;
         let mut generation = self.generation.subscribe();
         let epoch = *generation.borrow();
         if self.state.lock().map_err(|_| Error::Internal)?.stopped {
@@ -134,10 +178,18 @@ impl Manager {
             _ = generation.changed() => return Err(Error::Cancelled),
             result = timeout(deadline, future) => result.map_err(|_| Error::NetworkTimeout)??,
         };
+        resources::reap(&self.state)?;
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         if state.stopped || *generation.borrow() != epoch {
             return Err(Error::Cancelled);
         }
+        if state.registry.len() >= state.network.limits.maximum_connections {
+            return Err(Error::ResourceLimit);
+        }
+        let transport = match &socket {
+            Socket::Tcp { .. } => Transport::Tcp,
+            Socket::Udp { .. } => Transport::Udp,
+        };
         let (cancel, _) = watch::channel(false);
         let id = state
             .registry
@@ -145,6 +197,11 @@ impl Manager {
                 socket,
                 cancel,
                 _lease: lease,
+                address,
+                transport,
+                revision: snapshot.revision,
+                idle_timeout: Duration::from_millis(snapshot.limits.idle_timeout_ms),
+                usage: Mutex::new(resources::Usage::default()),
             }))
             .ok_or(Error::ResourceLimit)?;
         Ok(Opened {
@@ -196,6 +253,9 @@ impl Manager {
         {
             connection.close();
         }
+        if let Ok(length) = result {
+            connection.activity(length, true, !tcp)?;
+        }
         result
     }
     pub async fn read(&self, id: u64, maximum: usize, milliseconds: u64) -> Result<Read> {
@@ -217,6 +277,7 @@ impl Manager {
                     }
                 };
                 // UDP 始终接收整个报文，超过调用者上限时丢弃并报错，不交付截断成功。
+                connection.activity(length, false, udp)?;
                 if length > maximum {
                     return Err(Error::ResourceLimit);
                 }
@@ -279,6 +340,11 @@ impl Manager {
 impl Drop for Manager {
     fn drop(&mut self) {
         let _ = self.stop();
+        if let Ok(task) = self.reaper.get_mut()
+            && let Some(task) = task.take()
+        {
+            task.abort();
+        }
     }
 }
 
@@ -316,3 +382,8 @@ pub use resolution::{DomainTarget, FakeIPTarget, Family, Opened};
 
 mod execution;
 pub use execution::{RoutedOpened, RoutedTarget};
+
+mod configuration;
+pub use configuration::{Limits, NetworkSnapshot};
+mod resources;
+pub use resources::{SessionStatus, Status};

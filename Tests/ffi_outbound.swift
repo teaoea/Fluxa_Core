@@ -64,11 +64,78 @@ struct OutboundFFICheck {
     try client.closeAll()
     try checkDNS(fixture: fixture)
     try checkFakeIP(fixture: fixture)
+    try checkResources(fixture: fixture)
     try checkRouting(fixture: fixture)
     try checkRoutedCancellation(fixture: fixture)
     print(
-      "共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS、Fake-IP、路由执行与解析取消已验证。"
+      "共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS、Fake-IP、路由执行、解析取消、原子配置、状态统计与空闲回收已验证。"
     )
+  }
+
+  static func checkResources(fixture: OutboundFixture) throws {
+    let client = try NativeOutboundClient()
+    let dns = DNSConfiguration(servers: [dnsServers(fixture)[0]], fakeIP: FakeIPConfiguration())
+    let routing = RoutingConfiguration(settings: RoutingSettings(mode: .direct))
+    let revision = try client.configureNetwork(
+      dns: dns, routing: routing,
+      limits: NativeOutboundLimits(maximumConnections: 2, idleTimeoutMilliseconds: 5000)
+    )
+    let mapped = try client.fakeIP(domain: "connect.example.test")
+    let opened = try client.openRouted(RoutingTarget(
+      address: mapped.address, port: fixture.udp, transport: .udp
+    ), family: .ipv4, mappingGeneration: mapped.generation)
+    try client.write(Data("stats".utf8), id: opened.id)
+    let read = try client.read(id: opened.id)
+    precondition(read.data == Data("stats".utf8))
+    let status = try client.status()
+    precondition(status.revision == revision && status.sessions.count == 1)
+    precondition(status.sessions[0].revision == revision)
+    precondition(status.sessions[0].uploaded == 5 && status.sessions[0].downloaded == 5)
+    var invalidDNS = dns
+    invalidDNS.servers = []
+    try rejection { _ = try client.configureNetwork(
+      dns: invalidDNS, routing: RoutingConfiguration(),
+      limits: NativeOutboundLimits(maximumConnections: 1, idleTimeoutMilliseconds: 100)
+    ) }
+    let afterInvalidDNS = try client.status()
+    precondition(afterInvalidDNS.revision == revision)
+    try rejection { _ = try client.configureLimits(NativeOutboundLimits(maximumConnections: 0)) }
+    let afterInvalidLimits = try client.status()
+    precondition(afterInvalidLimits.revision == revision)
+    let changed = try client.configureNetwork(dns: dns, routing: routing)
+    precondition(changed != revision)
+    try rejection { _ = try client.openRouted(
+      RoutingTarget(address: mapped.address, port: fixture.udp, transport: .udp),
+      mappingGeneration: mapped.generation
+    ) }
+    try client.write(Data("old".utf8), id: opened.id)
+    let oldRead = try client.read(id: opened.id)
+    precondition(oldRead.data == Data("old".utf8))
+    let other = try NativeOutboundClient()
+    let otherID = try other.open(address: "127.0.0.1:\(fixture.udp)", transport: .udp)
+    precondition(otherID != opened.id)
+    try rejection { try other.close(id: opened.id) }
+    try other.closeAll()
+    try client.closeAll()
+    try client.configureLimits(NativeOutboundLimits(
+      maximumConnections: 1,
+      idleTimeoutMilliseconds: 100
+    ))
+    let idle = try client.open(address: "127.0.0.1:\(fixture.tcp)", transport: .tcp)
+    let finished = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      do {
+        _ = try client.read(id: idle, timeoutMilliseconds: 60000)
+        preconditionFailure("空闲连接必须取消阻塞读")
+      } catch { finished.signal() }
+    }
+    precondition(finished.wait(timeout: .now() + 2) == .success)
+    let expiredStatus = try client.status()
+    precondition(expiredStatus.sessions.isEmpty)
+    try rejection { try client.close(id: idle) }
+    let next = try client.open(address: "127.0.0.1:\(fixture.udp)", transport: .udp)
+    precondition(next != idle)
+    try client.close(id: next)
   }
 
   static func checkDNS(fixture: OutboundFixture) throws {

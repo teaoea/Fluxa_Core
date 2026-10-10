@@ -8,13 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    sync::{
-        Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Mutex,
 };
 // 代次仅在当前进程有效，耗尽后拒绝，不回绕复用旧令牌。
-static GENERATIONS: AtomicU64 = AtomicU64::new(1);
+
 static BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,11 +106,7 @@ pub struct Table {
 impl Table {
     pub fn new(config: Config) -> Result<Self> {
         let ranges = config.ranges()?;
-        let generation = GENERATIONS
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                value.checked_add(1)
-            })
-            .map_err(|_| Error::ResourceLimit)?;
+        let generation = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
         Ok(Self {
             generation,
             config,

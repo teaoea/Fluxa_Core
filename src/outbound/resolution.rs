@@ -135,12 +135,34 @@ pub(super) async fn resolve(
 }
 impl Manager {
     pub async fn connect(&self, resolver: &Resolver, target: DomainTarget) -> Result<Opened> {
-        self.connect_domain(resolver, target, false).await
+        self.connect_domain(resolver, target, false, self.network_snapshot()?)
+            .await
     }
     pub async fn connect_fake_ip(
         &self,
         resolver: &Resolver,
         target: FakeIPTarget,
+    ) -> Result<Opened> {
+        self.connect_fake_with_snapshot(resolver, target, self.network_snapshot()?)
+            .await
+    }
+    pub async fn connect_configured_domain(&self, target: DomainTarget) -> Result<Opened> {
+        let snapshot = self.network_snapshot()?;
+        let resolver = snapshot.resolver.as_ref().ok_or(Error::InvalidState)?;
+        self.connect_domain(resolver, target, false, std::sync::Arc::clone(&snapshot))
+            .await
+    }
+    pub async fn connect_configured_fake_ip(&self, target: FakeIPTarget) -> Result<Opened> {
+        let snapshot = self.network_snapshot()?;
+        let resolver = snapshot.resolver.as_ref().ok_or(Error::InvalidState)?;
+        self.connect_fake_with_snapshot(resolver, target, std::sync::Arc::clone(&snapshot))
+            .await
+    }
+    async fn connect_fake_with_snapshot(
+        &self,
+        resolver: &Resolver,
+        target: FakeIPTarget,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
     ) -> Result<Opened> {
         target.policy.check_support()?;
         let address = super::endpoint(&target.address)?;
@@ -157,6 +179,7 @@ impl Manager {
                 family: target.family,
             },
             true,
+            snapshot,
         )
         .await
     }
@@ -165,6 +188,7 @@ impl Manager {
         resolver: &Resolver,
         target: DomainTarget,
         real: bool,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
     ) -> Result<Opened> {
         let deadline = duration(target.timeout_ms)?;
         target.policy.check_support()?;
@@ -175,7 +199,7 @@ impl Manager {
         if name.parse::<IpAddr>().is_ok() {
             return Err(Error::InvalidInput);
         }
-        self.establish(deadline, async {
+        self.establish_with(snapshot, deadline, async {
             let addresses = resolve(resolver, &name, target.family, real).await?;
             candidates(
                 addresses

@@ -34,7 +34,46 @@ public struct NativeOutboundRead: Sendable {
 public final class NativeOutboundClient: Sendable {
   private let client: NativeCommandClient
   public init() throws {
-    client = try NativeCommandClient(requiredCapabilities: 15360)
+    client = try NativeCommandClient(requiredCapabilities: 31744)
+  }
+
+  /// DNS、规则及资源参数全部验证成功才替换，返回本进程配置修订号。
+  @discardableResult
+  public func configureNetwork(
+    dns: DNSConfiguration?, routing: RoutingConfiguration,
+    limits: NativeOutboundLimits = NativeOutboundLimits()
+  ) throws -> UInt64 {
+    var route = try NativeRoutingClient.configurationCommand(routing)
+    route.removeValue(forKey: "operation")
+    var dnsObject: [String: Any]?
+    if let dns {
+      dnsObject = try NativeDNSClient.configurationCommand(dns)
+      dnsObject?.removeValue(forKey: "operation")
+    }
+    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(limits))
+    let reply = try client.command([
+      "operation": "network_configure", "routing": route,
+      "dns": dnsObject as Any? ?? NSNull(), "limits": object,
+    ])
+    guard let revision = reply.networkRevision else { throw NativeClientError.boundary }
+    return revision
+  }
+
+  @discardableResult
+  public func configureLimits(_ limits: NativeOutboundLimits) throws -> UInt64 {
+    guard var command = try JSONSerialization.jsonObject(
+      with: JSONEncoder().encode(limits)
+    ) as? [String: Any] else { throw NativeClientError.boundary }
+    command["operation"] = "outbound_limits"
+    guard let revision = try client.command(command).networkRevision
+    else { throw NativeClientError.boundary }
+    return revision
+  }
+
+  public func status() throws -> NativeOutboundStatus {
+    guard let status = try client.command(["operation": "outbound_status"]).outboundStatus
+    else { throw NativeClientError.boundary }
+    return status
   }
 
   public func configureDNS(_ configuration: DNSConfiguration) throws {

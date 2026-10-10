@@ -36,7 +36,7 @@ for client_test in "${client_tests[@]}"; do
   if [[ "$client_test" == lifecycle ]]; then
     swift_sources=(-import-objc-header include/fluxa_engine.h)
   else
-    swift_sources=(-I include Sources/FluxaCore/DNSConfiguration.swift Sources/FluxaCore/Routing*.swift Sources/FluxaCore/CoreError.swift Sources/FluxaEngine/Native*Client.swift)
+    swift_sources=(-I include Sources/FluxaCore/DNSConfiguration.swift Sources/FluxaCore/OutboundLimits.swift Sources/FluxaCore/Routing*.swift Sources/FluxaCore/CoreError.swift Sources/FluxaEngine/Native*Client.swift Sources/FluxaEngine/NativeOutboundResources.swift)
   fi
   CLANG_MODULE_CACHE_PATH="$check_directory/modules" swiftc \
     -module-cache-path "$check_directory/modules" "${swift_sources[@]}" \

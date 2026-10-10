@@ -32,6 +32,28 @@ impl Manager {
         resolver: Option<&Resolver>,
         request: RoutedTarget,
     ) -> Result<RoutedOpened> {
+        self.connect_with_snapshot(router, resolver, request, self.network_snapshot()?)
+            .await
+    }
+    /// 同一次读取 DNS、路由和资源参数，避免配置替换时混用。
+    pub async fn connect_configured(&self, request: RoutedTarget) -> Result<RoutedOpened> {
+        let snapshot = self.network_snapshot()?;
+        let router = snapshot.router.as_ref().ok_or(Error::InvalidState)?;
+        self.connect_with_snapshot(
+            router,
+            snapshot.resolver.as_deref(),
+            request,
+            std::sync::Arc::clone(&snapshot),
+        )
+        .await
+    }
+    async fn connect_with_snapshot(
+        &self,
+        router: &Router,
+        resolver: Option<&Resolver>,
+        request: RoutedTarget,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
+    ) -> Result<RoutedOpened> {
         let deadline = duration(request.timeout_ms)?;
         let mut metadata = request.target;
         if metadata.port == 0 || metadata.domain.is_some() == metadata.address.is_some() {
@@ -80,7 +102,7 @@ impl Manager {
         }
         let mut decision = None;
         let opened = self
-            .establish(deadline, async {
+            .establish_with(snapshot, deadline, async {
                 if let Some(early) = router.evaluate_before_dns(metadata.clone())? {
                     early.check_support()?;
                 }
