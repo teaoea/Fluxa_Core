@@ -63,6 +63,7 @@ struct OutboundFFICheck {
     try client.closeAll()
     try client.closeAll()
     try checkDNS(fixture: fixture)
+    try checkFakeIP(fixture: fixture)
     print("共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS 域名连接已验证，路由执行尚未接入。")
   }
 
@@ -121,6 +122,60 @@ struct OutboundFFICheck {
       port: fixture.tcp,
       transport: .tcp
     ) }
+    try client.closeAll()
+  }
+
+  static func checkFakeIP(fixture: OutboundFixture) throws {
+    let client = try NativeOutboundClient()
+    try client.addTrustedRoot(certificatePEM: fixture.certificatePEM)
+    for server in [
+      DNSServer(transport: .udp, address: "127.0.0.1:\(fixture.dns)"),
+      DNSServer(transport: .tcp, address: "127.0.0.1:\(fixture.dns)"),
+      DNSServer(transport: .dot, address: "127.0.0.1:\(fixture.dot)", serverName: "localhost"),
+      DNSServer(
+        transport: .doh,
+        url: "https://localhost:\(fixture.doh)/dns-query",
+        bootstrap: "127.0.0.1:\(fixture.doh)"
+      ),
+    ] {
+      let configuration = DNSConfiguration(servers: [server], fakeIP: FakeIPConfiguration())
+      try client.configureDNS(configuration)
+      for ipv6 in [false, true] {
+        let mapped = try client.fakeIP(domain: "connect.example.test", ipv6: ipv6)
+        let endpoint = ipv6 ? "[\(mapped.address)]:\(fixture.tcp)" : "\(mapped.address):\(fixture.tcp)"
+        try rejection { _ = try client.open(address: endpoint, transport: .tcp) }
+        for transport in [RoutingTransport.tcp, .udp] {
+          let opened = try client.open(
+            fakeIP: mapped,
+            port: transport == .tcp ? fixture.tcp : fixture.udp,
+            transport: transport,
+            family: .ipv4
+          )
+          try client.write(Data("fake".utf8), id: opened.id)
+          let read = try client.read(id: opened.id)
+          precondition(read.data == Data("fake".utf8))
+          try client.close(id: opened.id)
+        }
+        try client.configureDNS(configuration)
+        let replacement = try client.fakeIP(domain: "connect.example.test", ipv6: ipv6)
+        precondition(replacement.generation != mapped.generation)
+        try rejection { _ = try client.open(fakeIP: mapped, port: fixture.tcp, transport: .tcp) }
+      }
+    }
+    try client.configureDNS(DNSConfiguration(
+      servers: [DNSServer(transport: .udp, address: "127.0.0.1:\(fixture.dns)")],
+      fakeIP: FakeIPConfiguration(exclude: ["connect.example.test"])
+    ))
+    for policy in [RoutingRule.Policy.reject, .proxy] {
+      try rejection { _ = try client.fakeIP(domain: "connect.example.test", policy: policy) }
+    }
+    var excluded = false
+    do {
+      _ = try client.fakeIP(domain: "connect.example.test")
+    } catch NativeClientError.rejected {
+      excluded = true
+    }
+    precondition(excluded)
     try client.closeAll()
   }
 

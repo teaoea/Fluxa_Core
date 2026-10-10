@@ -1,4 +1,4 @@
-//! 配置 DNS 到出站的桥接；没有系统解析和 hosts 回退，尚不消费 Fake-IP。
+//! 配置 DNS 与 Fake-IP 到出站的桥接；不使用系统解析或 hosts 回退。
 use super::{Manager, dial, duration};
 use crate::{
     dns::{Answer, Query, Resolver},
@@ -24,6 +24,17 @@ pub enum Family {
 pub struct DomainTarget {
     pub domain: String,
     pub port: u16,
+    pub transport: Transport,
+    pub policy: Policy,
+    pub timeout_ms: u64,
+    #[serde(default)]
+    pub family: Family,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FakeIPTarget {
+    pub address: String,
+    pub mapping_generation: u64,
     pub transport: Transport,
     pub policy: Policy,
     pub timeout_ms: u64,
@@ -58,21 +69,30 @@ fn addresses(answer: Answer, v4: bool) -> Result<Vec<IpAddr>> {
     }
     Ok(values)
 }
-async fn resolve(resolver: &Resolver, name: &str, family: Family) -> Result<Vec<IpAddr>> {
+async fn resolve(
+    resolver: &Resolver,
+    name: &str,
+    family: Family,
+    real: bool,
+) -> Result<Vec<IpAddr>> {
     let query = |kind: &str| Query {
         name: name.into(),
         query_type: kind.into(),
     };
+    let lookup = |query| async move {
+        if real {
+            resolver.resolve_real(query).await
+        } else {
+            resolver.resolve(query).await
+        }
+    };
     let (v4, v6) = match family {
         Family::Auto => {
-            let (v4, v6) = tokio::join!(
-                resolver.resolve(query("A")),
-                resolver.resolve(query("AAAA"))
-            );
+            let (v4, v6) = tokio::join!(lookup(query("A")), lookup(query("AAAA")));
             (Some(v4), Some(v6))
         }
-        Family::Ipv4 => (Some(resolver.resolve(query("A")).await), None),
-        Family::Ipv6 => (None, Some(resolver.resolve(query("AAAA")).await)),
+        Family::Ipv4 => (Some(lookup(query("A")).await), None),
+        Family::Ipv6 => (None, Some(lookup(query("AAAA")).await)),
     };
     // 验证/资源错误不能被另一地址族掩盖；单族网络失败可以使用另一族的有效记录。
     let mut failure = Error::DnsResponse;
@@ -115,6 +135,37 @@ async fn resolve(resolver: &Resolver, name: &str, family: Family) -> Result<Vec<
 }
 impl Manager {
     pub async fn connect(&self, resolver: &Resolver, target: DomainTarget) -> Result<Opened> {
+        self.connect_domain(resolver, target, false).await
+    }
+    pub async fn connect_fake_ip(
+        &self,
+        resolver: &Resolver,
+        target: FakeIPTarget,
+    ) -> Result<Opened> {
+        target.policy.check_support()?;
+        let address = super::endpoint(&target.address)?;
+        let domain =
+            resolver.restore_fake_ip(&address.ip().to_string(), target.mapping_generation)?;
+        self.connect_domain(
+            resolver,
+            DomainTarget {
+                domain,
+                port: address.port(),
+                transport: target.transport,
+                policy: target.policy,
+                timeout_ms: target.timeout_ms,
+                family: target.family,
+            },
+            true,
+        )
+        .await
+    }
+    async fn connect_domain(
+        &self,
+        resolver: &Resolver,
+        target: DomainTarget,
+        real: bool,
+    ) -> Result<Opened> {
         let deadline = duration(target.timeout_ms)?;
         target.policy.check_support()?;
         if target.domain.len() > 254 || target.port == 0 {
@@ -125,7 +176,7 @@ impl Manager {
             return Err(Error::InvalidInput);
         }
         self.establish(deadline, async {
-            let addresses = resolve(resolver, &name, target.family).await?;
+            let addresses = resolve(resolver, &name, target.family, real).await?;
             let mut tasks = tokio::task::JoinSet::new();
             let mut next = 0;
             let mut failure = Error::Network;

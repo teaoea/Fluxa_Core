@@ -147,7 +147,29 @@ impl Resolver {
         self.cache.lock().map_err(|_| Error::Internal)?.clear();
         Ok(())
     }
+    pub fn fake_ip_generation(&self) -> Option<u64> {
+        self.fake_ip.as_ref().map(fake_ip::Table::generation)
+    }
+    pub fn is_fake_ip(&self, address: std::net::IpAddr) -> bool {
+        self.fake_ip
+            .as_ref()
+            .is_some_and(|table| table.contains(address))
+    }
+    pub fn restore_fake_ip(&self, address: &str, generation: u64) -> Result<String> {
+        let table = self.fake_ip.as_ref().ok_or(Error::Unsupported)?;
+        if generation != table.generation() {
+            return Err(Error::InvalidState);
+        }
+        table.reverse(address)?.ok_or(Error::InvalidState)
+    }
     pub async fn resolve(&self, query: Query) -> Result<Answer> {
+        self.resolve_inner(query, true).await
+    }
+    /// 真实解析复用上游、缓存和 DNSSEC；只跳过合成映射，不跳过验证。
+    pub async fn resolve_real(&self, query: Query) -> Result<Answer> {
+        self.resolve_inner(query, false).await
+    }
+    async fn resolve_inner(&self, query: Query, synthetic: bool) -> Result<Answer> {
         let name = normalize(&query.name)?;
         if query.query_type.len() > 16 {
             return Err(Error::InvalidInput);
@@ -165,7 +187,8 @@ impl Resolver {
             return Err(Error::Unsupported);
         }
         let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
-        if let Some(table) = &self.fake_ip
+        if synthetic
+            && let Some(table) = &self.fake_ip
             && matches!(kind, RecordType::A | RecordType::AAAA)
             && let Some((address, from_cache)) = table.allocate(&name, kind == RecordType::AAAA)?
         {

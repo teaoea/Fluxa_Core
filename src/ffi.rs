@@ -130,6 +130,12 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
     OutboundConnect(crate::outbound::DomainTarget),
+    OutboundConnectFakeIp(crate::outbound::FakeIPTarget),
+    OutboundFakeIp {
+        domain: String,
+        ipv6: bool,
+        policy: crate::routing::Policy,
+    },
     OutboundOpen {
         address: String,
         transport: crate::routing::Transport,
@@ -235,6 +241,7 @@ struct Reply {
     outbound_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_peer: Option<String>,
+    dns_generation: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_eof: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -283,6 +290,26 @@ impl From<crate::https::Response> for Reply {
         }
     }
 }
+impl Reply {
+    fn dns(resolver: &crate::dns::Resolver, query: crate::dns::Query) -> Result<Self, Error> {
+        Ok(Self {
+            success: true,
+            dns_answer: Some(runtime()?.block_on(resolver.resolve(query))?),
+            dns_generation: resolver.fake_ip_generation(),
+            ..Self::default()
+        })
+    }
+}
+impl From<crate::outbound::Opened> for Reply {
+    fn from(opened: crate::outbound::Opened) -> Self {
+        Self {
+            success: true,
+            outbound_id: Some(opened.id),
+            outbound_peer: Some(opened.address),
+            ..Self::default()
+        }
+    }
+}
 impl From<Error> for Reply {
     fn from(error: Error) -> Self {
         Self {
@@ -327,6 +354,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         &command,
         Command::OutboundOpen { .. }
             | Command::OutboundConnect(_)
+            | Command::OutboundConnectFakeIp(_)
             | Command::OutboundRead { .. }
             | Command::OutboundWrite { .. }
             | Command::OutboundShutdownWrite { .. }
@@ -347,16 +375,32 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::OutboundFakeIp {
+            domain,
+            ipv6,
+            policy,
+        } => {
+            policy.check_support()?;
+            let resolver = engine.dns()?;
+            Reply::dns(
+                &resolver,
+                crate::dns::Query {
+                    name: domain,
+                    query_type: if ipv6 { "AAAA" } else { "A" }.into(),
+                },
+            )
+        }
+        Command::OutboundConnectFakeIp(target) => {
+            target.policy.check_support()?;
+            let resolver = engine.dns()?;
+            let opened = runtime()?.block_on(engine.outbound.connect_fake_ip(&resolver, target))?;
+            Ok(Reply::from(opened))
+        }
         Command::OutboundConnect(target) => {
             target.policy.check_support()?;
             let resolver = engine.dns()?;
             let opened = runtime()?.block_on(engine.outbound.connect(&resolver, target))?;
-            Ok(Reply {
-                success: true,
-                outbound_id: Some(opened.id),
-                outbound_peer: Some(opened.address),
-                ..Reply::default()
-            })
+            Ok(Reply::from(opened))
         }
         Command::OutboundOpen {
             address,
@@ -364,12 +408,19 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             policy,
             timeout_ms,
         } => {
-            let id = runtime()?.block_on(engine.outbound.open(
-                crate::outbound::endpoint(&address)?,
-                transport,
-                policy,
-                timeout_ms,
-            ))?;
+            policy.check_support()?;
+            let address = crate::outbound::endpoint(&address)?;
+            if engine
+                .dns
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .as_ref()
+                .is_some_and(|resolver| resolver.is_fake_ip(address.ip()))
+            {
+                return Err(Error::Unsupported);
+            }
+            let id = runtime()?
+                .block_on(engine.outbound.open(address, transport, policy, timeout_ms))?;
             Ok(Reply {
                 success: true,
                 outbound_id: Some(id),
@@ -541,19 +592,17 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             }
             let resolver =
                 crate::dns::Resolver::with_tls_config(config, engine.client()?.tls_config())?;
+            let generation = resolver.fake_ip_generation();
             *engine.dns.lock().map_err(|_| Error::Internal)? = Some(Arc::new(resolver));
             Ok(Reply {
                 success: true,
+                dns_generation: generation,
                 ..Reply::default()
             })
         }
         Command::DnsQuery(query) => {
             let resolver = engine.dns()?;
-            Ok(Reply {
-                success: true,
-                dns_answer: Some(runtime()?.block_on(resolver.resolve(query))?),
-                ..Reply::default()
-            })
+            Reply::dns(&resolver, query)
         }
         Command::DnsFakeIpReverse { address } => Ok(Reply {
             success: true,
@@ -767,7 +816,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    4095
+    8191
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -870,7 +919,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 4095);
+        assert_eq!(fluxa_engine_capabilities(), 8191);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

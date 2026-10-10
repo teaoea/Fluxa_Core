@@ -8,8 +8,13 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
+// 代次仅在当前进程有效，耗尽后拒绝，不回绕复用旧令牌。
+static GENERATIONS: AtomicU64 = AtomicU64::new(1);
 static BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,6 +29,8 @@ struct Ranges {
     ipv4: u32,
     ipv6: u128,
     available: u32,
+    ipv4_end: u32,
+    ipv6_end: u128,
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
@@ -68,6 +75,8 @@ impl Config {
             ipv4,
             ipv6,
             available,
+            ipv4_end: ipv4 | !mask4,
+            ipv6_end: ipv6 | !mask6,
         })
     }
 }
@@ -92,6 +101,7 @@ struct State {
     cursor: u32,
 }
 pub struct Table {
+    generation: u64,
     config: Config,
     ranges: Ranges,
     state: Mutex<State>,
@@ -99,7 +109,13 @@ pub struct Table {
 impl Table {
     pub fn new(config: Config) -> Result<Self> {
         let ranges = config.ranges()?;
+        let generation = GENERATIONS
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| Error::ResourceLimit)?;
         Ok(Self {
+            generation,
             config,
             ranges,
             state: Mutex::new(State::default()),
@@ -146,6 +162,19 @@ impl Table {
             },
             cached,
         )))
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn contains(&self, address: IpAddr) -> bool {
+        match address {
+            IpAddr::V4(value) => {
+                (self.ranges.ipv4..=self.ranges.ipv4_end).contains(&u32::from(value))
+            }
+            IpAddr::V6(value) => {
+                (self.ranges.ipv6..=self.ranges.ipv6_end).contains(&u128::from(value))
+            }
+        }
     }
     pub fn reverse(&self, address: &str) -> Result<Option<String>> {
         if address.len() > 64 {

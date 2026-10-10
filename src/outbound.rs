@@ -314,4 +314,4 @@ async fn dial(
     Ok((socket, lease, address))
 }
 mod resolution;
-pub use resolution::{DomainTarget, Family, Opened};
+pub use resolution::{DomainTarget, FakeIPTarget, Family, Opened};

@@ -8,6 +8,12 @@ public enum NativeOutboundFamily: String, Codable, CaseIterable, Sendable {
   case auto, ipv4, ipv6
 }
 
+/// 映射令牌仅在原客户端及当前进程有效，不用于存储或跨解析器传递。
+public struct NativeFakeIPAddress: Sendable {
+  public let address: String
+  public let generation: UInt64
+}
+
 public struct NativeOutboundOpened: Sendable {
   public let id: UInt64
   public let address: String
@@ -22,7 +28,7 @@ public struct NativeOutboundRead: Sendable {
 public final class NativeOutboundClient: Sendable {
   private let client: NativeCommandClient
   public init() throws {
-    client = try NativeCommandClient(requiredCapabilities: 3072)
+    client = try NativeCommandClient(requiredCapabilities: 7168)
   }
 
   public func configureDNS(_ configuration: DNSConfiguration) throws {
@@ -36,6 +42,40 @@ public final class NativeOutboundClient: Sendable {
     _ = try client.command([
       "operation": "add_trusted_root", "certificate_pem": certificatePEM,
     ])
+  }
+
+  public func fakeIP(
+    domain: String,
+    ipv6: Bool = false,
+    policy: RoutingRule.Policy = .direct
+  ) throws -> NativeFakeIPAddress {
+    let reply = try client.command([
+      "operation": "outbound_fake_ip", "domain": domain,
+      "ipv6": ipv6, "policy": policy.rawValue,
+    ])
+    guard let answer = reply.dnsAnswer else { throw NativeClientError.boundary }
+    guard answer.validation == "synthetic" else {
+      throw NativeClientError.rejected("此域名未生成 Fake-IP 映射，请检查配置及排除项。")
+    }
+    guard let address = answer.addresses.first, let generation = reply.dnsGeneration
+    else { throw NativeClientError.boundary }
+    return NativeFakeIPAddress(address: address, generation: generation)
+  }
+
+  public func open(
+    fakeIP: NativeFakeIPAddress, port: UInt16, transport: RoutingTransport,
+    family: NativeOutboundFamily = .auto, policy: RoutingRule.Policy = .direct,
+    timeoutMilliseconds: UInt64 = 5000
+  ) throws -> NativeOutboundOpened {
+    let address = fakeIP.address.contains(":") ? "[\(fakeIP.address)]:\(port)" : "\(fakeIP.address):\(port)"
+    let reply = try client.command([
+      "operation": "outbound_connect_fake_ip", "address": address,
+      "mapping_generation": fakeIP.generation, "transport": transport.rawValue,
+      "family": family.rawValue, "policy": policy.rawValue, "timeout_ms": timeoutMilliseconds,
+    ])
+    guard let id = reply.outboundID,
+          let peer = reply.outboundPeer else { throw NativeClientError.boundary }
+    return NativeOutboundOpened(id: id, address: peer)
   }
 
   public func open(
