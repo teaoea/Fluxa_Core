@@ -29,3 +29,12 @@ udp/tcp 使用 address（IP:端口）；dot 使用 address、server-name；doh �
 真套接字测试覆盖四种传输、CNAME、AAAA、TXT、截断、正负缓存和到期、上游切换、证书信任和域名、事务编号、超时恢复。签名根区域测试覆盖合法、篡改、过期、不可信根与 NSEC 否定证明。真实 Swift FFI 覆盖四种传输、缓存、关闭、100 次释放及不信任 AD 标记。不修改系统信任或 DNS 设置。
 
 Fake-IP 和局域网 DNS 服务按用户要求分别实现、测试和发布，尚未交付。未实现 DoQ/HTTP3、权威 DNS、mDNS 或根锚自动更新。HTTP 调试服务现有系统域名解析将在共用出站阶段接入本模块。查询能力不代表 TUN、网关或系统代理已可用。仅发布 macOS ARM64 切片；最低部署系统及其他平台尚未运行验证。
+
+## v0.4.0 发布记录（2026-10-10）
+
+- 固定源码与 crates.io 包：df3ce4606337f5a18350450832e50af51f06b4fc。实际下载 crate 的 .cargo_vcs_info.json 与 45 个文件已核对，不含 Swift、原生二进制或私钥。
+- 发布标签：c893764fa9e862a36041f4518c5a6e05496482dd；与源码仅差 Package.swift 二进制校验值。
+- GitHub Actions 38026554786 成功：53 项 Rust 测试、Clippy、六组真实 FFI、静态框架构建与远程 Swift Package 测试。
+- 框架 SHA-256：39b3676d8ee000ed4750ee2cf96614cbf3f2bf63550362282f9a9f5f0d721a8c；测试服务 SHA-256：7f701dded3016816ab83c860a6486f002b2c5c0d78f95b9f01cc187ec65d0baa。
+- 本机真实 Swift FFI → Cloudflare HTTP/2 DoH：cloudflare.com 验证为 secure，dnssec-failed.org 被拒绝。此为特定时点的公开服务互通，不代表长期服务可用性。
+- 本机 macOS 27.2 ARM64 及 CI macOS ARM64 验证；macOS 14 运行、其他架构和 Apple 平台切片尚未验收。Fake-IP、局域网服务仍待单独交付。
