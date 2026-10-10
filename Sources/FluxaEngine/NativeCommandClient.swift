@@ -15,6 +15,9 @@ public enum NativeClientError: LocalizedError {
 }
 
 struct NativeCommandReply: Decodable {
+  let outboundID: UInt64?
+  let outboundEOF: Bool?
+  let outboundWritten: Int?
   let fakeIPName: String?
   let dnsAnswer: NativeDNSAnswer?
   let dnsServiceStatus: NativeDNSServiceStatus?
@@ -36,6 +39,9 @@ struct NativeCommandReply: Decodable {
   enum CodingKeys: String, CodingKey {
     case success, error, status, headers, body
     case port, capture
+    case outboundID = "outbound_id"
+    case outboundEOF = "outbound_eof"
+    case outboundWritten = "outbound_written"
     case fakeIPName = "fake_ip_name"
     case dnsAnswer = "dns_answer"
     case dnsServiceStatus = "dns_service_status"
@@ -51,7 +57,7 @@ struct NativeCommandReply: Decodable {
 }
 
 /// 仅管理 FFI 生命周期，不在 Swift 中实现 TLS 或网络读写。
-/// 同一个实例同时执行请求时，Rust 明确拒绝重入；耗时调用应放在后台执行。
+/// 出站读写支持受限并发和取消；其他业务拒绝重入，耗时调用应放在后台执行。
 final class NativeCommandClient: Sendable {
   private let handle: UInt64
 

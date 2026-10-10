@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.88"
@@ -12,7 +12,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["src/**/*.rs", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md", "TrafficProcessing.md", "TUN.md", "DNS.md", "Routing.md", "Notices/**"]
+include = ["src/**/*.rs", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md", "TrafficProcessing.md", "TUN.md", "DNS.md", "Routing.md", "Outbound.md", "Notices/**"]
 
 [lib]
 name = "libfluxa_core"
@@ -79,3 +79,7 @@ path = "Tests/dns_service.rs"
 [[test]]
 name = "routing"
 path = "Tests/routing.rs"
+
+[[test]]
+name = "outbound"
+path = "Tests/outbound.rs"

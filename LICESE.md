@@ -79,7 +79,7 @@
 | js-sys | 0.3.106 | MIT OR Apache-2.0 |
 | lazy_static | 1.5.1 | MIT OR Apache-2.0 |
 | libc | 0.2.190 | MIT OR Apache-2.0 |
-| libfluxa_core | 0.7.0 | MIT |
+| libfluxa_core | 0.8.0 | MIT |
 | linked-hash-map | 0.5.6 | MIT/Apache-2.0 |
 | litemap | 0.8.3 | Unicode-3.0 |
 | lock_api | 0.4.14 | MIT OR Apache-2.0 |

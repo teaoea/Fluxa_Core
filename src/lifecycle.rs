@@ -33,6 +33,11 @@ impl<T> Registry<T> {
     pub(crate) fn get(&self, id: u64) -> Option<&T> {
         self.instances.get(&id)
     }
+    /// 批量移出所有权，在注册表锁外执行取消与析构。
+    pub(crate) fn take_all(&mut self) -> Vec<T> {
+        std::mem::take(&mut self.instances).into_values().collect()
+    }
+
     pub(crate) fn take(&mut self, id: u64) -> Option<T> {
         self.instances.remove(&id)
     }

@@ -36,6 +36,7 @@ struct Engine {
     client: Mutex<Option<HttpsClient>>,
     busy: AtomicBool,
     router: Mutex<Option<Arc<crate::routing::Router>>>,
+    outbound: crate::outbound::Manager,
     dns: Mutex<Option<Arc<crate::dns::Resolver>>>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
@@ -128,6 +129,30 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    OutboundOpen {
+        address: String,
+        transport: crate::routing::Transport,
+        policy: crate::routing::Policy,
+        timeout_ms: u64,
+    },
+    OutboundWrite {
+        id: u64,
+        body: String,
+        timeout_ms: u64,
+    },
+    OutboundRead {
+        id: u64,
+        maximum: usize,
+        timeout_ms: u64,
+    },
+    OutboundShutdownWrite {
+        id: u64,
+        timeout_ms: u64,
+    },
+    OutboundClose {
+        id: u64,
+    },
+    OutboundCloseAll,
     DnsConfigure(crate::dns::Config),
     DnsValidate(crate::dns::Config),
     RouteConfigure(crate::routing::Config),
@@ -206,6 +231,12 @@ impl serde::Serialize for Secret {
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
+    outbound_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outbound_eof: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outbound_written: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     dns_answer: Option<crate::dns::Answer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dns_service_status: Option<crate::dns::service::Status>,
@@ -265,19 +296,121 @@ impl Drop for BusyGuard<'_> {
 }
 fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let engine = engine(handle)?;
-    if engine
-        .busy
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        return Err(Error::InvalidState);
+    // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
+    if bytes.len() <= 256 {
+        match serde_json::from_slice::<Command>(bytes) {
+            Ok(Command::OutboundClose { id }) => {
+                engine.outbound.close(id)?;
+                return Ok(Reply {
+                    success: true,
+                    ..Reply::default()
+                });
+            }
+            Ok(Command::OutboundCloseAll) => {
+                engine.outbound.close_all()?;
+                return Ok(Reply {
+                    success: true,
+                    ..Reply::default()
+                });
+            }
+            _ => {}
+        }
     }
-    let _busy = BusyGuard(&engine.busy);
     static REQUESTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
     let _permit = REQUESTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
     let command: Command = serde_json::from_slice(bytes).map_err(|_| Error::InvalidInput)?;
+    // 出站连接自身管理读写锁与取消；允许 TCP 同时读写，其余业务保持原有排他。
+    let concurrent = matches!(
+        &command,
+        Command::OutboundOpen { .. }
+            | Command::OutboundRead { .. }
+            | Command::OutboundWrite { .. }
+            | Command::OutboundShutdownWrite { .. }
+            | Command::OutboundClose { .. }
+            | Command::OutboundCloseAll
+    );
+    let _busy = if concurrent {
+        None
+    } else {
+        if engine
+            .busy
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return Err(Error::InvalidState);
+        }
+        Some(BusyGuard(&engine.busy))
+    };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::OutboundOpen {
+            address,
+            transport,
+            policy,
+            timeout_ms,
+        } => {
+            let id = runtime()?.block_on(engine.outbound.open(
+                crate::outbound::endpoint(&address)?,
+                transport,
+                policy,
+                timeout_ms,
+            ))?;
+            Ok(Reply {
+                success: true,
+                outbound_id: Some(id),
+                ..Reply::default()
+            })
+        }
+        Command::OutboundWrite {
+            id,
+            body,
+            timeout_ms,
+        } => {
+            if body.len() > 87384 {
+                return Err(Error::ResourceLimit);
+            }
+            let bytes = Zeroizing::new(STANDARD.decode(body).map_err(|_| Error::InvalidInput)?);
+            let written = runtime()?.block_on(engine.outbound.write(id, &bytes, timeout_ms))?;
+            Ok(Reply {
+                success: true,
+                outbound_written: Some(written),
+                ..Reply::default()
+            })
+        }
+        Command::OutboundRead {
+            id,
+            maximum,
+            timeout_ms,
+        } => {
+            let read = runtime()?.block_on(engine.outbound.read(id, maximum, timeout_ms))?;
+            Ok(Reply {
+                success: true,
+                body: STANDARD.encode(&read.bytes),
+                outbound_eof: Some(read.eof),
+                ..Reply::default()
+            })
+        }
+        Command::OutboundShutdownWrite { id, timeout_ms } => {
+            runtime()?.block_on(engine.outbound.shutdown_write(id, timeout_ms))?;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::OutboundClose { id } => {
+            engine.outbound.close(id)?;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::OutboundCloseAll => {
+            engine.outbound.close_all()?;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::RouteConfigure(config) => {
             let router = crate::routing::Router::compile(config)?;
             *engine.router.lock().map_err(|_| Error::Internal)? = Some(Arc::new(router));
@@ -616,10 +749,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    1023
+    2047
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -643,6 +776,9 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
             Err(_) => return INTERNAL_ERROR,
         };
         if resource.is_some() {
+            if let Some(Resource::Engine(engine)) = &resource {
+                let _ = engine.outbound.stop();
+            }
             drop(resource);
             OK
         } else {
@@ -719,7 +855,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 1023);
+        assert_eq!(fluxa_engine_capabilities(), 2047);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

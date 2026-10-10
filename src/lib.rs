@@ -9,6 +9,7 @@ pub mod https;
 mod lifecycle;
 pub mod mitm;
 mod network;
+pub mod outbound;
 pub mod rewrite;
 pub mod routing;
 pub mod script;

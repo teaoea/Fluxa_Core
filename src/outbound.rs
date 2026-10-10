@@ -1,0 +1,284 @@
+//! 共用数字地址出站：TCP 字节流与连接式 UDP，拒绝和未实现代理不触网。
+use crate::{
+    budget::{ByteBudget, ByteLease},
+    error::{Error, Result},
+    lifecycle::Registry,
+    routing::{Policy, Transport},
+};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
+    sync::watch,
+    time::timeout,
+};
+use zeroize::Zeroizing;
+
+pub const MAX_BUFFER: usize = 65536;
+pub const MAX_DATAGRAM: usize = 65507;
+static CONNECTIONS: ByteBudget = ByteBudget::new(128);
+static BUFFERS: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
+fn duration(milliseconds: u64) -> Result<Duration> {
+    if !(1..=60000).contains(&milliseconds) {
+        return Err(Error::InvalidInput);
+    }
+    Ok(Duration::from_millis(milliseconds))
+}
+/// 接口不解析域名；调用者必须显式提供数字地址，端口零和未指定地址拒绝。
+pub fn endpoint(value: &str) -> Result<SocketAddr> {
+    if value.len() > 64 {
+        return Err(Error::InvalidInput);
+    }
+    let address: SocketAddr = value.parse().map_err(|_| Error::InvalidInput)?;
+    if address.port() == 0 || address.ip().is_unspecified() {
+        return Err(Error::InvalidInput);
+    }
+    Ok(address)
+}
+enum Socket {
+    Tcp {
+        reader: tokio::sync::Mutex<tokio::net::tcp::OwnedReadHalf>,
+        writer: tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>,
+    },
+    Udp {
+        socket: UdpSocket,
+        reader: tokio::sync::Mutex<()>,
+    },
+}
+struct Connection {
+    socket: Socket,
+    cancel: watch::Sender<bool>,
+    _lease: ByteLease,
+}
+impl Connection {
+    fn close(&self) {
+        self.cancel.send_replace(true);
+    }
+    async fn run<T>(
+        &self,
+        milliseconds: u64,
+        future: impl std::future::Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let deadline = duration(milliseconds)?;
+        let mut cancellation = self.cancel.subscribe();
+        if *cancellation.borrow() {
+            return Err(Error::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            _ = cancellation.changed() => Err(Error::Cancelled),
+            result = timeout(deadline, future) => result.map_err(|_| Error::NetworkTimeout)?,
+        }
+    }
+}
+/// 返回缓冲区由 Rust 拥有，释放时清零并归还预算。
+pub struct Read {
+    pub bytes: Zeroizing<Vec<u8>>,
+    pub eof: bool,
+    _lease: ByteLease,
+}
+struct State {
+    registry: Registry<Arc<Connection>>,
+    stopped: bool,
+}
+pub struct Manager {
+    state: Mutex<State>,
+    generation: watch::Sender<u64>,
+}
+impl Default for Manager {
+    fn default() -> Self {
+        let (generation, _) = watch::channel(0);
+        Self {
+            state: Mutex::new(State {
+                registry: Registry::default(),
+                stopped: false,
+            }),
+            generation,
+        }
+    }
+}
+impl Manager {
+    pub async fn open(
+        &self,
+        address: SocketAddr,
+        transport: Transport,
+        policy: Policy,
+        milliseconds: u64,
+    ) -> Result<u64> {
+        let deadline = duration(milliseconds)?;
+        if address.port() == 0 || address.ip().is_unspecified() {
+            return Err(Error::InvalidInput);
+        }
+        match policy {
+            Policy::Reject => return Err(Error::Rejected),
+            Policy::Proxy => return Err(Error::Unsupported),
+            Policy::Direct => {}
+        }
+        let mut generation = self.generation.subscribe();
+        let epoch = *generation.borrow();
+        if self.state.lock().map_err(|_| Error::Internal)?.stopped {
+            return Err(Error::InvalidState);
+        }
+        let lease = CONNECTIONS.reserve(1)?;
+        let socket = tokio::select! {
+            biased;
+            _ = generation.changed() => return Err(Error::Cancelled),
+            result = timeout(deadline, async {
+                Ok::<_, Error>(match transport {
+                    Transport::Tcp => { let socket = TcpStream::connect(address).await?; socket.set_nodelay(true)?; let (reader, writer) = socket.into_split(); Socket::Tcp { reader: tokio::sync::Mutex::new(reader), writer: tokio::sync::Mutex::new(writer) } }
+                    Transport::Udp => {
+                        let bind = if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+                        let socket = UdpSocket::bind(bind).await?;
+                        socket.connect(address).await?;
+                        Socket::Udp { socket, reader: tokio::sync::Mutex::new(()) }
+                    }
+                })
+            }) => result.map_err(|_| Error::NetworkTimeout)??,
+        };
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.stopped || *generation.borrow() != epoch {
+            return Err(Error::Cancelled);
+        }
+        let (cancel, _) = watch::channel(false);
+        state
+            .registry
+            .create(Arc::new(Connection {
+                socket,
+                cancel,
+                _lease: lease,
+            }))
+            .ok_or(Error::ResourceLimit)
+    }
+    fn connection(&self, id: u64) -> Result<Arc<Connection>> {
+        self.state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .registry
+            .get(id)
+            .cloned()
+            .ok_or(Error::InvalidState)
+    }
+    pub async fn write(&self, id: u64, bytes: &[u8], milliseconds: u64) -> Result<usize> {
+        if bytes.len() > MAX_BUFFER {
+            return Err(Error::ResourceLimit);
+        }
+        let connection = self.connection(id)?;
+        let tcp = matches!(&connection.socket, Socket::Tcp { .. });
+        let result = connection
+            .run(milliseconds, async {
+                match &connection.socket {
+                    Socket::Tcp { writer, .. } => {
+                        writer.lock().await.write_all(bytes).await?;
+                        Ok(bytes.len())
+                    }
+                    Socket::Udp { socket, .. } => {
+                        if bytes.len() > MAX_DATAGRAM {
+                            return Err(Error::ResourceLimit);
+                        }
+                        let sent = socket.send(bytes).await?;
+                        if sent != bytes.len() {
+                            return Err(Error::Network);
+                        }
+                        Ok(sent)
+                    }
+                }
+            })
+            .await;
+        // TCP 部分写入后无法安全重试；超时/网络错误使连接失效，绝不重复发送。
+        if tcp
+            && matches!(
+                result,
+                Err(Error::Network | Error::NetworkTimeout | Error::Cancelled)
+            )
+        {
+            connection.close();
+        }
+        result
+    }
+    pub async fn read(&self, id: u64, maximum: usize, milliseconds: u64) -> Result<Read> {
+        if maximum == 0 || maximum > MAX_BUFFER {
+            return Err(Error::InvalidInput);
+        }
+        let connection = self.connection(id)?;
+        connection
+            .run(milliseconds, async {
+                let udp = matches!(&connection.socket, Socket::Udp { .. });
+                let capacity = if udp { MAX_BUFFER } else { maximum };
+                let lease = BUFFERS.reserve(capacity)?;
+                let mut bytes = Zeroizing::new(vec![0; capacity]);
+                let length = match &connection.socket {
+                    Socket::Tcp { reader, .. } => reader.lock().await.read(&mut bytes).await?,
+                    Socket::Udp { socket, reader } => {
+                        let _read = reader.lock().await;
+                        socket.recv(&mut bytes).await?
+                    }
+                };
+                // UDP 始终接收整个报文，超过调用者上限时丢弃并报错，不交付截断成功。
+                if length > maximum {
+                    return Err(Error::ResourceLimit);
+                }
+                bytes.truncate(length);
+                Ok(Read {
+                    bytes,
+                    eof: !udp && length == 0,
+                    _lease: lease,
+                })
+            })
+            .await
+    }
+    pub async fn shutdown_write(&self, id: u64, milliseconds: u64) -> Result<()> {
+        let connection = self.connection(id)?;
+        connection
+            .run(milliseconds, async {
+                match &connection.socket {
+                    Socket::Tcp { writer, .. } => {
+                        writer.lock().await.shutdown().await?;
+                        Ok(())
+                    }
+                    Socket::Udp { .. } => Err(Error::Unsupported),
+                }
+            })
+            .await
+    }
+    pub fn close(&self, id: u64) -> Result<()> {
+        let connection = self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .registry
+            .take(id)
+            .ok_or(Error::InvalidState)?;
+        connection.close();
+        Ok(())
+    }
+    pub fn close_all(&self) -> Result<()> {
+        self.clear(false)
+    }
+    pub fn stop(&self) -> Result<()> {
+        self.clear(true)
+    }
+    fn clear(&self, stop: bool) -> Result<()> {
+        let connections = {
+            let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+            state.stopped |= stop;
+            let next = (*self.generation.borrow())
+                .checked_add(1)
+                .ok_or(Error::ResourceLimit)?;
+            self.generation.send_replace(next);
+            state.registry.take_all()
+        };
+        for connection in connections {
+            connection.close();
+        }
+        Ok(())
+    }
+}
+impl Drop for Manager {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
