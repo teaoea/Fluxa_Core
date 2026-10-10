@@ -33,3 +33,13 @@ Rust 测试使用独立 TCP/UDP 对端，覆盖二进制数据、双向读写、
 NXDOMAIN、空记录、DNSSEC 失败、合成 Fake-IP 明确拒绝；DNSSEC/资源/输入错误不能被另一地址族掩盖。Fake-IP 还原与路由执行属于后续独立交付。现有 HTTP/HTTPS/MITM 尚未迁移到本流程。当前验证只覆盖本机真实协议夹具，不代表公网服务或最低系统运行验收。
 
 本轮本机验证：新增六项域名出站真实套接字测试，全量 Rust 共 83 项通过；严格 Clippy、SwiftFormat、严格 SwiftLint（零违规）及九组真实 Swift FFI 通过。环境 macOS 27.2 ARM64；最低系统及其他平台未运行，不代表 TUN/网关或公网互通验收。
+
+## DNS 接入出站（2026-10-10）
+
+内核 0.9.0 来源 8c58e3673ddfc4bc6802b660a25b6d8cc38e551e，最终标签 df56bd7b1236059ea539088d7ec58c783fb52de5。GitHub Actions 38044725276 成功；83 项 Rust 测试、严格 Clippy、九组真实 Swift FFI 和远程 Swift 包 11 项测试通过。实际 crates.io 包 58 个文件，VCS 提交一致，未包含 Swift 或二进制。发布前 SwiftFormat、严格 SwiftLint 零违规。
+
+框架 SHA-256 5a797598ef2a51babbf287f6e614bba2e0432a46ffa32a6020918fdceee861ef；测试服务 SHA-256 67233506b4010e602a5f20df3cad7df84ab14b66bcfe8479435ac3d6decc3966。Fluxa 0.7.0 / build 7 固定远程内核 0.9.0，下载并验证二进制，46 项客户端测试通过、零失败及跳过；新增 YAML → UDP/TCP/DoT/DoH → 实际 TCP/UDP 收发，并验证 Fake-IP 连接拒绝。Xcode 27 解析固定版本通过，SwiftUI 页面经 Swift 包编译，无本地 Rust 构建或目录引用。
+
+域名连接覆盖 CNAME、正缓存、自动/强制地址族、整体截止时间、解析取消、DNSSEC 失败、无效输入及拒绝策略不触发 DNS。UDP socket 创建不证明目标可达，不重发/切换地址。Fake-IP 连接、路由执行和现有 HTTP/MITM 迁移仍待独立交付。
+
+本机 macOS 27.2 ARM64。最低 macOS 14 实际运行、其他架构/平台切片、GUI 交互、真机 VPN、系统 TUN/网关及远端代理协议未验收；本轮不宣称已具备 VPN。未合并 main，用户首页标注图不加入提交。
