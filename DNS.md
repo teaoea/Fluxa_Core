@@ -88,3 +88,11 @@ C ABI 提供 dns_service_start/stop/status；运行中重配置明确拒绝。�
 验证覆盖真实四种上游到下游 UDP/TCP、CNAME/NXDOMAIN、EDNS/大响应截断和 TCP 重试、DNSSEC 好/坏签名、Fake-IP 无 AD、CIDR 拒绝、速率限制、IPv6、停止持久/空闲连接、绑定失败清理、Drop 与全局配额。独立系统 dig 客户端验证 UDP/TCP Fake-IP 互通。真实 Swift FFI 另测启停、状态、关闭、配置拒绝和重复生命周期。其他物理局域网设备、最低 macOS 14 运行和其他平台未验收；此服务能力仍不代表网关或 TUN 转发已实现。
 
 本机发布前检查：62 项 Rust 测试、Clippy -D warnings、SwiftFormat/SwiftLint 严格检查通过；七组真实 Swift FFI 通过，服务组含 20 次启停/关闭及系统 dig UDP/TCP 互通。运行环境为 macOS ARM64；发布后的 CI、版本来源与校验值另行记录。
+
+## v0.6.0 发布记录（2026-10-10）
+
+固定源码及 crates.io 包来源 b167478d1da18b067cf82f6ce7da318fede5247f，实际下载包的 VCS 来源与 49 个文件核验通过。发布标签 86a334272d0c8665b857fb776a1c2936baa62048 与该源码仅差 Package.swift 的下载校验值。GitHub Actions 38030081694 成功：62 项 Rust 测试、Clippy、七组真实 Swift FFI、静态框架构建及远程包测试。
+
+框架 SHA-256：ff294571334f78f72104a94e1d4f3193eb1fa9e39b6d6c0aa1b2f439f8ea02ac；测试服务 SHA-256：e24a1ed4e1b1c8f0fd5065bde809834d7154f9ab0acb4c308547dd34cbd2e7c4。三种交付物对应相同版本及确定源码，没有提交二进制到源码树。
+
+本机真实 Swift FFI 另验证私有网卡 UDP/TCP 到 Rust 服务的 Fake-IP，以及同一路径转发至 Cloudflare DoH 的有效域名和错误 DNSSEC 签名拒绝。初次执行曾超时，后续测试成功但原因尚未定位；此互通不是长期可用性保证。另一台物理局域网设备、防火墙权限交互、最低 macOS 14 运行及其他平台切片仍未验收。范围不包含 TUN/网关转发。
