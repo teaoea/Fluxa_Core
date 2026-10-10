@@ -6,16 +6,19 @@ public struct DNSConfiguration: Codable, Equatable, Sendable {
   public var timeoutMilliseconds: UInt64
   public var dnssec: Bool
   public var fakeIP: FakeIPConfiguration?
+  public var service: DNSServiceConfiguration?
   public init(
     servers: [DNSServer],
     timeoutMilliseconds: UInt64 = 5000,
     dnssec: Bool = false,
-    fakeIP: FakeIPConfiguration? = nil
+    fakeIP: FakeIPConfiguration? = nil,
+    service: DNSServiceConfiguration? = nil
   ) {
     self.servers = servers
     self.timeoutMilliseconds = timeoutMilliseconds
     self.dnssec = dnssec
     self.fakeIP = fakeIP
+    self.service = service
   }
 
   public init(from decoder: Decoder) throws {
@@ -24,11 +27,12 @@ public struct DNSConfiguration: Codable, Equatable, Sendable {
     timeoutMilliseconds = try container
       .decodeIfPresent(UInt64.self, forKey: .timeoutMilliseconds) ?? 5000
     fakeIP = try container.decodeIfPresent(FakeIPConfiguration.self, forKey: .fakeIP)
+    service = try container.decodeIfPresent(DNSServiceConfiguration.self, forKey: .service)
     dnssec = try container.decodeIfPresent(Bool.self, forKey: .dnssec) ?? false
   }
 
   enum CodingKeys: String, CodingKey {
-    case servers, dnssec
+    case servers, dnssec, service
     case fakeIP = "fake-ip"
     case timeoutMilliseconds = "timeout-ms"
   }
@@ -88,5 +92,34 @@ public struct FakeIPConfiguration: Codable, Equatable, Sendable {
     case ipv4Range = "ipv4-range"
     case ipv6Range = "ipv6-range"
     case capacity, exclude
+  }
+}
+
+/// 监听和访问范围由 Rust 校验；默认仅允许本机，显式启动后才绑定端口。
+public struct DNSServiceConfiguration: Codable, Equatable, Sendable {
+  public var listen: String
+  public var allowLAN: Bool
+  public var allowedClients: [String]
+  public init(
+    listen: String = "127.0.0.1:0",
+    allowLAN: Bool = false,
+    allowedClients: [String] = []
+  ) {
+    self.listen = listen
+    self.allowLAN = allowLAN
+    self.allowedClients = allowedClients
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    listen = try container.decodeIfPresent(String.self, forKey: .listen) ?? "127.0.0.1:0"
+    allowLAN = try container.decodeIfPresent(Bool.self, forKey: .allowLAN) ?? false
+    allowedClients = try container.decodeIfPresent([String].self, forKey: .allowedClients) ?? []
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case listen
+    case allowLAN = "allow-lan"
+    case allowedClients = "allowed-clients"
   }
 }

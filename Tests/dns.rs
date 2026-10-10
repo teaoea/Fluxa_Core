@@ -12,6 +12,7 @@ fn config(server: Server) -> Config {
         timeout_ms: 1000,
         dnssec: false,
         fake_ip: None,
+        service: None,
     }
 }
 fn udp(port: u16) -> Server {

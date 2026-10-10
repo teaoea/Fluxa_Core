@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.88"
@@ -71,3 +71,7 @@ path = "Tests/dns.rs"
 h2 = "=0.4.20"
 bytes = "=1.12.1"
 http = "=1.4.2"
+
+[[test]]
+name = "dns_service"
+path = "Tests/dns_service.rs"

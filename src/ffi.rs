@@ -36,6 +36,7 @@ struct Engine {
     client: Mutex<Option<HttpsClient>>,
     busy: AtomicBool,
     dns: Mutex<Option<Arc<crate::dns::Resolver>>>,
+    dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
@@ -129,6 +130,9 @@ enum Command {
     DnsConfigure(crate::dns::Config),
     DnsValidate(crate::dns::Config),
     DnsClose,
+    DnsServiceStart,
+    DnsServiceStop,
+    DnsServiceStatus,
     DnsQuery(crate::dns::Query),
     DnsClearCache,
     DnsFakeIpReverse {
@@ -198,6 +202,8 @@ impl serde::Serialize for Secret {
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     dns_answer: Option<crate::dns::Answer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns_service_status: Option<crate::dns::service::Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fake_ip_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -272,13 +278,78 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::DnsClose => {
+            let service = engine
+                .dns_service
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .take();
+            if let Some(mut service) = service {
+                runtime()?.block_on(service.stop())?;
+            }
             *engine.dns.lock().map_err(|_| Error::Internal)? = None;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
         }
+        Command::DnsServiceStart => {
+            if engine
+                .dns_service
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .is_some()
+            {
+                return Err(Error::InvalidState);
+            }
+            let service = runtime()?.block_on(engine.dns()?.serve())?;
+            let status = service.status();
+            *engine.dns_service.lock().map_err(|_| Error::Internal)? = Some(service);
+            Ok(Reply {
+                success: true,
+                dns_service_status: Some(status),
+                ..Reply::default()
+            })
+        }
+        Command::DnsServiceStop => {
+            let service = engine
+                .dns_service
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .take();
+            let mut status = service.as_ref().map(|s| s.status()).unwrap_or_default();
+            if let Some(mut service) = service {
+                runtime()?.block_on(service.stop())?;
+            }
+            status.running = false;
+            Ok(Reply {
+                success: true,
+                dns_service_status: Some(status),
+                ..Reply::default()
+            })
+        }
+        Command::DnsServiceStatus => {
+            let status = engine
+                .dns_service
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .as_ref()
+                .map(|s| s.status())
+                .unwrap_or_default();
+            Ok(Reply {
+                success: true,
+                dns_service_status: Some(status),
+                ..Reply::default()
+            })
+        }
         Command::DnsConfigure(config) => {
+            if engine
+                .dns_service
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .is_some()
+            {
+                return Err(Error::InvalidState);
+            }
             let resolver =
                 crate::dns::Resolver::with_tls_config(config, engine.client()?.tls_config())?;
             *engine.dns.lock().map_err(|_| Error::Internal)? = Some(Arc::new(resolver));
@@ -504,10 +575,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    255
+    511
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -607,7 +678,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 255);
+        assert_eq!(fluxa_engine_capabilities(), 511);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

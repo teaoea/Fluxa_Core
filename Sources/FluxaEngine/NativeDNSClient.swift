@@ -65,6 +65,24 @@ public final class NativeDNSClient: Sendable {
     _ = try client.command(["operation": "dns_fake_ip_reset"])
   }
 
+  public func startService() throws -> NativeDNSServiceStatus {
+    try serviceCommand("dns_service_start")
+  }
+
+  public func stopService() throws -> NativeDNSServiceStatus {
+    try serviceCommand("dns_service_stop")
+  }
+
+  public func serviceStatus() throws -> NativeDNSServiceStatus {
+    try serviceCommand("dns_service_status")
+  }
+
+  private func serviceCommand(_ operation: String) throws -> NativeDNSServiceStatus {
+    guard let status = try client.command(["operation": operation]).dnsServiceStatus
+    else { throw NativeClientError.boundary }
+    return status
+  }
+
   public func clearCache() throws {
     _ = try client.command(["operation": "dns_clear_cache"])
   }
@@ -96,7 +114,21 @@ public final class NativeDNSClient: Sendable {
       fakeIP["ipv6_range"] = fakeIP.removeValue(forKey: "ipv6-range")
       object["fake_ip"] = fakeIP
     }
+    if var service = object["service"] as? [String: Any] {
+      service["allow_lan"] = service.removeValue(forKey: "allow-lan")
+      service["allowed_clients"] = service.removeValue(forKey: "allowed-clients")
+      object["service"] = service
+    }
     object["servers"] = servers
     return object
   }
+}
+
+/// 计数表示已接受及被拒绝的问题，不等于上游成功响应数。
+public struct NativeDNSServiceStatus: Decodable, Sendable {
+  public let running: Bool
+  public let address: String
+  public let port: UInt16
+  public let queries: UInt64
+  public let rejected: UInt64
 }

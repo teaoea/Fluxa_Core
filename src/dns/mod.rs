@@ -2,6 +2,8 @@
 //! Hickory 负责标准报文/密码学验证；不读取系统 DNS 或 hosts，不隐式降级。
 mod config;
 pub mod fake_ip;
+pub mod service;
+mod wire;
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
@@ -54,6 +56,8 @@ pub struct Answer {
     pub validation: String,
     pub from_cache: bool,
     pub duration_ms: u64,
+    #[serde(skip)]
+    wire: Vec<u8>,
 }
 struct Cached {
     answer: Answer,
@@ -96,6 +100,7 @@ impl Resolver {
                 timeout_ms: config.timeout_ms,
                 dnssec: config.dnssec,
                 fake_ip: None,
+                service: None,
             };
             let (servers, mut options) = single.build()?;
             options.timeout =
@@ -124,6 +129,10 @@ impl Resolver {
             cache: Mutex::new(BTreeMap::new()),
             _permit: permit,
         })
+    }
+    pub async fn serve(self: std::sync::Arc<Self>) -> Result<service::Service> {
+        let config = self.config.service.clone().ok_or(Error::InvalidState)?;
+        service::Service::start(config, self).await
     }
     pub fn reverse_fake_ip(&self, address: &str) -> Result<Option<String>> {
         self.fake_ip
@@ -155,11 +164,13 @@ impl Resolver {
         ) {
             return Err(Error::Unsupported);
         }
+        let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
         if let Some(table) = &self.fake_ip
             && matches!(kind, RecordType::A | RecordType::AAAA)
             && let Some((address, from_cache)) = table.allocate(&name, kind == RecordType::AAAA)?
         {
             return Ok(Answer {
+                wire: wire::synthetic(&name, &address, kind)?,
                 name: name.clone(),
                 query_type: kind.to_string(),
                 records: vec![Record {
@@ -192,7 +203,6 @@ impl Resolver {
                 return Ok(answer);
             }
         }
-        let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
         let fqdn = if name == "." {
             name.clone()
         } else {
@@ -234,10 +244,12 @@ impl Resolver {
             .into(),
             from_cache: false,
             duration_ms: started.elapsed().as_millis() as u64,
+            wire: vec![],
         };
         let mut cache_deadline = None;
         match lookup {
             Ok(lookup) => {
+                answer.wire = wire::encode(lookup.message())?;
                 if lookup.answers().len() > 128 {
                     return Err(Error::ResourceLimit);
                 }
@@ -274,6 +286,27 @@ impl Resolver {
                 }
             }
             Err(NetError::Dns(DnsError::NoRecordsFound(no_records))) => {
+                let mut message = hickory_resolver::proto::op::Message::query();
+                message.metadata.response_code = no_records.response_code;
+                if let Some(authorities) = &no_records.authorities {
+                    if authorities.len() > 256 {
+                        return Err(Error::ResourceLimit);
+                    }
+                    message.authorities = authorities.to_vec();
+                }
+                if !message
+                    .authorities
+                    .iter()
+                    .any(|r| r.record_type() == RecordType::SOA)
+                    && let Some(soa) = &no_records.soa
+                {
+                    message.add_authority(hickory_resolver::proto::rr::Record::from_rdata(
+                        soa.name.clone(),
+                        soa.ttl,
+                        RData::SOA(soa.data.clone()),
+                    ));
+                }
+                answer.wire = wire::encode(&message)?;
                 answer.rcode = u16::from(no_records.response_code);
                 if answer.rcode != 0 && answer.rcode != 3 {
                     return Err(Error::DnsResponse);
@@ -311,8 +344,8 @@ impl Resolver {
             {
                 cache.remove(&old);
             }
-            // 返回文本上限 16 KiB；固定 64 KiB 覆盖记录、克隆文本和缓存容器开销。
-            if let Ok(lease) = CACHE_BUDGET.reserve(64 * 1024) {
+            // 返回文本上限 16 KiB；固定 128 KiB 覆盖最多 64 KiB 报文、展示记录和容器开销。
+            if let Ok(lease) = CACHE_BUDGET.reserve(128 * 1024) {
                 cache.insert(
                     key,
                     Cached {

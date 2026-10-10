@@ -171,7 +171,10 @@ fn answer(bytes: &[u8], udp: bool, count: &AtomicUsize) -> Option<Vec<u8>> {
     reply.metadata.recursion_available = true;
     reply.metadata.authoritative = true;
     reply.add_query(question.clone());
-    if name.starts_with("tcp.") && udp {
+    if (name.starts_with("tcp.")
+        || (name.starts_with("large.") && question.query_type == RecordType::TXT))
+        && udp
+    {
         reply.metadata.truncation = true;
         return reply.to_vec().ok();
     }
@@ -217,7 +220,11 @@ fn answer(bytes: &[u8], udp: bool, count: &AtomicUsize) -> Option<Vec<u8>> {
         let data = match question.query_type {
             RecordType::A => RData::A(A::new(192, 0, 2, 44)),
             RecordType::AAAA => RData::AAAA(AAAA("2001:db8::44".parse().unwrap())),
-            RecordType::TXT => RData::TXT(TXT::new(vec!["dns-fixture".into()])),
+            RecordType::TXT => RData::TXT(TXT::new(if name.starts_with("large.") {
+                vec!["x".repeat(200); 10]
+            } else {
+                vec!["dns-fixture".into()]
+            })),
             _ => return reply.to_vec().ok(),
         };
         reply.add_answer(Record::from_rdata(owner, ttl, data));

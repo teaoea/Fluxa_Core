@@ -34,6 +34,8 @@ pub struct Config {
     pub dnssec: bool,
     #[serde(default)]
     pub fake_ip: Option<super::fake_ip::Config>,
+    #[serde(default)]
+    pub service: Option<super::service::Config>,
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
@@ -48,6 +50,9 @@ impl Config {
         }
         if let Some(fake_ip) = &self.fake_ip {
             fake_ip.validate()?;
+        }
+        if let Some(service) = &self.service {
+            service.validate()?;
         }
         let encrypted = self
             .servers
