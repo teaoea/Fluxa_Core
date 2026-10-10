@@ -26,6 +26,8 @@ cat > "$framework/Info.plist" <<'PLIST'
 <key>MinimumOSVersion</key><string>14.0</string>
 </dict></plist>
 PLIST
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+plutil -replace CFBundleShortVersionString -string "$version" "$framework/Info.plist"
 xcodebuild -create-xcframework -framework "$framework" -output "$build_directory/FluxaEngine.xcframework"
 mkdir -p Vendor
 # 仅替换本构建器拥有的忽略产物；同时清理旧名称，避免选错库。

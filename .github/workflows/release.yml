@@ -45,7 +45,9 @@ jobs:
           from pathlib import Path
           import re
           version = Path('Release.version').read_text().strip()
-          if version != '0.1.0': raise SystemExit('请先同步 Cargo 和 Swift 包发布版本')
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version): raise SystemExit('版本格式无效')
+          cargo_version = re.search(r'^version = "([^"]+)"', Path('Cargo.toml').read_text(), re.M).group(1)
+          if version != cargo_version: raise SystemExit('发布版本与 Cargo 不一致')
           checksum = Path('Release/checksum.txt').read_text().strip()
           if not re.fullmatch(r'[0-9a-f]{64}', checksum): raise SystemExit('校验值无效')
           path = Path('Package.swift')
@@ -59,14 +61,16 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Package.swift
-          git commit -m '发布 0.1.0 内核二进制并固定下载校验值'
+          version="$(cat Release.version)"
+          git commit -m "发布 $version 内核二进制并固定下载校验值"
           git push origin HEAD:dev
-          git tag v0.1.0
-          git push origin v0.1.0
+          git tag "v$version"
+          git push origin "v$version"
       - name: 发布下载附件
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.1.0 Release/FluxaEngine.xcframework.zip Release/checksum.txt Release/fluxa-test-fixture-macos-arm64.zip Release/fixture-checksum.txt --verify-tag --title 'libfluxa_core 0.1.0' --notes 'macOS ARM64 静态内核；Rust 与实际 Swift FFI 已通过。Swift 包固定二进制下载 URL 与 SHA-256，不包含 iOS/tvOS 切片。'
+          version="$(cat Release.version)"
+          gh release create "v$version" Release/FluxaEngine.xcframework.zip Release/checksum.txt Release/fluxa-test-fixture-macos-arm64.zip Release/fixture-checksum.txt --verify-tag --title "libfluxa_core v$version" --notes 'macOS ARM64 静态内核；Rust 与实际 Swift FFI 已通过。Swift 包固定二进制下载 URL 与 SHA-256，不包含 iOS/tvOS 切片。'
       - name: 验证远程二进制下载和 Swift 门面
         run: swift test --disable-sandbox
