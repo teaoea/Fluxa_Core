@@ -13,3 +13,13 @@ TCP 独立读写锁，支持并发双向传输、写端半关闭和读 EOF。UDP
 Rust 测试使用独立 TCP/UDP 对端，覆盖二进制数据、双向读写、半关闭/EOF、IPv4/IPv6、UDP 空包和过大报文、无触网拒绝、读超时恢复、真实背压写超时失效、取消、64 会话限额和 100 次回收。真实 Swift FFI 覆盖实际对端收发及另一线程取消，不通过 Swift 网络实现或假结果验证。全部 77 项 Rust 测试、严格 Clippy、九组真实 Swift FFI、SwiftFormat/严格 SwiftLint 通过。
 
 当前只交付共用出站接口和短会话诊断。DNS、Fake-IP、路由执行、出站注册表与活动配置规则将在后续按顺序接入，再替换现有 HTTP/HTTPS/MITM 的连接路径。尚未实现代理协议、系统 TUN/网关；本轮不能作为其验收。最低 macOS 14 和其他架构/平台尚未运行。
+
+## 发布及客户端验证（2026-10-10）
+
+内核 v0.8.0 构建及实际 crate 来源 a3bb95dd4ef0d84023d01ca4b93a8e7b7cb554ac，发布标签 ea002a30cf7eb9c9a403478f9724db8c9016db88 仅更新二进制校验值；下载包核对 56 个发布文件。GitHub Actions 38040660839 成功，77 项 Rust 测试、严格 Clippy、九组真实 Swift FFI、静态框架及远程包验证通过；发布前 SwiftFormat/SwiftLint strict 通过。
+
+框架 SHA-256 98e63cc69761987b75310c8adb7bf10c1b3518859d6ef697e698670832c7080a；测试服务 SHA-256 ba11733888b031d1524066c79dcf3c68f219f6def617bc86f52cb363a32d78cb。Fluxa 固定远程 0.8.0，下载并校验后运行 45 项客户端测试，零失败、无跳过；包括真实 TCP/UDP 二进制数据、空报文、拒绝策略和失败恢复。App 0.6.0 / build 6，SwiftFormat、SwiftLint strict、资源一致性及 Xcode 27 包解析通过，无本地 Rust 构建或目录依赖。
+
+数字地址出站支持 TCP 独立读写、半关闭/EOF、连接式 UDP 完整报文、截止时间及取消；真实对端另验证 IPv4/IPv6、超时恢复、TCP 背压写超时使连接失效、会话上限与回收。Fluxa 工具提供手动短会话测试，原始数据只在本次操作中使用。此版本不解析域名、不自动执行路由；HTTP/MITM 仍待后续共用出站接入。
+
+测试环境 macOS 27.2 ARM64 / Xcode 27.0。尝试读取原生界面仍报告 Mac 锁定，本轮 GUI 操作未验收；最低 macOS 14、其他架构/平台、TUN/网关和代理协议均未运行验收。不合并 main，保留用户两张首页标注图。
