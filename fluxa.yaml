@@ -1,0 +1,107 @@
+# Fluxa 完整主配置示例。作者：可莉唯一的狗。
+# 用户编辑本文件；运行时规则由 Rust 生成，不能直接编辑生成产物。
+# 未实现的代理协议、TUN 转发和网关能力不会因为示例出现而变为可用。
+schema-version: 1
+kind: configuration
+name: 我的 Fluxa
+
+# 节点 URI 含凭据，请使用自己的节点；当前示例不提供可用账号。
+nodes: []
+
+# 订阅原始内容分别保留。enabled 仅控制自动更新及规则是否参与。
+subscriptions:
+  - id: daily-rules
+    name: 每日远程规则
+    url: https://example.com/fluxa/rules.yaml
+    kind: rules
+    enabled: false # 示例地址为占位符；换成自己的真实地址后启用。
+    # 每天 UTC 12:00；必须使用带引号的 HH:mm，不使用设备本地时区。
+    # 休眠、退出或断网错过时，恢复后仅补最近到期的一次，不逐天补跑。
+    # 失败保留旧内容，自动重试至少间隔 60 秒；恢复后只补最近一次，也允许手动重试。
+    update-time: "12:00"
+  - id: manual-rules
+    name: 仅手动远程规则
+    url: https://example.com/fluxa/manual-rules.yaml
+    kind: rules
+    enabled: false
+    # 不设置 update-time 就不自动更新。单项更新及更新全部均为手动操作。
+    # 旧 update-interval-hours 已移除；不要再填写该字段。
+
+# 域名目标先查询域名规则；域名命中后跳过 IP 规则，包含 IP 拦截。
+# 没有域名命中时才解析真实 IP 并匹配 IP-CIDR。数字 IP 直接进入 IP 阶段。
+# 域名阶段：拦截最先，然后 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD。
+# IP 阶段：拦截最先，然后普通 IP-CIDR。相同类别本地优先于远程。
+# 同来源同类型保留原始顺序；只有证明完全无效的非拦截规则可裁剪。
+rules:
+  - type: domain
+    value: ads.example.com
+    policy: reject
+  - type: domain
+    value: api.example.com
+    policy: direct
+  - type: domain-suffix
+    value: example.com # 包含域名本身和各级子域，不匹配 badexample.com。
+    policy: direct
+  - type: domain-keyword
+    value: tracker # 只匹配域名中的关键词，不匹配 URL 路径。
+    policy: reject
+  - type: ip-cidr
+    value: 192.0.2.0/24
+    policy: direct
+  - type: ip-cidr
+    value: 2001:db8::/32
+    policy: direct
+  - type: destination-port
+    value: "25" # 端口及端口范围仍保留既有顺序语义。
+    policy: reject
+  - type: transport
+    value: udp
+    policy: direct
+
+# 默认策略在没有适用规则时生效；未实现代理出站会明确失败，不回退直连。
+routing:
+  mode: rules
+  fallback: direct
+  # 选择代理时可指定 outbound 标识；本示例没有配置实际代理出站。
+
+# 连接上限和空闲回收由 Rust 执行，旧连接保留创建时的快照。
+outbound-limits:
+  maximum-connections: 64
+  idle-timeout-ms: 60000
+
+# 手动 DNS 上游。加密上游不能与 UDP/TCP 上游混用，最多八个服务器。
+# DoH 的 bootstrap 是数字地址，避免查询 DoH 域名产生自举循环。
+dns:
+  servers:
+    - transport: doh
+      url: https://cloudflare-dns.com/dns-query
+      bootstrap: "1.1.1.1:443"
+    # 其他写法（切换时替换上面的服务器，不与不同传输类别混用）：
+    # - transport: dot
+    #   address: "1.1.1.1:853"
+    #   server-name: cloudflare-dns.com
+    # - transport: udp
+    #   address: "1.1.1.1:53"
+    # - transport: tcp
+    #   address: "1.1.1.1:53"
+  timeout-ms: 5000
+  dnssec: false # 设为 true 启用 DNSSEC 验证；验证失败不静默放行。
+  fake-ip:
+    ipv4-range: 198.18.0.0/16
+    ipv6-range: fd00:198:18::/64
+    capacity: 4096
+    exclude: []
+  # 仅配置监听参数；必须由用户显式启动 DNS 服务才绑定端口。
+  service:
+    listen: "127.0.0.1:1053"
+    allow-lan: false
+    allowed-clients: []
+
+# HTTPS 解密需用户明确启用、导出并在系统中信任公开 CA；私钥不放入配置。
+mitm:
+  enabled: false
+  hosts: [] # 启用后填写精确域名，不自动对全部站点解密。
+
+# 主配置仅展示改写列表；插件专属 ui、browser-scripts 需使用 kind: plugin。
+# 示例不包含任意远程 JS、节点凭据或 CA 私钥。
+rewrites: []

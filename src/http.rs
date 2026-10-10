@@ -108,12 +108,27 @@ fn framing(head: &Head) -> Result<Option<usize>> {
         })
         .transpose()
 }
+/// 所有宿主复用相同分帧，只允许降低读取上限。
 pub async fn read_body<R: AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
     head: &Head,
     until_eof: bool,
 ) -> Result<Vec<u8>> {
+    read_body_limited(reader, head, until_eof, MAX_BODY).await
+}
+pub async fn read_body_limited<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+    head: &Head,
+    until_eof: bool,
+    maximum: usize,
+) -> Result<Vec<u8>> {
+    if maximum == 0 || maximum > MAX_BODY {
+        return Err(Error::InvalidInput);
+    }
     if let Some(length) = framing(head)? {
+        if length > maximum {
+            return Err(Error::ResourceLimit);
+        }
         let mut body = vec![0; length];
         reader.read_exact(&mut body).await?;
         return Ok(body);
@@ -136,7 +151,7 @@ pub async fn read_body<R: AsyncRead + Unpin>(
             let end = body
                 .len()
                 .checked_add(size)
-                .filter(|n| *n <= MAX_BODY)
+                .filter(|n| *n <= maximum)
                 .ok_or(Error::ResourceLimit)?;
             let start = body.len();
             body.resize(end, 0);
@@ -149,10 +164,10 @@ pub async fn read_body<R: AsyncRead + Unpin>(
     let mut body = Vec::new();
     if until_eof {
         reader
-            .take((MAX_BODY + 1) as u64)
+            .take((maximum + 1) as u64)
             .read_to_end(&mut body)
             .await?;
-        if body.len() > MAX_BODY {
+        if body.len() > maximum {
             return Err(Error::ResourceLimit);
         }
     }

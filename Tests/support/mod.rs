@@ -102,6 +102,13 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
         return;
     }
     let response: Vec<u8> = match path {
+                            "/subscription" => { let payload = b"schema-version: 1\nkind: rules\nname: Fixture\nrules: []\n"; let mut response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
+                            "/subscription-redirect" => b"HTTP/1.1 302 Found\r\nLocation: /subscription\r\nContent-Length: 0\r\n\r\n".to_vec(),
+                            "/subscription-downgrade" => b"HTTP/1.1 302 Found\r\nLocation: http://localhost/\r\nContent-Length: 0\r\n\r\n".to_vec(),
+                            "/subscription-loop" => b"HTTP/1.1 302 Found\r\nLocation: /subscription-loop\r\nContent-Length: 0\r\n\r\n".to_vec(),
+                            "/subscription-limit" => b"HTTP/1.1 200 OK\r\nContent-Length: 2097153\r\n\r\n".to_vec(),
+                            "/subscription-invalid" => b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n\xff".to_vec(),
+                            "/subscription-error" => b"HTTP/1.1 500 Error\r\nContent-Length: 0\r\n\r\n".to_vec(),
                             "/headers" => { let payload = serde_json::to_vec(&head.headers).unwrap(); let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
                             "/json" => { let payload = br#"{"ad":{"url":"https://example.com/ad"},"title":"keep","id":18446744073709551615,"nested":{"ad":"keep"}}"#; let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: old\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
                             "/chunked" => b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".to_vec(),

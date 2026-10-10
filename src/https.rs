@@ -35,6 +35,7 @@ struct ConnectionOptions {
     stream: Option<SecureStream>,
     proxy_port: Option<u16>,
     allow_http: bool,
+    maximum_body: Option<usize>,
 }
 impl HttpsClient {
     /// 复用受验证的根证书配置供加密 DNS；不提供跳过证书校验入口。
@@ -102,6 +103,27 @@ impl HttpsClient {
         .await
         .map_err(|_| Error::Network)?
     }
+    /// 订阅等小型内容复用 HTTPS 流程，在分配响应正文前执行更小的上限。
+    pub async fn execute_limited(&self, target: &str, maximum: usize) -> Result<Response> {
+        if maximum == 0 || maximum > http::MAX_BODY {
+            return Err(Error::InvalidInput);
+        }
+        timeout(
+            Duration::from_secs(60),
+            self.execute_inner(
+                "GET",
+                target,
+                &[],
+                &[],
+                ConnectionOptions {
+                    maximum_body: Some(maximum),
+                    ..ConnectionOptions::default()
+                },
+            ),
+        )
+        .await
+        .map_err(|_| Error::Network)?
+    }
     /// 通过本机 CONNECT 入口执行 HTTPS；不会失败后回退直连。
     pub async fn execute_via_proxy(
         &self,
@@ -145,6 +167,7 @@ impl HttpsClient {
                 body,
                 ConnectionOptions {
                     allow_http: true,
+                    maximum_body: None,
                     proxy_port,
                     stream: None,
                 },
@@ -396,7 +419,13 @@ impl HttpsClient {
         let response_body = if method.eq_ignore_ascii_case("HEAD") || matches!(status, 204 | 304) {
             Vec::new()
         } else {
-            http::read_body(&mut stream, &head, true).await?
+            http::read_body_limited(
+                &mut stream,
+                &head,
+                true,
+                options.maximum_body.unwrap_or(http::MAX_BODY),
+            )
+            .await?
         };
         Ok(Response {
             status,

@@ -134,6 +134,10 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    SubscriptionSchedule(crate::subscription::Check),
+    SubscriptionFetch {
+        url: String,
+    },
     NetworkConfigure {
         dns: Option<crate::dns::Config>,
         routing: crate::routing::Config,
@@ -296,6 +300,8 @@ impl RuntimeRulesSummary {
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
+    subscription_schedule: Option<crate::subscription::Decision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     network_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_rules: Option<RuntimeRulesSummary>,
@@ -454,6 +460,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             | Command::RuntimeRulesStatus
             | Command::RouteEvaluate(_)
             | Command::RouteCheck(_)
+            | Command::SubscriptionSchedule(_)
     );
     let _busy = if concurrent {
         None
@@ -469,6 +476,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::SubscriptionFetch { url } => Ok(Reply::from(
+            runtime()?.block_on(crate::subscription::fetch(&engine.client()?, &url))?,
+        )),
+        Command::SubscriptionSchedule(check) => Ok(Reply {
+            success: true,
+            subscription_schedule: Some(check.evaluate()?),
+            ..Reply::default()
+        }),
         Command::NetworkConfigure {
             dns,
             routing,
@@ -1043,7 +1058,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    262143
+    524287
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1146,7 +1161,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 262143);
+        assert_eq!(fluxa_engine_capabilities(), 524287);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

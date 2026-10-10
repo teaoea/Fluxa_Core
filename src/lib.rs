@@ -13,6 +13,7 @@ pub mod outbound;
 pub mod rewrite;
 pub mod routing;
 pub mod script;
+pub mod subscription;
 pub mod traffic_script;
 pub mod tun;
 

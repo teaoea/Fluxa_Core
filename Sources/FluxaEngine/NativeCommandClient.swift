@@ -18,6 +18,7 @@ public enum NativeClientError: LocalizedError {
 }
 
 struct NativeCommandReply: Decodable {
+  let subscriptionSchedule: NativeSubscriptionScheduleDecision?
   let runtimeRules: NativeRuntimeRulesSummary?
   let runtimeRulesJob: NativeRuntimeRulesJob?
   let networkRevision: UInt64?
@@ -48,6 +49,7 @@ struct NativeCommandReply: Decodable {
   enum CodingKeys: String, CodingKey {
     case success, error, status, headers, body
     case port, capture
+    case subscriptionSchedule = "subscription_schedule"
     case runtimeRules = "runtime_rules"
     case runtimeRulesJob = "runtime_rules_job"
     case networkRevision = "network_revision"

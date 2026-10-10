@@ -20,6 +20,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 15 代表 HTTP/HTTPS/MITM 使用共用连接链，不代表系统 TUN 可用。
 // 位 16 代表来源感知运行时规则生成、严格 YAML、原子更新和索引共享。
 // 位 17 代表有界后台规则编译、状态查询与提交前取消，编译期间沿用旧快照。
+// 位 18 代表严格 UTC 每日订阅计划；未设置时仅允许手动更新。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);

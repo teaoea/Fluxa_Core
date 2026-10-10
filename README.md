@@ -2,6 +2,8 @@
 
 作者：可莉唯一的狗。
 
+[English](README_ENGLISH.md)
+
 `libfluxa_core` 是使用 Rust 开发的跨平台网络内核，提供统一的网络处理与资源管理能力。
 
 ## 当前能力
@@ -17,6 +19,12 @@
 - TUN 基础：IPv4/IPv6、TCP/UDP 数据包检查、校验和验证与有界会话；尚不支持数据包转发。
 
 通过所有权和 RAII 管理资源，为连接、缓冲区、日志和脚本运行时设置上限。
+
+## 配置示例
+
+完整主配置位于根目录 [fluxa.yaml](fluxa.yaml) 与 [fluxa_english.yaml](fluxa_english.yaml)，字段及行为一致，注释为中文。网络配置字段新增、修改或删除时同步更新并校验两份示例。
+
+远程订阅支持 `update-time: "12:00"`（每天 UTC 12:00），未配置时仅手动更新；单项及更新全部都属于手动操作。恢复运行仅补最近到期一次，不逐天补跑；旧更新间隔字段已移除。计划和有界 HTTPS 下载由 Rust 共用实现，详见 [Subscriptions.md](Subscriptions.md)。
 
 ## 后续计划
 
