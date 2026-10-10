@@ -25,7 +25,7 @@ let package = Package(
     ),
     .binaryTarget(
       name: "libfluxa_core",
-      url: "https://github.com/teaoea/Fluxa_Core/releases/download/v0.2.0/FluxaEngine.xcframework.zip",
+      url: "https://github.com/teaoea/Fluxa_Core/releases/download/v0.3.0/FluxaEngine.xcframework.zip",
       checksum: "5df5e67abbe4048954852921149157722422859df99f07ee71b6bfb8b2900b4d"
     ),
     .testTarget(name: "FluxaCoreTests", dependencies: ["FluxaCore", "FluxaEngine"]),

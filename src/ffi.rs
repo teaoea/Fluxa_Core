@@ -35,6 +35,7 @@ const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
 struct Engine {
     client: Mutex<Option<HttpsClient>>,
     busy: AtomicBool,
+    packet_session: Mutex<Option<crate::tun::PacketSession>>,
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
     captures: Arc<CaptureStore>,
@@ -116,6 +117,14 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    PacketOpen {
+        mtu: usize,
+    },
+    PacketInspect {
+        packet: String,
+    },
+    PacketClose,
+    TunStart,
     Script {
         source: String,
         input: serde_json::Value,
@@ -169,6 +178,8 @@ impl serde::Serialize for Secret {
 }
 #[derive(Default, Serialize)]
 struct Reply {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    packet_info: Option<crate::tun::PacketInfo>,
     success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -231,6 +242,48 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let _permit = REQUESTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
     let command: Command = serde_json::from_slice(bytes).map_err(|_| Error::InvalidInput)?;
     match command {
+        Command::TunStart => Err(Error::Unsupported),
+        Command::PacketOpen { mtu } => {
+            let mut session = engine.packet_session.lock().map_err(|_| Error::Internal)?;
+            if session.is_some() {
+                return Err(Error::InvalidState);
+            }
+            *session = Some(crate::tun::PacketSession::new(mtu)?);
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::PacketInspect { packet } => {
+            if packet.len() > crate::tun::MAX_MTU.div_ceil(3) * 4 {
+                return Err(Error::ResourceLimit);
+            }
+            let bytes = Zeroizing::new(STANDARD.decode(packet).map_err(|_| Error::InvalidInput)?);
+            let mut session = engine.packet_session.lock().map_err(|_| Error::Internal)?;
+            let info = session
+                .as_mut()
+                .ok_or(Error::InvalidState)?
+                .inspect(&bytes)?;
+            Ok(Reply {
+                success: true,
+                packet_info: Some(info),
+                ..Reply::default()
+            })
+        }
+        Command::PacketClose => {
+            if let Some(mut session) = engine
+                .packet_session
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .take()
+            {
+                session.close();
+            }
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::Script { source, input } => {
             let result = crate::script::execute(&source, &input)?;
             Ok(Reply {
@@ -377,10 +430,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发）；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    31
+    63
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -480,7 +533,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 31);
+        assert_eq!(fluxa_engine_capabilities(), 63);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

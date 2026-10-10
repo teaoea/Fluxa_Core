@@ -4,6 +4,24 @@ import XCTest
 
 /// Swift package 链接真实平台库后验证，不用模拟实现替代 FFI。
 final class EngineFFITests: XCTestCase {
+  func testNativePacketSessionRejectsUnsupportedTunnel() throws {
+    #if canImport(libfluxa_core)
+    let client = try NativeTunPacketClient()
+    let packet =
+      try XCTUnwrap(
+        Data(base64Encoded: "RQAAKwAAQABABk6WwAACAcYzZAIwOQA1AAAAAQAAAABQAv//ztYAAGFiYw==")
+      )
+    let info = try client.inspect(packet)
+    XCTAssertEqual(info.source, "192.0.2.1")
+    XCTAssertEqual(info.destinationPort, 53)
+    XCTAssertThrowsError(try client.startTunnel())
+    try client.close()
+    XCTAssertThrowsError(try client.inspect(packet))
+    #else
+    throw XCTSkip("当前平台未发布 Rust 二进制切片。")
+    #endif
+  }
+
   func testNativeCertificateIdentityRoundTrip() throws {
     #if canImport(libfluxa_core)
     let client = try NativeMitmClient()
