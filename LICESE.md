@@ -1,0 +1,132 @@
+# Rust 内核开源协议说明
+
+作者：可莉唯一的狗。
+
+`./` 中 Fluxa 自有代码采用 MIT 许可协议；第三方依赖适用各自的上游协议。MIT 许可范围限于自研内核，不包含采用专有许可的 Fluxa App 自有源码、界面与资源。
+
+本文件列出自研 Rust 内核、依赖组件的固定版本与协议声明，不收录许可证原文。依赖条目来自现有 Cargo 元数据，包含测试、可选功能及其他平台依赖，并非全部已链接到 macOS 库；版本由 `Cargo.lock` 固定。协议中的 `OR` 表示可选协议，`AND` 表示组合要求；保留上游 SPDX 表达式。
+
+本清单不代表实际分发组件及传递依赖的许可审计已完成。组件用途与来源见 [DEPENDENCIES.md](DEPENDENCIES.md)，Swift 与应用侧组件见根目录 [LICESE.md](../LICESE.md)。
+
+| 组件 | 版本 | 开源协议 |
+| --- | --- | --- |
+| Fluxa Rust 内核 | 0.1.0 | MIT |
+| QuickJS | 随 rquickjs-sys 0.14.0 内嵌 | MIT |
+| allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
+| asn1-rs | 0.7.2 | MIT OR Apache-2.0 |
+| asn1-rs-derive | 0.6.0 | MIT OR Apache-2.0 |
+| asn1-rs-impl | 0.2.0 | MIT/Apache-2.0 |
+| autocfg | 1.5.1 | Apache-2.0 OR MIT |
+| base64 | 0.23.1 | MIT OR Apache-2.0 |
+| bit-vec | 0.9.1 | Apache-2.0 OR MIT |
+| bitflags | 2.13.2 | MIT OR Apache-2.0 |
+| bytes | 1.12.1 | MIT |
+| cc | 1.6.0 | MIT OR Apache-2.0 |
+| cfg-if | 1.0.5 | MIT OR Apache-2.0 |
+| core-foundation | 0.10.1 | MIT OR Apache-2.0 |
+| core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 |
+| data-encoding | 2.11.1 | MIT |
+| der-parser | 10.0.0 | MIT OR Apache-2.0 |
+| deranged | 0.5.8 | MIT OR Apache-2.0 |
+| displaydoc | 0.2.7 | MIT OR Apache-2.0 |
+| equivalent | 1.0.2 | Apache-2.0 OR MIT |
+| find-msvc-tools | 0.1.14 | MIT OR Apache-2.0 |
+| foldhash | 0.2.0 | Zlib |
+| form_urlencoded | 1.2.2 | MIT OR Apache-2.0 |
+| getrandom | 0.2.17 | MIT OR Apache-2.0 |
+| hashbrown | 0.17.1 | MIT OR Apache-2.0 |
+| httparse | 1.10.1 | MIT OR Apache-2.0 |
+| icu_collections | 2.3.0 | Unicode-3.0 |
+| icu_locale_core | 2.3.0 | Unicode-3.0 |
+| icu_normalizer | 2.3.0 | Unicode-3.0 |
+| icu_normalizer_data | 2.3.0 | Unicode-3.0 |
+| icu_properties | 2.3.0 | Unicode-3.0 |
+| icu_properties_data | 2.3.0 | Unicode-3.0 |
+| icu_provider | 2.3.1 | Unicode-3.0 |
+| idna | 1.1.0 | MIT OR Apache-2.0 |
+| idna_adapter | 1.2.2 | Apache-2.0 OR MIT |
+| itoa | 1.0.18 | MIT OR Apache-2.0 |
+| lazy_static | 1.5.1 | MIT OR Apache-2.0 |
+| libc | 0.2.190 | MIT OR Apache-2.0 |
+| litemap | 0.8.3 | Unicode-3.0 |
+| memchr | 2.8.3 | Unlicense OR MIT |
+| minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
+| mio | 1.2.4 | MIT |
+| nom | 7.1.3 | MIT |
+| num-bigint | 0.4.8 | MIT OR Apache-2.0 |
+| num-conv | 0.2.2 | MIT OR Apache-2.0 |
+| num-integer | 0.1.47 | MIT OR Apache-2.0 |
+| num-traits | 0.2.19 | MIT OR Apache-2.0 |
+| oid-registry | 0.8.1 | MIT OR Apache-2.0 |
+| once_cell | 1.21.4 | MIT OR Apache-2.0 |
+| openssl-probe | 0.2.1 | MIT OR Apache-2.0 |
+| pem | 4.0.0 | MIT |
+| percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
+| pin-project-lite | 0.2.17 | Apache-2.0 OR MIT |
+| potential_utf | 0.1.6 | Unicode-3.0 |
+| powerfmt | 0.2.1 | MIT OR Apache-2.0 |
+| proc-macro2 | 1.0.107 | MIT OR Apache-2.0 |
+| quote | 1.0.47 | MIT OR Apache-2.0 |
+| rcgen | 0.14.10 | MIT OR Apache-2.0 |
+| ring | 0.17.14 | Apache-2.0 AND ISC |
+| rquickjs | 0.14.0 | MIT |
+| rquickjs-core | 0.14.0 | MIT |
+| rquickjs-sys | 0.14.0 | MIT |
+| rusticata-macros | 4.1.0 | MIT/Apache-2.0 |
+| rustls | 0.23.44 | Apache-2.0 OR ISC OR MIT |
+| rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |
+| rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 |
+| rustls-webpki | 0.103.15 | ISC |
+| schannel | 0.1.29 | MIT |
+| security-framework | 3.7.0 | MIT OR Apache-2.0 |
+| security-framework-sys | 2.17.0 | MIT OR Apache-2.0 |
+| serde | 1.0.228 | MIT OR Apache-2.0 |
+| serde_core | 1.0.228 | MIT OR Apache-2.0 |
+| serde_derive | 1.0.228 | MIT OR Apache-2.0 |
+| serde_json | 1.0.149 | MIT OR Apache-2.0 |
+| shlex | 2.0.1 | MIT OR Apache-2.0 |
+| smallvec | 1.16.1 | MIT OR Apache-2.0 |
+| socket2 | 0.6.5 | MIT OR Apache-2.0 |
+| stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 |
+| subtle | 2.6.1 | BSD-3-Clause |
+| syn | 2.0.119 | MIT OR Apache-2.0 |
+| syn | 3.0.6 | MIT OR Apache-2.0 |
+| synstructure | 0.13.2 | MIT |
+| thiserror | 2.0.21 | MIT OR Apache-2.0 |
+| thiserror-impl | 2.0.21 | MIT OR Apache-2.0 |
+| time | 0.3.55 | MIT OR Apache-2.0 |
+| time-core | 0.1.9 | MIT OR Apache-2.0 |
+| time-macros | 0.2.32 | MIT OR Apache-2.0 |
+| tinystr | 0.8.4 | Unicode-3.0 |
+| tokio | 1.53.1 | MIT |
+| tokio-macros | 2.7.2 | MIT |
+| tokio-rustls | 0.26.5 | MIT OR Apache-2.0 |
+| unicode-ident | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 |
+| untrusted | 0.9.0 | ISC |
+| url | 2.5.8 | MIT OR Apache-2.0 |
+| utf8_iter | 1.0.4 | Apache-2.0 OR MIT |
+| wasi | 0.11.1+wasi-snapshot-preview1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| windows-link | 0.2.1 | MIT OR Apache-2.0 |
+| windows-sys | 0.52.0 | MIT OR Apache-2.0 |
+| windows-sys | 0.61.2 | MIT OR Apache-2.0 |
+| windows-targets | 0.52.6 | MIT OR Apache-2.0 |
+| windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 |
+| windows_i686_gnu | 0.52.6 | MIT OR Apache-2.0 |
+| windows_i686_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_i686_msvc | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_gnu | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 |
+| writeable | 0.6.4 | Unicode-3.0 |
+| x509-parser | 0.18.1 | MIT OR Apache-2.0 |
+| yasna | 0.6.0 | MIT OR Apache-2.0 |
+| yoke | 0.8.3 | Unicode-3.0 |
+| yoke-derive | 0.8.2 | Unicode-3.0 |
+| zerofrom | 0.1.8 | Unicode-3.0 |
+| zerofrom-derive | 0.1.7 | Unicode-3.0 |
+| zeroize | 1.9.0 | Apache-2.0 OR MIT |
+| zerotrie | 0.2.5 | Unicode-3.0 |
+| zerovec | 0.11.8 | Unicode-3.0 |
+| zerovec-derive | 0.11.6 | Unicode-3.0 |
+| zmij | 1.0.23 | MIT |

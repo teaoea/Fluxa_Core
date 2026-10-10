@@ -1,0 +1,63 @@
+[package]
+name = "libfluxa_core"
+version = "0.1.0"
+authors = ["可莉唯一的狗"]
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Fluxa 跨平台自研网络内核、HTTP/HTTPS 调试、MITM 与受限 JS 引擎"
+repository = "https://github.com/teaoea/Fluxa_Core"
+homepage = "https://github.com/teaoea/Fluxa_Core"
+readme = "README.md"
+publish = ["crates-io"]
+keywords = ["proxy", "https", "mitm", "ffi", "network"]
+categories = ["network-programming"]
+include = ["src/**", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md"]
+
+[lib]
+name = "libfluxa_core"
+crate-type = ["rlib", "staticlib"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[dependencies]
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem", "x509-parser", "zeroize"] }
+x509-parser = { version = "=0.18.1", features = ["verify"] }
+time = "=0.3.55"
+rustls = { version = "=0.23.44", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "=0.8.4"
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+zeroize = "=1.9.0"
+httparse = "=1.10.1"
+url = "=2.5.8"
+base64 = "=0.23.1"
+rquickjs = { version = "=0.14.0", default-features = false }
+
+[[test]]
+name = "https"
+path = "Tests/https.rs"
+
+[[test]]
+name = "mitm"
+path = "Tests/mitm.rs"
+
+[[test]]
+name = "script"
+path = "Tests/script.rs"
+
+[[test]]
+name = "proxy"
+path = "Tests/proxy.rs"

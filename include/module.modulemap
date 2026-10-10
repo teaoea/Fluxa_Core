@@ -1,0 +1,4 @@
+module libfluxa_core {
+  header "fluxa_engine.h"
+  export *
+}
