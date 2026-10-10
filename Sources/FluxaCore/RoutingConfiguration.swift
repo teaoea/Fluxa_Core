@@ -29,9 +29,15 @@ public struct RoutingSettings: Codable, Equatable, Sendable {
 public struct RoutingConfiguration: Equatable, Sendable {
   public var settings: RoutingSettings
   public var rules: [RoutingRule]
-  public init(settings: RoutingSettings = RoutingSettings(), rules: [RoutingRule] = []) {
+  public var runtimeHandle: UInt64?
+  public init(
+    settings: RoutingSettings = RoutingSettings(),
+    rules: [RoutingRule] = [],
+    runtimeHandle: UInt64? = nil
+  ) {
     self.settings = settings
     self.rules = rules
+    self.runtimeHandle = runtimeHandle
   }
 }
 

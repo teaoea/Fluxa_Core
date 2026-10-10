@@ -41,6 +41,7 @@ struct Engine {
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
     captures: Arc<CaptureStore>,
+    runtime_rules: Mutex<Option<crate::routing::store::Store>>,
 }
 impl Engine {
     fn client(&self) -> Result<HttpsClient, Error> {
@@ -174,6 +175,18 @@ enum Command {
     OutboundCloseAll,
     DnsConfigure(crate::dns::Config),
     DnsValidate(crate::dns::Config),
+    RuntimeRulesOpen {
+        directory: String,
+    },
+    RuntimeRulesUpdate {
+        settings: crate::routing::Config,
+        sources: Vec<crate::routing::runtime::Source>,
+    },
+    RuntimeRulesUpdateFile {
+        path: String,
+    },
+    RuntimeRulesStatus,
+    RuntimeRulesClose,
     RouteConfigure(crate::routing::Config),
     RouteEvaluate(crate::routing::Target),
     RouteCheck(crate::routing::Target),
@@ -247,10 +260,39 @@ impl serde::Serialize for Secret {
         serializer.serialize_str(&self.0)
     }
 }
+#[derive(Serialize)]
+struct RuntimeRulesSummary {
+    snapshot_handle: u64,
+    version: u64,
+    original: usize,
+    duplicates: usize,
+    conflicts: usize,
+    pruned: usize,
+    effective: usize,
+    directory_synced: Option<bool>,
+}
+impl RuntimeRulesSummary {
+    fn new(snapshot: &crate::routing::runtime::Snapshot, synced: Option<bool>) -> Self {
+        let document = snapshot.document();
+        let report = &document.report;
+        Self {
+            snapshot_handle: snapshot.instance_handle(),
+            version: document.version,
+            original: report.original,
+            duplicates: report.duplicates,
+            conflicts: report.conflicts,
+            pruned: report.pruned,
+            effective: report.effective,
+            directory_synced: synced,
+        }
+    }
+}
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     network_revision: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_rules: Option<RuntimeRulesSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_status: Option<crate::outbound::Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -543,6 +585,85 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         }
         Command::OutboundCloseAll => {
             engine.outbound.close_all()?;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesOpen { directory } => {
+            if directory.len() > 4096 {
+                return Err(Error::InvalidInput);
+            }
+            let store = crate::routing::store::Store::open(directory)?;
+            let summary = match store.snapshot() {
+                Ok(snapshot) => {
+                    engine.outbound.configure_routing(Some(Arc::new(
+                        crate::routing::Router::from_runtime(Arc::clone(&snapshot))?,
+                    )))?;
+                    Some(RuntimeRulesSummary::new(&snapshot, None))
+                }
+                Err(Error::InvalidState) => {
+                    engine.outbound.configure_routing(None)?;
+                    None
+                }
+                Err(error) => return Err(error),
+            };
+            *engine.runtime_rules.lock().map_err(|_| Error::Internal)? = Some(store);
+            Ok(Reply {
+                success: true,
+                runtime_rules: summary,
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesUpdate { settings, sources } => {
+            let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            let store = guard.as_ref().ok_or(Error::InvalidState)?;
+            let commit = store.update_network(settings, sources, &engine.outbound)?;
+            let snapshot = store.snapshot()?;
+            Ok(Reply {
+                success: true,
+                runtime_rules: Some(RuntimeRulesSummary::new(
+                    &snapshot,
+                    Some(commit.directory_synced),
+                )),
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesUpdateFile { path } => {
+            if path.len() > 4096 || !std::path::Path::new(&path).is_absolute() {
+                return Err(Error::InvalidInput);
+            }
+            let input = crate::routing::runtime::GenerationInput::from_yaml(
+                &crate::routing::store::read(std::path::Path::new(&path))?,
+            )?;
+            let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            let store = guard.as_ref().ok_or(Error::InvalidState)?;
+            let commit = store.update_network(input.settings, input.sources, &engine.outbound)?;
+            let snapshot = store.snapshot()?;
+            Ok(Reply {
+                success: true,
+                runtime_rules: Some(RuntimeRulesSummary::new(
+                    &snapshot,
+                    Some(commit.directory_synced),
+                )),
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesStatus => {
+            let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            let snapshot = guard.as_ref().ok_or(Error::InvalidState)?.snapshot()?;
+            Ok(Reply {
+                success: true,
+                runtime_rules: Some(RuntimeRulesSummary::new(&snapshot, None)),
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesClose => {
+            let mut guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            engine.outbound.configure_routing(None)?;
+            if let Some(store) = guard.take() {
+                store.close()?;
+            }
             Ok(Reply {
                 success: true,
                 ..Reply::default()
@@ -882,7 +1003,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    65535
+    131071
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -985,7 +1106,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 65535);
+        assert_eq!(fluxa_engine_capabilities(), 131071);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

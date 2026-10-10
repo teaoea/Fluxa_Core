@@ -1,12 +1,10 @@
-//! 纯路由决策：编译一次、按顺序匹配，不解析 DNS、不建连接、不隐式切换出站。
+//! 纯路由决策：编译一次、按来源和类型优先级索引匹配，不解析 DNS、不建连接、不隐式切换出站。
 use crate::{
-    budget::{ByteBudget, ByteLease},
     error::{Error, Result},
     network::Network,
 };
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
-static BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -29,11 +27,13 @@ pub enum Transport {
     Tcp,
     Udp,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum Match {
     Domain,
     DomainSuffix,
+    #[serde(alias = "key")]
+    DomainKeyword,
     IpCidr,
     DestinationPort,
     Transport,
@@ -50,6 +50,8 @@ pub struct Rule {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub runtime_handle: Option<u64>,
     #[serde(default)]
     pub mode: Mode,
     #[serde(default)]
@@ -82,6 +84,10 @@ pub struct Decision {
     pub outbound: Option<String>,
     pub rule_index: Option<usize>,
     pub reason: Reason,
+    #[serde(default)]
+    pub rule_version: Option<u64>,
+    #[serde(default)]
+    pub origin: Option<runtime::Origin>,
 }
 impl Policy {
     /// 共用策略能力检查，不建立连接，不将未实现代理转换为直连。
@@ -101,21 +107,13 @@ impl Decision {
 
 enum Matcher {
     Domain(String, bool),
+    Keyword(String),
     Network(Network),
     Port(u16, u16),
     Transport(Transport),
 }
-struct CompiledRule {
-    matcher: Matcher,
-    policy: Policy,
-    outbound: Option<String>,
-}
 pub struct Router {
-    mode: Mode,
-    fallback: Policy,
-    outbound: Option<String>,
-    rules: Vec<CompiledRule>,
-    _lease: ByteLease,
+    runtime: std::sync::Arc<runtime::Snapshot>,
 }
 fn identifier(value: &str) -> Result<()> {
     if value.is_empty()
@@ -160,6 +158,15 @@ fn matcher(kind: Match, value: &str) -> Result<Matcher> {
     Ok(match kind {
         Match::Domain => Matcher::Domain(domain(value)?, false),
         Match::DomainSuffix => Matcher::Domain(domain(value)?, true),
+        Match::DomainKeyword => {
+            if !value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
+            {
+                return Err(Error::InvalidInput);
+            }
+            Matcher::Keyword(value.to_ascii_lowercase())
+        }
         Match::IpCidr => Matcher::Network(Network::parse(value)?),
         Match::Transport => Matcher::Transport(match value {
             "tcp" => Transport::Tcp,
@@ -183,114 +190,52 @@ fn matcher(kind: Match, value: &str) -> Result<Matcher> {
     })
 }
 impl Router {
-    pub fn compile(config: Config) -> Result<Self> {
-        if config.rules.len() > 10000 {
-            return Err(Error::ResourceLimit);
+    /// 单来源配置也使用统一新语义，不保留可绕过拦截的旧匹配路径。
+    pub fn compile(mut config: Config) -> Result<Self> {
+        if let Some(handle) = config.runtime_handle {
+            if !config.rules.is_empty() {
+                return Err(Error::InvalidInput);
+            }
+            let snapshot = runtime::lookup(handle)?;
+            let settings = &snapshot.document().settings;
+            if settings.mode != config.mode
+                || settings.fallback != config.fallback
+                || settings.outbound != config.outbound
+            {
+                return Err(Error::InvalidInput);
+            }
+            return Self::from_runtime(snapshot);
         }
-        if let Some(outbound) = &config.outbound {
-            identifier(outbound)?;
-        }
-        if (config.mode == Mode::Global || config.fallback == Policy::Proxy)
-            && config.outbound.is_none()
-        {
-            return Err(Error::InvalidInput);
-        }
-        // 单条预留覆盖值、匹配器、出站和 Vec 空间；临时 JSON 输入另受 FFI 上限控制。
-        let lease = BUDGET.reserve(1024 + config.rules.len() * 1024)?;
-        let mut rules = Vec::with_capacity(config.rules.len());
-        for rule in config.rules {
-            rules.push(CompiledRule {
-                matcher: matcher(rule.r#type, &rule.value)?,
-                policy: rule.policy,
-                outbound: policy_outbound(rule.policy, rule.outbound, &config.outbound)?,
-            });
-        }
+        let rules = std::mem::take(&mut config.rules);
+        let snapshot = runtime::Snapshot::generate(
+            config,
+            vec![runtime::Source {
+                id: "local".into(),
+                layer: runtime::Layer::Local,
+                enabled: true,
+                rules,
+            }],
+            1,
+        )?;
         Ok(Self {
-            mode: config.mode,
-            fallback: config.fallback,
-            outbound: config.outbound,
-            rules,
-            _lease: lease,
+            runtime: std::sync::Arc::new(snapshot),
         })
     }
+    pub fn from_runtime(snapshot: std::sync::Arc<runtime::Snapshot>) -> Result<Self> {
+        runtime::register(&snapshot)?;
+        Ok(Self { runtime: snapshot })
+    }
     pub fn evaluate(&self, target: Target) -> Result<Decision> {
-        self.evaluate_inner(target, false)?.ok_or(Error::Internal)
+        self.runtime.evaluate(&target)
     }
-    /// None 表示前序 CIDR 尚无地址，不允许跳过它匹配后面的规则。
+    /// 域名非拦截规则不能跳过真实地址检查。
     pub fn evaluate_before_dns(&self, target: Target) -> Result<Option<Decision>> {
-        self.evaluate_inner(target, true)
-    }
-    fn evaluate_inner(&self, target: Target, defer_ip: bool) -> Result<Option<Decision>> {
-        if target.port == 0 || (target.domain.is_none() && target.address.is_none()) {
-            return Err(Error::InvalidInput);
-        }
-        let name = target.domain.as_deref().map(domain).transpose()?;
-        let address = target
-            .address
-            .as_deref()
-            .map(|s| {
-                if s.len() > 64 {
-                    return Err(Error::InvalidInput);
-                }
-                s.parse::<IpAddr>().map_err(|_| Error::InvalidInput)
-            })
-            .transpose()?;
-        if self.mode != Mode::Rules {
-            let policy = if self.mode == Mode::Direct {
-                Policy::Direct
-            } else {
-                Policy::Proxy
-            };
-            return Ok(Some(self.decision(policy, None, Reason::Mode, None)));
-        }
-        for (index, rule) in self.rules.iter().enumerate() {
-            if defer_ip && address.is_none() && matches!(&rule.matcher, Matcher::Network(_)) {
-                return Ok(None);
-            }
-            let matched = match &rule.matcher {
-                Matcher::Domain(value, suffix) => name.as_ref().is_some_and(|name| {
-                    name == value
-                        || (*suffix
-                            && name
-                                .strip_suffix(value)
-                                .is_some_and(|prefix| prefix.ends_with('.')))
-                }),
-                Matcher::Network(network) => address.is_some_and(|ip| network.includes(ip)),
-                Matcher::Port(first, last) => (*first..=*last).contains(&target.port),
-                Matcher::Transport(value) => *value == target.transport,
-            };
-            if matched {
-                return Ok(Some(self.decision(
-                    rule.policy,
-                    Some(index),
-                    Reason::Rule,
-                    rule.outbound.clone(),
-                )));
-            }
-        }
-        Ok(Some(self.decision(
-            self.fallback,
-            None,
-            Reason::Fallback,
-            None,
-        )))
-    }
-    fn decision(
-        &self,
-        policy: Policy,
-        index: Option<usize>,
-        reason: Reason,
-        outbound: Option<String>,
-    ) -> Decision {
-        Decision {
-            policy,
-            rule_index: index,
-            reason,
-            outbound: if policy == Policy::Proxy {
-                outbound.or_else(|| self.outbound.clone())
-            } else {
-                None
-            },
-        }
+        self.runtime.evaluate_before_dns(&target)
     }
 }
+
+/// 运行时规则生成及来源感知索引；所有宿主复用此模块。
+pub mod runtime;
+
+/// 原子文件提交和不可变规则快照生命周期。
+pub mod store;

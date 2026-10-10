@@ -1,11 +1,11 @@
 import Foundation
 import Network
 
-/// 规则按顺序匹配；域名精确匹配与子域匹配必须显式区分。
+/// 来源和类型优先级由 Rust 执行；域名精确匹配与子域匹配必须显式区分。
 public struct RoutingRule: Codable, Equatable, Sendable {
   public enum Match: String, Codable,
     Sendable { case domain, domainSuffix = "domain-suffix", ipCIDR = "ip-cidr"
-    case destinationPort = "destination-port", transport
+    case destinationPort = "destination-port", transport, domainKeyword = "domain-keyword"
   }
 
   public enum Policy: String, Codable, Sendable { case proxy, direct, reject }
@@ -32,6 +32,11 @@ public struct RoutingRule: Codable, Equatable, Sendable {
       else { throw CoreError.invalidRequest("目标端口规则无效") }
     } else if type == .transport {
       guard ["tcp", "udp"].contains(value) else { throw CoreError.invalidRequest("传输类型规则无效") }
+    } else if type == .domainKeyword {
+      guard value.utf8.allSatisfy({ byte in
+        (48 ... 57).contains(byte) || (65 ... 90).contains(byte)
+          || (97 ... 122).contains(byte) || [45, 46].contains(byte)
+      }) else { throw CoreError.invalidRequest("域名关键词无效") }
     } else if type == .ipCIDR {
       let parts = value.split(separator: "/")
       guard parts.count == 2, let prefix = Int(parts[1]),

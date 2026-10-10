@@ -8,9 +8,17 @@ public struct NativeRouteDecision: Decodable, Equatable, Sendable {
   public let policy: RoutingRule.Policy
   public let outbound: String?
   public let ruleIndex: Int?
+  public struct Origin: Decodable, Equatable, Sendable {
+    public let source: Int
+    public let sequence: Int
+  }
+
+  public let ruleVersion: UInt64?
+  public let origin: Origin?
   public let reason: Reason
   enum CodingKeys: String, CodingKey {
-    case policy, outbound, reason
+    case policy, outbound, reason, origin
+    case ruleVersion = "rule_version"
     case ruleIndex = "rule_index"
   }
 }
@@ -30,6 +38,9 @@ public final class NativeRoutingClient: Sendable {
     var command = try object(configuration.settings)
     command["rules"] = try JSONSerialization
       .jsonObject(with: JSONEncoder().encode(configuration.rules))
+    if let handle = configuration.runtimeHandle {
+      command["runtime_handle"] = handle
+    }
     command["operation"] = "route_configure"
     return command
   }

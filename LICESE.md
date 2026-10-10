@@ -10,6 +10,10 @@
 
 | 组件 | 版本 | 开源协议 |
 | --- | --- | --- |
+| aho-corasick | 1.1.4 | Unlicense OR MIT |
+| arraydeque | 0.5.1 | MIT/Apache-2.0 |
+| hashlink | 0.12.2 | MIT OR Apache-2.0 |
+| yaml-rust2 | 0.13.0 | MIT OR Apache-2.0 |
 | QuickJS | 随 rquickjs-sys 内嵌 | MIT |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
 | asn1-rs | 0.7.2 | MIT OR Apache-2.0 |

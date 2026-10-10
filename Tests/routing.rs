@@ -163,16 +163,14 @@ fn modes_fallback_named_outbound_and_explicit_support() {
         let answer = router
             .evaluate(target(Some("example.com"), None, 443, Transport::Tcp))
             .unwrap();
-        assert_eq!(answer.policy, expected);
-        assert_eq!(answer.reason, Reason::Mode);
-        assert_eq!(
-            answer.check_support(),
-            if mode == Mode::Direct {
-                Ok(())
-            } else {
-                Err(Error::Unsupported)
-            }
-        );
+        assert_eq!(answer.policy, Policy::Reject);
+        assert_eq!(answer.reason, Reason::Rule);
+        assert_eq!(answer.check_support(), Err(Error::Rejected));
+        let other = router
+            .evaluate(target(Some("example.com"), None, 443, Transport::Udp))
+            .unwrap();
+        assert_eq!(other.policy, expected);
+        assert_eq!(other.reason, Reason::Mode);
     }
     let mut specific = rule(Match::Domain, "example.com", Policy::Proxy);
     specific.outbound = Some("node-b".into());
@@ -308,27 +306,33 @@ fn immutable_snapshot_is_shared_without_state_between_connections() {
 }
 #[test]
 fn limits_and_last_owner_return_global_budget() {
-    let rules = vec![rule(Match::Domain, "example.com", Policy::Direct); 10000];
-    let config = Config {
-        rules: rules.clone(),
-        ..Config::default()
-    };
-    let router = Arc::new(Router::compile(config.clone()).unwrap());
+    let router = Arc::new(compile(vec![rule(
+        Match::Domain,
+        "example.com",
+        Policy::Direct,
+    )]));
+    let weak = Arc::downgrade(&router);
     let retained = router.clone();
     drop(router);
-    assert!(matches!(
-        Router::compile(config.clone()),
-        Err(Error::ResourceLimit)
-    ));
+    assert!(weak.upgrade().is_some());
     drop(retained);
-    assert!(Router::compile(config).is_ok());
+    assert!(weak.upgrade().is_none());
     assert!(matches!(
         Router::compile(Config {
-            rules: vec![rule(Match::Domain, "example.com", Policy::Direct); 10001],
+            rules: vec![rule(Match::Domain, "example.com", Policy::Direct); 100001],
             ..Config::default()
         }),
         Err(Error::ResourceLimit)
     ));
+    let labels = std::iter::repeat_n("a", 100).collect::<Vec<_>>().join(".");
+    assert!(matches!(
+        Router::compile(Config {
+            rules: vec![rule(Match::DomainSuffix, &labels, Policy::Direct); 100000],
+            ..Config::default()
+        }),
+        Err(Error::ResourceLimit)
+    ));
+    assert!(Router::compile(Config::default()).is_ok());
 }
 #[test]
 fn arbitrary_short_values_do_not_panic() {

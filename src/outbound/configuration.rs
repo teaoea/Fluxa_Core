@@ -81,6 +81,26 @@ impl Manager {
             ..old.clone()
         })
     }
+    /// 所有可失败检查和分配发生在文件提交之前。
+    pub(crate) fn commit_routing_file(
+        &self,
+        router: Arc<Router>,
+        commit: impl FnOnce() -> Result<()>,
+    ) -> Result<u64> {
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.stopped {
+            return Err(Error::InvalidState);
+        }
+        let revision = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        let replacement = Arc::new(NetworkSnapshot {
+            revision,
+            router: Some(router),
+            ..(*state.network).clone()
+        });
+        commit()?;
+        state.network = replacement;
+        Ok(revision)
+    }
     fn replace_network(
         &self,
         update: impl FnOnce(&NetworkSnapshot) -> NetworkSnapshot,

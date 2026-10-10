@@ -1,9 +1,9 @@
 [package]
 name = "libfluxa_core"
-version = "1.3.0"
+version = "1.4.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT"
 description = "Fluxa 跨平台自研网络内核、HTTP/HTTPS 调试、MITM 与受限 JS 引擎"
 repository = "https://github.com/teaoea/Fluxa_Core"
@@ -12,7 +12,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["src/**/*.rs", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md", "TrafficProcessing.md", "TUN.md", "DNS.md", "Routing.md", "Outbound.md", "Notices/**"]
+include = ["src/**/*.rs", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md", "TrafficProcessing.md", "TUN.md", "DNS.md", "Routing.md", "RuntimeRules.md", "Outbound.md", "Notices/**"]
 
 [lib]
 name = "libfluxa_core"
@@ -46,6 +46,8 @@ httparse = "=1.10.1"
 url = "=2.5.8"
 base64 = "=0.23.1"
 rquickjs = { version = "=0.14.0", default-features = false }
+yaml-rust2 = { version = "=0.13.0", default-features = false }
+aho-corasick = "=1.1.4"
 
 [[test]]
 name = "https"
@@ -99,3 +101,7 @@ path = "Tests/outbound_routing.rs"
 [[test]]
 name = "outbound_resources"
 path = "Tests/outbound_resources.rs"
+
+[[test]]
+name = "runtime_rules"
+path = "Tests/runtime_rules.rs"

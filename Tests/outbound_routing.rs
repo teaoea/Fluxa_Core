@@ -78,7 +78,7 @@ async fn known_rejection_proxy_and_missing_dns_never_connect_or_fallback() {
     .unwrap();
     assert!(matches!(
         manager.connect_routed(&global, None, target(443)).await,
-        Err(Error::Unsupported)
+        Err(Error::InvalidState)
     ));
     let direct = router(vec![rule(
         Match::Domain,
@@ -92,7 +92,7 @@ async fn known_rejection_proxy_and_missing_dns_never_connect_or_fallback() {
     assert_eq!(fixture.count.load(Ordering::SeqCst), 0);
 }
 #[tokio::test]
-async fn cidr_before_domain_preserves_first_match_and_no_socket_on_reject() {
+async fn domain_match_skips_ip_rejection_in_both_orders() {
     let fixture = support::fixture().await;
     let resolver = Resolver::new(dns(fixture.port)).unwrap();
     let manager = Manager::default();
@@ -100,24 +100,17 @@ async fn cidr_before_domain_preserves_first_match_and_no_socket_on_reject() {
     let port = listener.local_addr().unwrap().port();
     let deny = rule(Match::IpCidr, "127.0.0.0/8", Policy::Reject);
     let allow = rule(Match::Domain, "connect.example.test", Policy::Direct);
-    assert!(matches!(
-        manager
-            .connect_routed(
-                &router(vec![deny.clone(), allow.clone()]),
-                Some(&resolver),
-                target(port)
-            )
-            .await,
-        Err(Error::Rejected)
-    ));
-    assert_eq!(fixture.count.load(Ordering::SeqCst), 1);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(20), listener.accept())
+    for rules in [vec![deny.clone(), allow.clone()], vec![allow.clone(), deny]] {
+        let opened = manager
+            .connect_routed(&router(rules), Some(&resolver), target(port))
             .await
-            .is_err()
-    );
+            .unwrap();
+        let _peer = listener.accept().await.unwrap();
+        assert_eq!(opened.decision.policy, Policy::Direct);
+        manager.close(opened.connection.id).unwrap();
+    }
     let opened = manager
-        .connect_routed(&router(vec![allow, deny]), Some(&resolver), target(port))
+        .connect_routed(&router(vec![allow]), Some(&resolver), target(port))
         .await
         .unwrap();
     assert_eq!(opened.decision.rule_index, Some(0));
@@ -140,7 +133,7 @@ async fn cidr_before_domain_preserves_first_match_and_no_socket_on_reject() {
     manager.close(opened.connection.id).unwrap();
 }
 #[tokio::test]
-async fn numeric_udp_uses_route_without_dns_and_mode_overrides_rules() {
+async fn numeric_udp_skips_dns_and_direct_mode_preserves_rejection() {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let address = socket.local_addr().unwrap();
     let manager = Manager::default();
@@ -154,6 +147,15 @@ async fn numeric_udp_uses_route_without_dns_and_mode_overrides_rules() {
     request.target.domain = None;
     request.target.address = Some(address.ip().to_string());
     request.target.transport = Transport::Udp;
+    assert!(matches!(
+        manager.connect_routed(&router, None, request.clone()).await,
+        Err(Error::Rejected)
+    ));
+    let router = Router::compile(Config {
+        mode: Mode::Direct,
+        ..Config::default()
+    })
+    .unwrap();
     let opened = manager
         .connect_routed(&router, None, request)
         .await

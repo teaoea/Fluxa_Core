@@ -37,6 +37,15 @@ impl Network {
         }
         Ok(Self { base, mask, v4 })
     }
+    pub(crate) fn prefix(&self) -> u8 {
+        self.mask.count_ones() as u8
+    }
+    pub(crate) fn key(&self) -> (u128, u8, bool) {
+        (self.base, self.prefix(), self.v4)
+    }
+    pub(crate) fn canonical(&self) -> String {
+        format!("{}/{}", self.first(), self.prefix())
+    }
     pub fn first(&self) -> IpAddr {
         self.address(self.base)
     }

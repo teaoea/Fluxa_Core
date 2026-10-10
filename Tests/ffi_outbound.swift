@@ -252,8 +252,14 @@ struct OutboundFFICheck {
     for server in dnsServers(fixture) {
       try client.configureDNS(DNSConfiguration(servers: [server]))
       try client.configureRouting(RoutingConfiguration(rules: [deny, allow]))
-      try rejection { _ = try client.openRouted(target, family: .ipv4) }
+      let domainFirst = try client.openRouted(target, family: .ipv4)
+      precondition(domainFirst.decision.policy == .direct)
+      try client.close(id: domainFirst.id)
       try client.configureRouting(RoutingConfiguration(rules: [allow, deny]))
+      let domainFirstReversed = try client.openRouted(target, family: .ipv4)
+      precondition(domainFirstReversed.decision.policy == .direct)
+      try client.close(id: domainFirstReversed.id)
+      try client.configureRouting(RoutingConfiguration(rules: [allow]))
       let opened = try client.openRouted(target)
       precondition(opened.decision.ruleIndex == 0 && opened.decision.policy == .direct)
       try client.write(Data([42]), id: opened.id)

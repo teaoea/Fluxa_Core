@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 case "${1:-all}" in
-  lifecycle|https|mitm|script|tun|dns|dns_service|routing|outbound) client_tests=("$1") ;;
-  all) client_tests=(lifecycle https mitm script tun dns dns_service routing outbound) ;;
-  *) echo '支持 lifecycle、https、mitm、script、tun、dns、dns_service、routing、outbound 或 all'; exit 1 ;;
+  lifecycle|https|mitm|script|tun|dns|dns_service|routing|outbound|runtime_rules) client_tests=("$1") ;;
+  all) client_tests=(lifecycle https mitm script tun dns dns_service routing outbound runtime_rules) ;;
+  *) echo '支持 lifecycle、https、mitm、script、tun、dns、dns_service、routing、outbound、runtime_rules 或 all'; exit 1 ;;
 esac
 check_directory="$(mktemp -d /tmp/fluxa-ffi-check.XXXXXX)"
 fixture_pid=''

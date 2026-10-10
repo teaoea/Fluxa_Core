@@ -33,7 +33,7 @@ struct RoutingFFICheck {
     let fallback = try client.evaluate(RoutingTarget(domain: "notexample.com", port: 444))
     precondition(fallback.policy == .reject && fallback.reason == .fallback)
     let port = try client.evaluate(RoutingTarget(address: "192.0.2.1", port: 80, transport: .udp))
-    precondition(port.policy == .direct && port.ruleIndex == 3)
+    precondition(port.policy == .reject && port.ruleIndex == 4)
     try checkInvalidReplacement(client: client, configuration: config)
     try checkModes(client: client)
     for _ in 0 ..< 100 {

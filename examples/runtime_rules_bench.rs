@@ -1,0 +1,203 @@
+//! 优化构建测量生成与索引查询；不使用少量重复规则冒充十万条有效规则。
+use libfluxa_core::routing::{
+    Config, Match, Policy, Rule, Target, Transport,
+    runtime::{Layer, Snapshot, Source},
+};
+use std::{hint::black_box, time::Instant};
+fn rule(kind: Match, value: String, policy: Policy) -> Rule {
+    Rule {
+        r#type: kind,
+        value,
+        policy,
+        outbound: if policy == Policy::Proxy {
+            Some("test".into())
+        } else {
+            None
+        },
+    }
+}
+fn percentile(values: &mut [u128], percent: usize) -> u128 {
+    values.sort_unstable();
+    values[(values.len() - 1) * percent / 100]
+}
+fn rss() -> String {
+    std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_else(|| "unavailable".into())
+}
+// 数十条本地规则与四份顺序固定的远程订阅，复用同一生成流程。
+fn sources(rules: Vec<Rule>) -> Vec<Source> {
+    let local_count = rules.len().min(40);
+    let width = (rules.len() - local_count).div_ceil(4).max(1);
+    let mut groups: Vec<_> = (0..5)
+        .map(|index| Source {
+            id: format!("source-{index}"),
+            layer: if index == 0 {
+                Layer::Local
+            } else {
+                Layer::Remote
+            },
+            enabled: true,
+            rules: Vec::new(),
+        })
+        .collect();
+    for (index, rule) in rules.into_iter().enumerate() {
+        let group = if index < local_count {
+            0
+        } else {
+            1 + (index - local_count) / width
+        };
+        groups[group].rules.push(rule);
+    }
+    groups
+}
+fn main() {
+    let count: usize = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "100000".into())
+        .parse()
+        .expect("规则规模必须为数字");
+    let mut rules = Vec::with_capacity(count);
+    for i in 0..count {
+        let (kind, value) = match i % 10 {
+            0..=2 => (Match::Domain, format!("d{i}.example.net")),
+            3..=4 => (Match::DomainSuffix, format!("s{i}.example.org")),
+            5..=6 => (
+                Match::IpCidr,
+                format!(
+                    "{}.{}.{}.{}/32",
+                    10 + ((i >> 24) & 15),
+                    (i >> 16) & 255,
+                    (i >> 8) & 255,
+                    i & 255
+                ),
+            ),
+            7 => (
+                Match::IpCidr,
+                format!("2001:db8::{:x}:{:x}/128", i >> 16, i & 65535),
+            ),
+            8 => (Match::DomainKeyword, format!("keyword-{i}-")),
+            _ => (Match::DestinationPort, (20000 + i / 10).to_string()),
+        };
+        rules.push(rule(
+            kind,
+            value,
+            if i % 97 == 0 {
+                Policy::Reject
+            } else {
+                Policy::Proxy
+            },
+        ));
+    }
+    let start = Instant::now();
+    let snapshot = Snapshot::generate(
+        Config {
+            fallback: Policy::Direct,
+            ..Config::default()
+        },
+        sources(rules),
+        1,
+    )
+    .expect("规模超过内存或输入限制时必须明确失败");
+    let compile = start.elapsed();
+    println!(
+        "rules_input={count} rules_effective={} compile_ms={} stable_rss_kib={}",
+        snapshot.document().rules.len(),
+        compile.as_millis(),
+        rss()
+    );
+    if std::env::args().any(|arg| arg == "--persist") {
+        let input: Vec<_> = snapshot
+            .document()
+            .rules
+            .iter()
+            .map(|row| row.rule.clone())
+            .collect();
+        drop(snapshot);
+        let path = std::env::temp_dir().join(format!("fluxa-runtime-bench-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        let start = Instant::now();
+        store
+            .update(
+                Config {
+                    fallback: Policy::Direct,
+                    ..Config::default()
+                },
+                sources(input.clone()),
+            )
+            .expect("第一次 YAML 提交必须实际成功");
+        store
+            .update(
+                Config {
+                    fallback: Policy::Direct,
+                    ..Config::default()
+                },
+                sources(input),
+            )
+            .expect("新旧快照共存更新必须实际成功");
+        println!(
+            "two_atomic_updates_ms={} stable_rss_kib={}",
+            start.elapsed().as_millis(),
+            rss()
+        );
+        store.close().unwrap();
+        let reopened = libfluxa_core::routing::store::Store::open(&path)
+            .expect("磁盘 YAML 必须能够重新加载编译");
+        assert_eq!(reopened.snapshot().unwrap().document().rules.len(), count);
+        reopened.close().unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+        return;
+    }
+    for (case, name) in [
+        ("first", "d0.example.net".to_owned()),
+        ("last", format!("d{}.example.net", count - 8)),
+        ("miss", "not-present.example.net".to_owned()),
+    ] {
+        let target = Target {
+            domain: Some(name),
+            address: Some("192.0.2.1".into()),
+            port: 443,
+            transport: Transport::Tcp,
+        };
+        assert_eq!(
+            snapshot.evaluate(&target).unwrap(),
+            snapshot.evaluate_reference(&target).unwrap()
+        );
+        let mut values = Vec::with_capacity(20000);
+        for _ in 0..20000 {
+            let start = Instant::now();
+            black_box(snapshot.evaluate(black_box(&target)).unwrap());
+            values.push(start.elapsed().as_nanos());
+        }
+        let p50 = percentile(&mut values, 50);
+        let p95 = percentile(&mut values, 95);
+        let p99 = percentile(&mut values, 99);
+        println!("case={case} p50_ns={p50} p95_ns={p95} p99_ns={p99}");
+    }
+    let target = Target {
+        domain: Some("s14.example.org".into()),
+        address: Some("192.0.2.1".into()),
+        port: 443,
+        transport: Transport::Tcp,
+    };
+    let start = Instant::now();
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            let snapshot = &snapshot;
+            let target = &target;
+            scope.spawn(move || {
+                for _ in 0..100000 {
+                    black_box(snapshot.evaluate(black_box(target)).unwrap());
+                }
+            });
+        }
+    });
+    println!(
+        "threads=4 queries=400000 throughput_per_second={:.0}",
+        400000.0 / start.elapsed().as_secs_f64()
+    );
+}
