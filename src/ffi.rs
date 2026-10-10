@@ -49,6 +49,14 @@ impl Engine {
         }
         client.clone().ok_or(Error::Internal)
     }
+    fn dns(&self) -> Result<Arc<crate::dns::Resolver>, Error> {
+        self.dns
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or(Error::InvalidState)
+    }
     fn authority(&self) -> Result<Arc<Authority>, Error> {
         let mut authority = self.authority.lock().map_err(|_| Error::Internal)?;
         if authority.is_none() {
@@ -123,6 +131,10 @@ enum Command {
     DnsClose,
     DnsQuery(crate::dns::Query),
     DnsClearCache,
+    DnsFakeIpReverse {
+        address: String,
+    },
+    DnsFakeIpReset,
     PacketOpen {
         mtu: usize,
     },
@@ -186,6 +198,8 @@ impl serde::Serialize for Secret {
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     dns_answer: Option<crate::dns::Answer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fake_ip_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     packet_info: Option<crate::tun::PacketInfo>,
     success: bool,
@@ -274,16 +288,22 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::DnsQuery(query) => {
-            let resolver = engine
-                .dns
-                .lock()
-                .map_err(|_| Error::Internal)?
-                .as_ref()
-                .map(Arc::clone)
-                .ok_or(Error::InvalidState)?;
+            let resolver = engine.dns()?;
             Ok(Reply {
                 success: true,
                 dns_answer: Some(runtime()?.block_on(resolver.resolve(query))?),
+                ..Reply::default()
+            })
+        }
+        Command::DnsFakeIpReverse { address } => Ok(Reply {
+            success: true,
+            fake_ip_name: engine.dns()?.reverse_fake_ip(&address)?,
+            ..Reply::default()
+        }),
+        Command::DnsFakeIpReset => {
+            engine.dns()?.reset_fake_ip()?;
+            Ok(Reply {
+                success: true,
                 ..Reply::default()
             })
         }
@@ -487,7 +507,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    127
+    255
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -587,7 +607,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 127);
+        assert_eq!(fluxa_engine_capabilities(), 255);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

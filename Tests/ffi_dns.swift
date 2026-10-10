@@ -60,6 +60,7 @@ struct DNSFFICheck {
         preconditionFailure("关闭后不能查询")
       } catch NativeClientError.rejected {}
     }
+    try checkFakeIP(server: servers[0])
     let validator = try NativeDNSClient()
     try validator.configure(DNSConfiguration(
       servers: [servers[0]],
@@ -77,5 +78,31 @@ struct DNSFFICheck {
       try client.close()
     }
     print("真实 Swift DNS FFI 通过：UDP/TCP/DoT/HTTP2 DoH、CNAME、A/AAAA、正负缓存、关闭及 100 次释放。")
+  }
+
+  private static func checkFakeIP(server: DNSServer) throws {
+    let client = try NativeDNSClient()
+    try client.configure(DNSConfiguration(
+      servers: [server],
+      fakeIP: FakeIPConfiguration(capacity: 2)
+    ))
+    let first = try client.query(name: "fake.test")
+    precondition(first.validation == "synthetic" && first.addresses == ["198.18.0.1"])
+    let ipv6 = try client.query(name: "fake.test", type: "AAAA")
+    let reverse = try client.reverseFakeIP(address: ipv6.addresses[0])
+    precondition(reverse == "fake.test")
+    let repeated = try client.query(name: "fake.test")
+    precondition(repeated.fromCache)
+    _ = try client.query(name: "second.test")
+    do { _ = try client.query(name: "overflow.test")
+      preconditionFailure("不能超过容量")
+    } catch NativeClientError.rejected {}
+    try client.resetFakeIP()
+    let old = try client.reverseFakeIP(address: first.addresses[0])
+    precondition(old == nil)
+    let fresh = try client.query(name: "after-reset.test")
+    precondition(fresh.addresses == ["198.18.0.3"])
+    try client.close()
+    print("Fake-IP 真实 FFI 通过：双向映射、A/AAAA、容量限制、重置后不复用旧地址。")
   }
 }

@@ -12,14 +12,14 @@
 - 流量改写：请求头、响应头和文本响应改写。
 - JavaScript：受限脚本执行、JSON 转换、内置 JSON 响应字段处理及执行隔离。
 
-- DNS：UDP/TCP、DoT/DoH、手动上游、正负缓存与 DNSSEC；详见 [DNS.md](DNS.md)。
+- DNS：UDP/TCP、DoT/DoH、手动上游、正负缓存、DNSSEC 与 Fake-IP 双向映射；详见 [DNS.md](DNS.md)。
 - TUN 基础：IPv4/IPv6、TCP/UDP 数据包检查、校验和验证与有界会话；尚不支持数据包转发。
 
 通过所有权和 RAII 管理资源，为连接、缓冲区、日志和脚本运行时设置上限。
 
 ## 后续计划
 
-完善 Fake-IP、局域网 DNS 服务、路由与共用出站、TUN 转发、网关与代理协议；首个协议目标为 VLESS + TCP + REALITY + Vision。
+完善局域网 DNS 服务、路由与共用出站、TUN 转发、网关与代理协议；首个协议目标为 VLESS + TCP + REALITY + Vision。
 
 ## 许可
 

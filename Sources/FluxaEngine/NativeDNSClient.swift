@@ -56,6 +56,15 @@ public final class NativeDNSClient: Sendable {
     return answer
   }
 
+  public func reverseFakeIP(address: String) throws -> String? {
+    try client.command(["operation": "dns_fake_ip_reverse", "address": address]).fakeIPName
+  }
+
+  /// 重置后旧地址不再可反查；同一实例中不会把它分配给其他域名。
+  public func resetFakeIP() throws {
+    _ = try client.command(["operation": "dns_fake_ip_reset"])
+  }
+
   public func clearCache() throws {
     _ = try client.command(["operation": "dns_clear_cache"])
   }
@@ -81,6 +90,11 @@ public final class NativeDNSClient: Sendable {
         .removeValue(forKey: "server-name") {
         servers[index]["server_name"] = name
       }
+    }
+    if var fakeIP = object.removeValue(forKey: "fake-ip") as? [String: Any] {
+      fakeIP["ipv4_range"] = fakeIP.removeValue(forKey: "ipv4-range")
+      fakeIP["ipv6_range"] = fakeIP.removeValue(forKey: "ipv6-range")
+      object["fake_ip"] = fakeIP
     }
     object["servers"] = servers
     return object

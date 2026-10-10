@@ -32,6 +32,8 @@ pub struct Config {
     pub timeout_ms: u64,
     #[serde(default)]
     pub dnssec: bool,
+    #[serde(default)]
+    pub fake_ip: Option<super::fake_ip::Config>,
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
@@ -43,6 +45,9 @@ impl Config {
             || !(100..=30000).contains(&self.timeout_ms)
         {
             return Err(Error::InvalidInput);
+        }
+        if let Some(fake_ip) = &self.fake_ip {
+            fake_ip.validate()?;
         }
         let encrypted = self
             .servers

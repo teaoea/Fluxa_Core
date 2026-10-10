@@ -1,6 +1,7 @@
 //! DNS 客户端共用层：固定上游、加密传输、DNSSEC、正负 TTL 缓存及资源预算。
 //! Hickory 负责标准报文/密码学验证；不读取系统 DNS 或 hosts，不隐式降级。
 mod config;
+pub mod fake_ip;
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
@@ -63,6 +64,7 @@ struct Cached {
 pub struct Resolver {
     inner: Vec<TokioResolver>,
     config: Config,
+    fake_ip: Option<fake_ip::Table>,
     cache: Mutex<BTreeMap<(String, String), Cached>>,
     _permit: tokio::sync::SemaphorePermit<'static>,
 }
@@ -93,6 +95,7 @@ impl Resolver {
                 servers: vec![server.clone()],
                 timeout_ms: config.timeout_ms,
                 dnssec: config.dnssec,
+                fake_ip: None,
             };
             let (servers, mut options) = single.build()?;
             options.timeout =
@@ -109,12 +112,27 @@ impl Resolver {
             }
             inner.push(builder.build().map_err(|_| Error::InvalidInput)?);
         }
+        let fake_ip = config
+            .fake_ip
+            .clone()
+            .map(fake_ip::Table::new)
+            .transpose()?;
         Ok(Self {
             inner,
+            fake_ip,
             config,
             cache: Mutex::new(BTreeMap::new()),
             _permit: permit,
         })
+    }
+    pub fn reverse_fake_ip(&self, address: &str) -> Result<Option<String>> {
+        self.fake_ip
+            .as_ref()
+            .ok_or(Error::Unsupported)?
+            .reverse(address)
+    }
+    pub fn reset_fake_ip(&self) -> Result<()> {
+        self.fake_ip.as_ref().ok_or(Error::Unsupported)?.reset()
     }
     pub fn clear(&self) -> Result<()> {
         self.cache.lock().map_err(|_| Error::Internal)?.clear();
@@ -136,6 +154,27 @@ impl Resolver {
                 | RecordType::Unknown(_)
         ) {
             return Err(Error::Unsupported);
+        }
+        if let Some(table) = &self.fake_ip
+            && matches!(kind, RecordType::A | RecordType::AAAA)
+            && let Some((address, from_cache)) = table.allocate(&name, kind == RecordType::AAAA)?
+        {
+            return Ok(Answer {
+                name: name.clone(),
+                query_type: kind.to_string(),
+                records: vec![Record {
+                    name: format!("{name}."),
+                    record_type: kind.to_string(),
+                    ttl: 60,
+                    data: address.clone(),
+                }],
+                addresses: vec![address],
+                ttl: 60,
+                rcode: 0,
+                validation: "synthetic".into(),
+                from_cache,
+                duration_ms: 0,
+            });
         }
         let key = (name.clone(), kind.to_string());
         let started = Instant::now();

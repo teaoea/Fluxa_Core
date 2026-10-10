@@ -11,6 +11,7 @@ fn config(server: Server) -> Config {
         servers: vec![server],
         timeout_ms: 1000,
         dnssec: false,
+        fake_ip: None,
     }
 }
 fn udp(port: u16) -> Server {
@@ -295,4 +296,159 @@ async fn dnssec_signed_root_valid_tampered_expired_and_untrusted() {
     );
     let untrusted = Resolver::new(settings).unwrap();
     assert!(untrusted.resolve(query("valid.", "A")).await.is_err());
+}
+
+fn fake_config(capacity: usize) -> libfluxa_core::dns::fake_ip::Config {
+    libfluxa_core::dns::fake_ip::Config {
+        ipv4_range: "198.18.0.0/24".into(),
+        ipv6_range: "fd00:198:18::/64".into(),
+        capacity,
+        exclude: vec!["example.com".into()],
+    }
+}
+#[test]
+fn fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse() {
+    use libfluxa_core::dns::fake_ip::Table;
+    let table = Table::new(fake_config(2)).unwrap();
+    let (first, cached) = table.allocate("Example.test.", false).unwrap().unwrap();
+    assert!(!cached);
+    assert_eq!(first, "198.18.0.1");
+    assert_eq!(
+        table.allocate("example.test", false).unwrap().unwrap(),
+        (first.clone(), true)
+    );
+    let (ipv6, _) = table.allocate("example.test", true).unwrap().unwrap();
+    assert_eq!(
+        table.reverse(&ipv6).unwrap().as_deref(),
+        Some("example.test")
+    );
+    assert_eq!(
+        table.reverse(&first).unwrap().as_deref(),
+        Some("example.test")
+    );
+    for name in ["example.com", "www.example.com", ".", "192.0.2.1"] {
+        assert!(table.allocate(name, false).unwrap().is_none());
+    }
+    table.allocate("example.com.evil", false).unwrap();
+    assert!(matches!(
+        table.allocate("overflow.test", false),
+        Err(Error::ResourceLimit)
+    ));
+    table.reset().unwrap();
+    assert!(table.reverse(&first).unwrap().is_none());
+    assert_eq!(
+        table
+            .allocate("after-reset.test", false)
+            .unwrap()
+            .unwrap()
+            .0,
+        "198.18.0.3"
+    );
+    assert!(table.reverse("203.0.113.1").unwrap().is_none());
+    assert!(table.reverse("invalid").is_err());
+}
+#[test]
+fn fake_ip_range_alignment_capacity_and_exhaustion() {
+    use libfluxa_core::dns::fake_ip::Table;
+    for bad in [
+        "192.0.2.0/24",
+        "198.18.0.1/24",
+        "198.18.0.0/32",
+        "198.18.0.0/0",
+        "invalid",
+    ] {
+        let mut config = fake_config(1);
+        config.ipv4_range = bad.into();
+        assert!(config.validate().is_err());
+    }
+    let mut config = fake_config(2);
+    config.ipv4_range = "198.18.0.0/30".into();
+    let table = Table::new(config).unwrap();
+    for name in ["one.test", "two.test"] {
+        table.allocate(name, false).unwrap();
+    }
+    table.reset().unwrap();
+    assert!(matches!(
+        table.allocate("three.test", false),
+        Err(Error::ResourceLimit)
+    ));
+    assert!(fake_config(0).validate().is_err());
+    assert!(fake_config(4097).validate().is_err());
+}
+#[tokio::test]
+async fn fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec() {
+    let service = support::fixture().await;
+    let mut config = config(udp(service.port));
+    config.fake_ip = Some(fake_config(4));
+    config.dnssec = true;
+    let resolver = Resolver::new(config.clone()).unwrap();
+    let answer = resolver.resolve(query("fake.test", "A")).await.unwrap();
+    assert_eq!(answer.validation, "synthetic");
+    assert_eq!(answer.addresses, ["198.18.0.1"]);
+    let ipv6 = resolver.resolve(query("fake.test", "AAAA")).await.unwrap();
+    assert_eq!(
+        resolver
+            .reverse_fake_ip(&ipv6.addresses[0])
+            .unwrap()
+            .as_deref(),
+        Some("fake.test")
+    );
+    assert_eq!(service.count.load(Ordering::SeqCst), 0);
+    config.dnssec = false;
+    let real = Resolver::new(config).unwrap();
+    assert_eq!(
+        real.resolve(query("www.example.com", "A"))
+            .await
+            .unwrap()
+            .addresses,
+        ["192.0.2.44"]
+    );
+    assert_eq!(
+        real.resolve(query("fake.test", "TXT"))
+            .await
+            .unwrap()
+            .validation,
+        "disabled"
+    );
+    resolver.reset_fake_ip().unwrap();
+    assert!(
+        resolver
+            .reverse_fake_ip(&answer.addresses[0])
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn fake_ip_concurrent_reuse_is_unique_and_reversible() {
+    use libfluxa_core::dns::fake_ip::Table;
+    let table = std::sync::Arc::new(Table::new(fake_config(32)).unwrap());
+    let workers: Vec<_> = (0..4)
+        .map(|_| {
+            let table = table.clone();
+            std::thread::spawn(move || {
+                for index in 0..128 {
+                    let name = format!("host{}.test", index % 16);
+                    let (address, _) = table.allocate(&name, index % 2 == 0).unwrap().unwrap();
+                    assert_eq!(
+                        table.reverse(&address).unwrap().as_deref(),
+                        Some(name.as_str())
+                    );
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    let unique: std::collections::BTreeSet<_> = (0..16)
+        .map(|index| {
+            table
+                .allocate(&format!("host{index}.test"), false)
+                .unwrap()
+                .unwrap()
+                .0
+        })
+        .collect();
+    assert_eq!(unique.len(), 16);
 }
