@@ -1,5 +1,7 @@
 # Fluxa 内核开发约定
 
+- 版本号统一采用 `v主版本.功能版本.修复版本`：初始为 `v0.0.0`；新增功能递增功能版本并将修复版本归零，功能版本从 0 到 9，`v0.9.x` 的下一功能版本为 `v1.0.0`；仅修复 bug 时递增修复版本。标签带 `v` 前缀，Cargo 与 App 数值版本不带 `v`。详见 `Versioning.md`。
+
 - Rust crate 命名 libfluxa_core，网络引擎、C ABI、Swift FFI 门面与测试直接位于本仓库根目录；SwiftUI App 位于相邻 Fluxa 仓库，不复制到本仓库。
 - 自研 Rust 实现网络处理，禁止引入 libXray、Xray-core 或 sing-box。交付 FluxaEngine.xcframework，内部静态二进制名 libfluxa_core，无扩展名。
 - 复用公共协议、资源和生命周期逻辑；业务模块禁止 unsafe。仅必要 FFI 边界可使用带中文安全说明的不安全操作，不持有跨语言业务裸指针；资源、任务、连接和缓冲区必须有上限。
