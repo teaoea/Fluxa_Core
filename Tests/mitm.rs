@@ -17,13 +17,18 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tokio_rustls::TlsConnector;
-fn client(certificate: CertificateDer<'static>) -> HttpsClient {
+fn client(certificate: CertificateDer<'static>, fixture: &support::Fixture) -> HttpsClient {
     let mut roots = RootCertStore::empty();
     roots.add(certificate).unwrap();
-    HttpsClient::with_roots(roots).unwrap()
+    HttpsClient::with_roots(roots)
+        .unwrap()
+        .with_network(Arc::clone(&fixture.network))
 }
-fn ca_client(authority: &Authority) -> HttpsClient {
-    client(CertificateDer::from(authority.certificate_der().to_vec()))
+fn ca_client(authority: &Authority, fixture: &support::Fixture) -> HttpsClient {
+    client(
+        CertificateDer::from(authority.certificate_der().to_vec()),
+        fixture,
+    )
 }
 async fn captured(captures: &CaptureStore) -> libfluxa_core::mitm::capture::Capture {
     timeout(Duration::from_secs(2), async {
@@ -82,13 +87,16 @@ async fn intercepts_real_tls_and_captures_both_bodies() {
         0,
         &["LOCALHOST.".into()],
         Arc::clone(&authority),
-        client(CertificateDer::from_pem_slice(fixture.pem.as_bytes()).unwrap()),
+        client(
+            CertificateDer::from_pem_slice(fixture.pem.as_bytes()).unwrap(),
+            &fixture,
+        ),
         Arc::clone(&captures),
         true,
     )
     .await
     .unwrap();
-    let response = ca_client(&authority)
+    let response = ca_client(&authority, &fixture)
         .execute_via_proxy(
             "POST",
             &format!("https://localhost:{}/echo", fixture.port),
@@ -123,13 +131,13 @@ async fn unselected_host_keeps_original_tls_certificate() {
         0,
         &["sub.localhost".into()],
         Arc::new(Authority::generate().unwrap()),
-        client(fixture.root.clone()),
+        client(fixture.root.clone(), &fixture),
         Arc::clone(&captures),
         true,
     )
     .await
     .unwrap();
-    let response = client(fixture.root.clone())
+    let response = client(fixture.root.clone(), &fixture)
         .execute_via_proxy(
             "GET",
             &format!("https://localhost:{}/", fixture.port),
@@ -152,14 +160,16 @@ async fn rejects_upstream_and_downstream_untrusted_certificates() {
         0,
         &["localhost".into()],
         Arc::clone(&authority),
-        HttpsClient::with_roots(RootCertStore::empty()).unwrap(),
+        HttpsClient::with_roots(RootCertStore::empty())
+            .unwrap()
+            .with_network(Arc::clone(&fixture.network)),
         Arc::clone(&captures),
         true,
     )
     .await
     .unwrap();
     assert!(
-        ca_client(&authority)
+        ca_client(&authority, &fixture)
             .execute_via_proxy(
                 "GET",
                 &format!("https://localhost:{}/", fixture.port),
@@ -176,14 +186,14 @@ async fn rejects_upstream_and_downstream_untrusted_certificates() {
         0,
         &["localhost".into()],
         authority,
-        client(fixture.root.clone()),
+        client(fixture.root.clone(), &fixture),
         Arc::new(CaptureStore::default()),
         true,
     )
     .await
     .unwrap();
     assert!(
-        client(fixture.root.clone())
+        client(fixture.root.clone(), &fixture)
             .execute_via_proxy(
                 "GET",
                 &format!("https://localhost:{}/", fixture.port),
@@ -205,13 +215,13 @@ async fn disabled_body_capture_preserves_lengths_without_payloads() {
         0,
         &["localhost".into()],
         Arc::clone(&authority),
-        client(fixture.root.clone()),
+        client(fixture.root.clone(), &fixture),
         Arc::clone(&captures),
         false,
     )
     .await
     .unwrap();
-    ca_client(&authority)
+    ca_client(&authority, &fixture)
         .execute_via_proxy(
             "POST",
             &format!("https://localhost:{}/", fixture.port),
@@ -234,7 +244,7 @@ async fn stop_closes_active_connections_and_releases_listener() {
         0,
         &["localhost".into()],
         Arc::new(Authority::generate().unwrap()),
-        client(fixture.root.clone()),
+        client(fixture.root.clone(), &fixture),
         Arc::new(CaptureStore::default()),
         false,
     )
@@ -271,7 +281,7 @@ async fn rejects_cross_host_request_and_accepts_chunked_request_body() {
         0,
         &["localhost".into()],
         Arc::clone(&authority),
-        client(fixture.root.clone()),
+        client(fixture.root.clone(), &fixture),
         Arc::clone(&captures),
         true,
     )
@@ -305,7 +315,7 @@ async fn rejects_wildcards_and_preserves_head_and_redirect() {
             0,
             &["*.localhost".into()],
             Arc::clone(&authority),
-            client(fixture.root.clone()),
+            client(fixture.root.clone(), &fixture),
             Arc::new(CaptureStore::default()),
             false
         )
@@ -316,13 +326,13 @@ async fn rejects_wildcards_and_preserves_head_and_redirect() {
         0,
         &["localhost".into()],
         Arc::clone(&authority),
-        client(fixture.root.clone()),
+        client(fixture.root.clone(), &fixture),
         Arc::new(CaptureStore::default()),
         true,
     )
     .await
     .unwrap();
-    let client = ca_client(&authority);
+    let client = ca_client(&authority, &fixture);
     let head = client
         .execute_via_proxy(
             "HEAD",

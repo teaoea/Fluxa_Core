@@ -2,11 +2,21 @@
 import Foundation
 
 private struct Fixture: Decodable {
+  let dnsPort: UInt16
   let port: UInt16
   let certificatePEM: String
   enum CodingKeys: String, CodingKey {
+    case dnsPort = "dns_port"
     case port
     case certificatePEM = "certificate_pem"
+  }
+
+  var dns: DNSConfiguration {
+    DNSConfiguration(servers: [DNSServer(transport: .udp, address: "127.0.0.1:\(dnsPort)")])
+  }
+
+  var routing: RoutingConfiguration {
+    RoutingConfiguration(settings: RoutingSettings(mode: .direct))
   }
 
   var url: String {
@@ -29,6 +39,7 @@ struct MitmFFITests {
 
   private static func trafficScript(_ fixture: Fixture) throws {
     let proxy = try NativeMitmClient()
+    _ = try proxy.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try proxy.addTrustedUpstreamRoot(fixture.certificatePEM)
     let root = try proxy.rootCertificate()
     let port = try proxy.start(hosts: ["localhost"], captureBodies: true, rewrites: [
@@ -42,6 +53,7 @@ struct MitmFFITests {
     ])
     defer { try? proxy.stop() }
     let client = try NativeHttpsClient()
+    _ = try client.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try client.addTrustedRoot(root)
     let response = try client.execute(method: "GET", url: fixture.url + "/json", proxyPort: port)
     guard let body = try JSONSerialization.jsonObject(with: response.body) as? [String: Any],
@@ -56,6 +68,7 @@ struct MitmFFITests {
 
   private static func interception(_ fixture: Fixture) throws {
     let proxy = try NativeMitmClient()
+    _ = try proxy.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     let root = try proxy.rootCertificate()
     let identity = try proxy.exportIdentityForSecureStorage()
     precondition(identity.certificatePEM == root)
@@ -73,6 +86,7 @@ struct MitmFFITests {
     expectRejected { _ = try proxy.start(hosts: ["localhost"]) }
     expectRejected { try proxy.restoreIdentity(identity) }
     let client = try NativeHttpsClient()
+    _ = try client.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try client.addTrustedRoot(root)
     let response = try client.execute(
       method: "POST", url: fixture.url + "/echo", body: Data("FFI MITM payload".utf8),
@@ -90,6 +104,7 @@ struct MitmFFITests {
     let empty = try proxy.peekCapture()
     precondition(empty.capture == nil)
     let untrustedClient = try NativeHttpsClient()
+    _ = try untrustedClient.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try untrustedClient.addTrustedRoot(fixture.certificatePEM)
     expectRejected { _ = try untrustedClient.execute(
       method: "GET",
@@ -103,9 +118,11 @@ struct MitmFFITests {
 
   private static func passthrough(_ fixture: Fixture) throws {
     let proxy = try NativeMitmClient()
+    _ = try proxy.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     let port = try proxy.start(hosts: ["sub.localhost"], captureBodies: true)
     defer { try? proxy.stop() }
     let client = try NativeHttpsClient()
+    _ = try client.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try client.addTrustedRoot(fixture.certificatePEM)
     let response = try client.execute(method: "GET", url: fixture.url, proxyPort: port)
     precondition(response.status == 200)
@@ -116,11 +133,13 @@ struct MitmFFITests {
 
   private static func untrustedUpstream(_ fixture: Fixture) throws {
     let proxy = try NativeMitmClient()
+    _ = try proxy.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     expectRejected { _ = try proxy.start(hosts: ["*.localhost"]) }
     let root = try proxy.rootCertificate()
     let port = try proxy.start(hosts: ["localhost"], captureBodies: true)
     defer { try? proxy.stop() }
     let client = try NativeHttpsClient()
+    _ = try client.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try client.addTrustedRoot(root)
     expectRejected { _ = try client.execute(method: "GET", url: fixture.url, proxyPort: port) }
     let record = try waitForCapture(proxy)
@@ -130,11 +149,13 @@ struct MitmFFITests {
 
   private static func captureDisabled(_ fixture: Fixture) throws {
     let proxy = try NativeMitmClient()
+    _ = try proxy.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try proxy.addTrustedUpstreamRoot(fixture.certificatePEM)
     let root = try proxy.rootCertificate()
     let port = try proxy.start(hosts: ["localhost"])
     defer { try? proxy.stop() }
     let client = try NativeHttpsClient()
+    _ = try client.configureNetwork(dns: fixture.dns, routing: fixture.routing)
     try client.addTrustedRoot(root)
     _ = try client.execute(
       method: "POST",

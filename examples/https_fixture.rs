@@ -1,6 +1,5 @@
 //! Swift FFI 测试用回环 TLS 服务；只输出公开根证书与端口。
-#[path = "../Tests/support/dns.rs"]
-mod dns_support;
+use support::dns as dns_support;
 #[path = "../Tests/support/mod.rs"]
 mod support;
 #[tokio::main]

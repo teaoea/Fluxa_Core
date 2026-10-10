@@ -68,7 +68,7 @@ struct OutboundFFICheck {
     try checkRouting(fixture: fixture)
     try checkRoutedCancellation(fixture: fixture)
     print(
-      "共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS、Fake-IP、路由执行、解析取消、原子配置、状态统计与空闲回收已验证。"
+      "共用出站真实 Swift FFI：TCP/UDP、半关闭、EOF、报文边界、取消、100 次生命周期；DNS、Fake-IP、路由、原子配置、统计与空闲回收通过。"
     )
   }
 

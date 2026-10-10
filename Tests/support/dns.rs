@@ -22,6 +22,8 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 
+// 共用夹具供独立 DNS 与 HTTP 测试目标复用；各目标只读取自身需要的协议信息。
+#[allow(dead_code)]
 pub struct Fixture {
     pub port: u16,
     pub dot_port: u16,
@@ -224,14 +226,20 @@ fn answer(bytes: &[u8], udp: bool, count: &AtomicUsize) -> Option<Vec<u8>> {
         }
         let data = match question.query_type {
             RecordType::A => RData::A(
-                if name.starts_with("connect.") || name.starts_with("alias.connect.") {
+                if name == "localhost."
+                    || name.starts_with("connect.")
+                    || name.starts_with("alias.connect.")
+                {
                     A::new(127, 0, 0, 1)
                 } else {
                     A::new(192, 0, 2, 44)
                 },
             ),
             RecordType::AAAA => RData::AAAA(AAAA(
-                if name.starts_with("connect.") || name.starts_with("alias.connect.") {
+                if name == "localhost."
+                    || name.starts_with("connect.")
+                    || name.starts_with("alias.connect.")
+                {
                     "::1"
                 } else {
                     "2001:db8::44"

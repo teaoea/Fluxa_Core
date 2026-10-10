@@ -40,6 +40,7 @@ pub fn endpoint(value: &str) -> Result<SocketAddr> {
     Ok(address)
 }
 enum Socket {
+    Detached,
     Tcp {
         reader: tokio::sync::Mutex<tokio::net::tcp::OwnedReadHalf>,
         writer: tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>,
@@ -189,6 +190,7 @@ impl Manager {
         let transport = match &socket {
             Socket::Tcp { .. } => Transport::Tcp,
             Socket::Udp { .. } => Transport::Udp,
+            Socket::Detached => return Err(Error::Internal),
         };
         let (cancel, _) = watch::channel(false);
         let id = state
@@ -231,6 +233,7 @@ impl Manager {
                         writer.lock().await.write_all(bytes).await?;
                         Ok(bytes.len())
                     }
+                    Socket::Detached => Err(Error::Unsupported),
                     Socket::Udp { socket, .. } => {
                         if bytes.len() > MAX_DATAGRAM {
                             return Err(Error::ResourceLimit);
@@ -271,6 +274,7 @@ impl Manager {
                 let mut bytes = Zeroizing::new(vec![0; capacity]);
                 let length = match &connection.socket {
                     Socket::Tcp { reader, .. } => reader.lock().await.read(&mut bytes).await?,
+                    Socket::Detached => return Err(Error::Unsupported),
                     Socket::Udp { socket, reader } => {
                         let _read = reader.lock().await;
                         socket.recv(&mut bytes).await?
@@ -299,7 +303,7 @@ impl Manager {
                         writer.lock().await.shutdown().await?;
                         Ok(())
                     }
-                    Socket::Udp { .. } => Err(Error::Unsupported),
+                    Socket::Udp { .. } | Socket::Detached => Err(Error::Unsupported),
                 }
             })
             .await
@@ -387,3 +391,6 @@ mod configuration;
 pub use configuration::{Limits, NetworkSnapshot};
 mod resources;
 pub use resources::{SessionStatus, Status};
+
+mod stream;
+pub use stream::ManagedStream;

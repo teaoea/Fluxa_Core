@@ -43,20 +43,7 @@ public final class NativeOutboundClient: Sendable {
     dns: DNSConfiguration?, routing: RoutingConfiguration,
     limits: NativeOutboundLimits = NativeOutboundLimits()
   ) throws -> UInt64 {
-    var route = try NativeRoutingClient.configurationCommand(routing)
-    route.removeValue(forKey: "operation")
-    var dnsObject: [String: Any]?
-    if let dns {
-      dnsObject = try NativeDNSClient.configurationCommand(dns)
-      dnsObject?.removeValue(forKey: "operation")
-    }
-    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(limits))
-    let reply = try client.command([
-      "operation": "network_configure", "routing": route,
-      "dns": dnsObject as Any? ?? NSNull(), "limits": object,
-    ])
-    guard let revision = reply.networkRevision else { throw NativeClientError.boundary }
-    return revision
+    try client.configureNetwork(dns: dns, routing: routing, limits: limits)
   }
 
   @discardableResult

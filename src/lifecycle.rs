@@ -37,6 +37,9 @@ impl<T> Registry<T> {
     pub(crate) fn get(&self, id: u64) -> Option<&T> {
         self.instances.get(&id)
     }
+    pub(crate) fn get_mut(&mut self, id: u64) -> Option<&mut T> {
+        self.instances.get_mut(&id)
+    }
     pub(crate) fn len(&self) -> usize {
         self.instances.len()
     }

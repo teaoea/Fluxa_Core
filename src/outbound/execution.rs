@@ -32,11 +32,18 @@ impl Manager {
         resolver: Option<&Resolver>,
         request: RoutedTarget,
     ) -> Result<RoutedOpened> {
-        self.connect_with_snapshot(router, resolver, request, self.network_snapshot()?)
+        self.connect_with_snapshot(router, resolver, request, self.network_snapshot()?, None)
             .await
     }
     /// 同一次读取 DNS、路由和资源参数，避免配置替换时混用。
     pub async fn connect_configured(&self, request: RoutedTarget) -> Result<RoutedOpened> {
+        self.connect_configured_hop(request, None).await
+    }
+    pub(super) async fn connect_configured_hop(
+        &self,
+        request: RoutedTarget,
+        hop: Option<SocketAddr>,
+    ) -> Result<RoutedOpened> {
         let snapshot = self.network_snapshot()?;
         let router = snapshot.router.as_ref().ok_or(Error::InvalidState)?;
         self.connect_with_snapshot(
@@ -44,6 +51,7 @@ impl Manager {
             snapshot.resolver.as_deref(),
             request,
             std::sync::Arc::clone(&snapshot),
+            hop,
         )
         .await
     }
@@ -53,6 +61,7 @@ impl Manager {
         resolver: Option<&Resolver>,
         request: RoutedTarget,
         snapshot: std::sync::Arc<super::NetworkSnapshot>,
+        hop: Option<SocketAddr>,
     ) -> Result<RoutedOpened> {
         let deadline = duration(request.timeout_ms)?;
         let mut metadata = request.target;
@@ -127,14 +136,15 @@ impl Manager {
                     plans.push((SocketAddr::new(ip, metadata.port), route));
                 }
                 let dialed = candidates(
-                    plans.iter().map(|(address, _)| *address).collect(),
+                    hop.map(|hop| vec![hop])
+                        .unwrap_or_else(|| plans.iter().map(|(address, _)| *address).collect()),
                     metadata.transport,
                 )
                 .await?;
                 decision = Some(
                     plans
                         .into_iter()
-                        .find(|(address, _)| *address == dialed.2)
+                        .find(|(address, _)| hop.is_some() || *address == dialed.2)
                         .ok_or(Error::Internal)?
                         .1,
                 );

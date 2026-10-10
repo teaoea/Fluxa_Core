@@ -25,11 +25,14 @@ async fn proxy(
     roots: RootCertStore,
     captures: Arc<CaptureStore>,
     ca: Arc<Authority>,
+    network: Arc<libfluxa_core::outbound::Manager>,
 ) -> MitmProxy {
     MitmProxy::start_with_options(
         options,
         ca,
-        HttpsClient::with_roots(roots).unwrap(),
+        HttpsClient::with_roots(roots)
+            .unwrap()
+            .with_network(network),
         captures,
     )
     .await
@@ -57,7 +60,7 @@ async fn http_rewrites_chunked_upload_and_records_original_request() {
         {"host":"LOCALHOST","path_prefix":"/echo","action":"replace-response-text","match":"test","value":"changed"},
         {"host":"localhost","path_prefix":"/echo","action":"response-header","header":"X-Rewritten","value":"yes"},
         {"host":"localhost","path_prefix":"/headers","action":"request-header","header":"X-Added","value":"native"}
-    ])), ..Default::default() }, RootCertStore::empty(), Arc::clone(&captures), ca).await;
+    ])), ..Default::default() }, RootCertStore::empty(), Arc::clone(&captures), ca, Arc::clone(&fixture.network)).await;
     let (head, body) = request(
         server.port(),
         fixture.port,
@@ -113,6 +116,7 @@ async fn rejection_is_exact_and_upstream_failure_never_falls_back() {
         RootCertStore::empty(),
         Arc::new(CaptureStore::default()),
         Arc::clone(&ca),
+        Arc::clone(&fixture.network),
     )
     .await;
     let (head, body) = request(
@@ -150,6 +154,7 @@ async fn rejection_is_exact_and_upstream_failure_never_falls_back() {
         RootCertStore::empty(),
         Arc::new(CaptureStore::default()),
         ca,
+        Arc::clone(&fixture.network),
     )
     .await;
     assert!(
@@ -181,13 +186,14 @@ async fn https_uses_same_rewrite_and_capture_pipeline() {
         .unwrap();
     let server = proxy(ProxyOptions { hosts: vec!["localhost".into()], rewrites: rules(serde_json::json!([
         {"host":"localhost","path_prefix":"/echo","action":"replace-response-text","match":"decrypted","value":"rewritten"}
-    ])), ..Default::default() }, roots, Arc::new(CaptureStore::default()), Arc::clone(&ca)).await;
+    ])), ..Default::default() }, roots, Arc::new(CaptureStore::default()), Arc::clone(&ca), Arc::clone(&fixture.network)).await;
     let mut roots = RootCertStore::empty();
     roots
         .add(CertificateDer::from(ca.certificate_der().to_vec()))
         .unwrap();
     let response = HttpsClient::with_roots(roots)
         .unwrap()
+        .with_network(Arc::clone(&fixture.network))
         .execute_via_proxy(
             "GET",
             &format!("https://localhost:{}/echo", fixture.port),
@@ -262,12 +268,14 @@ async fn traffic_script_runs_on_http_and_https_and_captures_processed_body() {
             {"host":"localhost","path_prefix":"/json","action":"response-script","script":"remove-json-keys","json_keys":["ad"]},
             {"host":"localhost","path_prefix":"/json","action":"response-header","header":"X-Processed","value":"yes"}
         ])), ..Default::default()
-    }, roots, Arc::clone(&captures), Arc::clone(&ca)).await;
+    }, roots, Arc::clone(&captures), Arc::clone(&ca), Arc::clone(&tls.network)).await;
     let mut roots = RootCertStore::empty();
     roots
         .add(CertificateDer::from(ca.certificate_der().to_vec()))
         .unwrap();
-    let client = HttpsClient::with_roots(roots).unwrap();
+    let client = HttpsClient::with_roots(roots)
+        .unwrap()
+        .with_network(Arc::clone(&tls.network));
     for url in [
         format!("http://localhost:{}/json", plain.port),
         format!("https://localhost:{}/json", tls.port),

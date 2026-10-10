@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FluxaCore)
+import FluxaCore
+#endif
 #if canImport(libfluxa_core)
 import libfluxa_core
 #endif
@@ -86,6 +89,27 @@ final class NativeCommandClient: Sendable {
     #if canImport(libfluxa_core)
     _ = fluxa_engine_destroy(handle)
     #endif
+  }
+
+  @discardableResult
+  func configureNetwork(
+    dns: DNSConfiguration?, routing: RoutingConfiguration,
+    limits: OutboundLimits
+  ) throws -> UInt64 {
+    var route = try NativeRoutingClient.configurationCommand(routing)
+    route.removeValue(forKey: "operation")
+    var dnsObject: [String: Any]?
+    if let dns {
+      dnsObject = try NativeDNSClient.configurationCommand(dns)
+      dnsObject?.removeValue(forKey: "operation")
+    }
+    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(limits))
+    let reply = try command([
+      "operation": "network_configure", "routing": route,
+      "dns": dnsObject as Any? ?? NSNull(), "limits": object,
+    ])
+    guard let revision = reply.networkRevision else { throw NativeClientError.boundary }
+    return revision
   }
 
   func command(_ command: [String: Any]) throws -> NativeCommandReply {

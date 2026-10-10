@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{io::BufReader, net::TcpStream, time::timeout};
+use tokio::{io::BufReader, time::timeout};
 use tokio_rustls::TlsConnector;
 use url::Url;
 
@@ -22,6 +22,7 @@ pub(crate) type SecureStream = Box<dyn Duplex>;
 #[derive(Clone)]
 pub struct HttpsClient {
     config: Arc<ClientConfig>,
+    network: Arc<crate::outbound::Manager>,
 }
 pub struct Response {
     pub status: u16,
@@ -67,17 +68,25 @@ impl HttpsClient {
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Ok(Self {
             config: Arc::new(config),
+            network: Arc::new(crate::outbound::Manager::default()),
         })
+    }
+    /// 所有克隆共用连接管理；必须显式提供 DNS 与路由，不采用系统解析回退。
+    pub fn with_network(mut self, network: Arc<crate::outbound::Manager>) -> Self {
+        self.network = network;
+        self
+    }
+    pub fn network(&self) -> Arc<crate::outbound::Manager> {
+        Arc::clone(&self.network)
     }
     pub(crate) async fn connect(&self, host: &str, port: u16) -> Result<SecureStream> {
         let name = ServerName::try_from(normalize_host(host)?).map_err(|_| Error::InvalidInput)?;
-        let socket = TcpStream::connect((host, port)).await?;
-        socket.set_nodelay(true)?;
+        let socket = self.network.connect_stream(host, port, None).await?;
         TlsConnector::from(Arc::clone(&self.config))
             .connect(name, socket)
             .await
             .map(|stream| Box::new(stream) as SecureStream)
-            .map_err(|_| Error::Tls)
+            .map_err(tls_error)
     }
     pub async fn execute(
         &self,
@@ -156,13 +165,16 @@ impl HttpsClient {
         }
     }
     pub(crate) async fn connect_plain(
+        &self,
         host: &str,
         port: u16,
         proxy_port: Option<u16>,
     ) -> Result<SecureStream> {
         match proxy_port {
-            Some(proxy_port) => Ok(Box::new(Self::open_tunnel(host, port, proxy_port).await?)),
-            None => Ok(Box::new(TcpStream::connect((host, port)).await?)),
+            Some(proxy_port) => Ok(Box::new(self.open_tunnel(host, port, proxy_port).await?)),
+            None => Ok(Box::new(
+                self.network.connect_stream(host, port, None).await?,
+            )),
         }
     }
     async fn connect_via_proxy(
@@ -171,20 +183,29 @@ impl HttpsClient {
         port: u16,
         proxy_port: u16,
     ) -> Result<SecureStream> {
-        let socket = Self::open_tunnel(host, port, proxy_port).await?;
+        let socket = self.open_tunnel(host, port, proxy_port).await?;
         let name = ServerName::try_from(host.to_owned()).map_err(|_| Error::InvalidInput)?;
         TlsConnector::from(Arc::clone(&self.config))
             .connect(name, socket)
             .await
             .map(|stream| Box::new(stream) as SecureStream)
-            .map_err(|_| Error::Tls)
+            .map_err(tls_error)
     }
-    async fn open_tunnel(host: &str, port: u16, proxy_port: u16) -> Result<BufReader<TcpStream>> {
+    async fn open_tunnel(
+        &self,
+        host: &str,
+        port: u16,
+        proxy_port: u16,
+    ) -> Result<BufReader<crate::outbound::ManagedStream>> {
         use tokio::io::AsyncWriteExt;
         if proxy_port == 0 {
             return Err(Error::InvalidInput);
         }
-        let mut socket = BufReader::new(TcpStream::connect(("127.0.0.1", proxy_port)).await?);
+        let mut socket = BufReader::new(
+            self.network
+                .connect_stream(host, port, Some(proxy_port))
+                .await?,
+        );
         let authority = if host.contains(':') {
             format!("[{host}]:{port}")
         } else {
@@ -328,9 +349,13 @@ impl HttpsClient {
             Some(stream) => stream,
             None => {
                 if let Some(proxy_port) = options.proxy_port.filter(|_| http_proxy) {
-                    Box::new(TcpStream::connect(("127.0.0.1", proxy_port)).await?) as SecureStream
+                    Box::new(
+                        self.network
+                            .connect_stream(&host, port, Some(proxy_port))
+                            .await?,
+                    ) as SecureStream
                 } else if url.scheme() == "http" {
-                    Self::connect_plain(&host, port, None).await?
+                    self.connect_plain(&host, port, None).await?
                 } else {
                     self.connect_tls(&host, port, options.proxy_port).await?
                 }
@@ -383,4 +408,11 @@ impl HttpsClient {
 }
 pub(crate) fn is_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+}
+
+fn tls_error(error: std::io::Error) -> Error {
+    match Error::from(error) {
+        Error::Cancelled => Error::Cancelled,
+        _ => Error::Tls,
+    }
 }

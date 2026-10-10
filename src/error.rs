@@ -46,8 +46,12 @@ impl fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 impl From<io::Error> for Error {
-    fn from(_: io::Error) -> Self {
-        Self::Network
+    fn from(error: io::Error) -> Self {
+        error
+            .get_ref()
+            .and_then(|error| error.downcast_ref::<Self>())
+            .copied()
+            .unwrap_or(Self::Network)
     }
 }
 pub type Result<T> = std::result::Result<T, Error>;

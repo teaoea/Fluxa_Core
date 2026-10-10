@@ -6,7 +6,9 @@ use rustls::RootCertStore;
 fn client(fixture: &support::Fixture) -> HttpsClient {
     let mut roots = RootCertStore::empty();
     roots.add(fixture.root.clone()).unwrap();
-    HttpsClient::with_roots(roots).unwrap()
+    HttpsClient::with_roots(roots)
+        .unwrap()
+        .with_network(std::sync::Arc::clone(&fixture.network))
 }
 #[tokio::test]
 async fn decrypts_https_request_and_response() {
@@ -32,7 +34,9 @@ async fn decrypts_https_request_and_response() {
 #[tokio::test]
 async fn rejects_untrusted_ca_and_wrong_hostname() {
     let fixture = support::fixture().await;
-    let no_trust = HttpsClient::with_roots(RootCertStore::empty()).unwrap();
+    let no_trust = HttpsClient::with_roots(RootCertStore::empty())
+        .unwrap()
+        .with_network(std::sync::Arc::clone(&fixture.network));
     assert!(matches!(
         no_trust
             .execute(

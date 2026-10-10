@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FluxaCore)
+import FluxaCore
+#endif
 
 /// FFI 传输模型；不会将内部 JSON 当作用户配置格式。
 public struct NativeHeader: Codable, Sendable {
@@ -22,10 +25,30 @@ public final class NativeHttpsClient: Sendable {
   private let client: NativeCommandClient
 
   public init() throws {
-    client = try NativeCommandClient(requiredCapabilities: 1)
+    client = try NativeCommandClient(requiredCapabilities: 32769)
   }
 
   /// 添加用户明确提供的根证书，仍检查上游域名、证书签名与有效期。
+  /// DNS、路由及资源参数共用原子配置；失败保持原配置。
+  @discardableResult
+  public func configureNetwork(
+    dns: DNSConfiguration?, routing: RoutingConfiguration,
+    limits: OutboundLimits = OutboundLimits()
+  ) throws -> UInt64 {
+    try client.configureNetwork(dns: dns, routing: routing, limits: limits)
+  }
+
+  public func outboundStatus() throws -> NativeOutboundStatus {
+    guard let status = try client.command(["operation": "outbound_status"]).outboundStatus
+    else { throw NativeClientError.boundary }
+    return status
+  }
+
+  /// 可在其他线程取消正在等待的连接、TLS 或读取；后续请求仍可使用当前配置。
+  public func cancelConnections() throws {
+    _ = try client.command(["operation": "outbound_close_all"])
+  }
+
   public func addTrustedRoot(_ certificatePEM: String) throws {
     _ = try client.command(["operation": "add_trusted_root", "certificate_pem": certificatePEM])
   }

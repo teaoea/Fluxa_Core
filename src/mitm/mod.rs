@@ -90,6 +90,9 @@ impl MitmProxy {
             .iter()
             .map(|h| normalize_host(h))
             .collect::<Result<BTreeSet<_>>>()?;
+        if upstream.network().network_snapshot()?.router.is_none() {
+            return Err(Error::InvalidState);
+        }
         let listener = TcpListener::bind(("127.0.0.1", options.port)).await?;
         let port = listener.local_addr()?.port();
         if options.upstream_proxy_port == Some(port) {
@@ -214,8 +217,10 @@ async fn session(socket: TcpStream, state: &SessionState, capture: &mut Capture)
     capture.url = format!("https://{}/", parts[1]);
     capture.request_headers = head.headers.clone();
     if !state.hosts.contains(&host) {
-        let mut remote =
-            HttpsClient::connect_plain(&host, port, state.options.upstream_proxy_port).await?;
+        let mut remote = state
+            .upstream
+            .connect_plain(&host, port, state.options.upstream_proxy_port)
+            .await?;
         socket
             .get_mut()
             .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")

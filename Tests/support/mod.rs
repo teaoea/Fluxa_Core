@@ -1,4 +1,5 @@
 //! 真实回环 TLS 服务供 Rust 和 Swift FFI 测试共用；私钥只存在于进程内存。
+pub mod dns;
 use libfluxa_core::http;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair, KeyUsagePurpose};
 use rustls::{ServerConfig, pki_types::PrivatePkcs8KeyDer};
@@ -10,7 +11,11 @@ use tokio::{
 };
 use tokio_rustls::TlsAcceptor;
 
+// 同一测试夹具由独立协议目标与二进制夹具程序引用，各目标使用所需字段。
+#[allow(dead_code)]
 pub struct Fixture {
+    pub network: Arc<libfluxa_core::outbound::Manager>,
+    _dns: dns::Fixture,
     pub port: u16,
     pub root: rustls::pki_types::CertificateDer<'static>,
     pub pem: String,
@@ -71,7 +76,10 @@ pub async fn fixture_with_options(expired: bool, tls12: bool) -> Fixture {
             }
         }
     });
+    let (_dns, network) = configured_network().await;
     Fixture {
+        network,
+        _dns,
         port,
         root: ca.der().clone(),
         pem: ca.pem(),
@@ -89,6 +97,10 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
     };
     let parts = head.parts();
     let path = parts.get(1).copied().unwrap_or("/");
+    if path == "/wait" {
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        return;
+    }
     let response: Vec<u8> = match path {
                             "/headers" => { let payload = serde_json::to_vec(&head.headers).unwrap(); let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
                             "/json" => { let payload = br#"{"ad":{"url":"https://example.com/ad"},"title":"keep","id":18446744073709551615,"nested":{"ad":"keep"}}"#; let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: old\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
@@ -108,6 +120,8 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
 // 同一支持模块被多个独立测试目标引用；HTTPS 专用目标不需要明文服务。
 #[allow(dead_code)]
 pub struct PlainFixture {
+    pub network: Arc<libfluxa_core::outbound::Manager>,
+    _dns: dns::Fixture,
     pub port: u16,
     task: JoinHandle<()>,
 }
@@ -132,5 +146,47 @@ pub async fn plain_fixture() -> PlainFixture {
             }
         }
     });
-    PlainFixture { port, task }
+    let (_dns, network) = configured_network().await;
+    PlainFixture {
+        port,
+        task,
+        network,
+        _dns,
+    }
+}
+
+async fn configured_network() -> (dns::Fixture, Arc<libfluxa_core::outbound::Manager>) {
+    use libfluxa_core::{
+        dns::{Config, Resolver, Server},
+        outbound::{Limits, Manager},
+        routing::{Config as Routing, Mode, Router},
+    };
+    let dns = dns::fixture().await;
+    let resolver = Arc::new(
+        Resolver::new(Config {
+            servers: vec![Server::Udp {
+                address: format!("127.0.0.1:{}", dns.port),
+            }],
+            timeout_ms: 1000,
+            dnssec: false,
+            fake_ip: None,
+            service: None,
+        })
+        .unwrap(),
+    );
+    let manager = Arc::new(Manager::default());
+    manager
+        .configure_network(
+            Some(resolver),
+            Some(Arc::new(
+                Router::compile(Routing {
+                    mode: Mode::Direct,
+                    ..Routing::default()
+                })
+                .unwrap(),
+            )),
+            Limits::default(),
+        )
+        .unwrap();
+    (dns, manager)
 }

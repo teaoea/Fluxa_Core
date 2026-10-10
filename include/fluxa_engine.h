@@ -17,6 +17,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 12 代表带映射代次的 Fake-IP 连接，不代表 TUN 转发。
 // 位 13 代表路由决策实际执行，不代表逻辑代理出站协议可用。
 // 位 14 代表原子网络配置、有界会话状态和自动空闲回收。
+// 位 15 代表 HTTP/HTTPS/MITM 使用共用连接链，不代表系统 TUN 可用。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);
