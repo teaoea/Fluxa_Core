@@ -15,3 +15,10 @@ GitHub Release 用于 Apple 二进制下载；crates.io 用于 Rust 源码库，
 0.1.1 为 README 文档修订，移除客户端与开发流程说明，只保留网络内核介绍；网络实现与 0.1.0 相同。
 
 每项功能的开发、验证、源码提交、同版本发布、客户端更新与验收顺序遵循 AGENTS.md。发布记录同时记录构建源码提交和最终版本标签；生成校验值提交只更新下载元数据，不改动已打包的 Rust 源码。
+
+
+## 0.1.1 发布核验
+
+构建和 crate 源码提交为 5f47b9afee5dd82b3322b8406db5b704b7e0f4af；最终 v0.1.1 标签为 e7aa631d818c3dc2ab4a9ab3b064b6f0b9b182a9，二者仅 Package.swift 校验值不同，Rust 源码完全相同。crate 的 .cargo_vcs_info.json 已核对。
+
+Rust 36 项测试、Clippy、真实 Swift FFI 四组与远程 Swift 包 10 项测试全部通过；GitHub Actions 运行 38018885504 成功，crates.io 已实际发布 0.1.1。框架压缩包 SHA-256 为 3cd9a441ca55e404914cb5358c42fc6d4267ada8f84bbc381121aead04a3f29e。仅验证 macOS ARM64，最低系统、其他平台、真机、系统浏览器信任与远端代理互通仍未验收。
