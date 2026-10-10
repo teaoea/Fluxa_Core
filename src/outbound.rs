@@ -49,6 +49,7 @@ enum Socket {
         reader: tokio::sync::Mutex<()>,
     },
 }
+type Dialed = (Socket, ByteLease, SocketAddr);
 struct Connection {
     socket: Socket,
     cancel: watch::Sender<bool>,
@@ -121,7 +122,7 @@ impl Manager {
     async fn establish(
         &self,
         deadline: Duration,
-        future: impl std::future::Future<Output = Result<(Socket, ByteLease, SocketAddr)>>,
+        future: impl std::future::Future<Output = Result<Dialed>>,
     ) -> Result<Opened> {
         let mut generation = self.generation.subscribe();
         let epoch = *generation.borrow();
@@ -282,10 +283,7 @@ impl Drop for Manager {
 }
 
 /// DNS 与数字地址路径共用真实连接及配额；竞争失败的 socket 随任务所有权释放。
-async fn dial(
-    address: SocketAddr,
-    transport: Transport,
-) -> Result<(Socket, ByteLease, SocketAddr)> {
+async fn dial(address: SocketAddr, transport: Transport) -> Result<Dialed> {
     let lease = CONNECTIONS.reserve(1)?;
     let socket = match transport {
         Transport::Tcp => {
@@ -315,3 +313,6 @@ async fn dial(
 }
 mod resolution;
 pub use resolution::{DomainTarget, FakeIPTarget, Family, Opened};
+
+mod execution;
+pub use execution::{RoutedOpened, RoutedTarget};

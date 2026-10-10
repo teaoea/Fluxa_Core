@@ -14,6 +14,12 @@ public struct NativeFakeIPAddress: Sendable {
   public let generation: UInt64
 }
 
+public struct NativeRoutedOpened: Sendable {
+  public let id: UInt64
+  public let address: String
+  public let decision: NativeRouteDecision
+}
+
 public struct NativeOutboundOpened: Sendable {
   public let id: UInt64
   public let address: String
@@ -28,7 +34,7 @@ public struct NativeOutboundRead: Sendable {
 public final class NativeOutboundClient: Sendable {
   private let client: NativeCommandClient
   public init() throws {
-    client = try NativeCommandClient(requiredCapabilities: 7168)
+    client = try NativeCommandClient(requiredCapabilities: 15360)
   }
 
   public func configureDNS(_ configuration: DNSConfiguration) throws {
@@ -42,6 +48,29 @@ public final class NativeOutboundClient: Sendable {
     _ = try client.command([
       "operation": "add_trusted_root", "certificate_pem": certificatePEM,
     ])
+  }
+
+  public func configureRouting(_ configuration: RoutingConfiguration) throws {
+    _ = try client.command(NativeRoutingClient.configurationCommand(configuration))
+  }
+
+  public func openRouted(
+    _ target: RoutingTarget, family: NativeOutboundFamily = .auto,
+    mappingGeneration: UInt64? = nil, timeoutMilliseconds: UInt64 = 5000
+  ) throws -> NativeRoutedOpened {
+    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(target))
+    var command: [String: Any] = [
+      "operation": "outbound_route", "target": object, "family": family.rawValue,
+      "timeout_ms": timeoutMilliseconds,
+    ]
+    if let mappingGeneration {
+      command["mapping_generation"] = mappingGeneration
+    }
+    let reply = try client.command(command)
+    guard let id = reply.outboundID, let address = reply.outboundPeer,
+          let decision = reply.routeDecision
+    else { throw NativeClientError.boundary }
+    return NativeRoutedOpened(id: id, address: address, decision: decision)
   }
 
   public func fakeIP(

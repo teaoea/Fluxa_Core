@@ -64,7 +64,11 @@ struct OutboundFFICheck {
     try client.closeAll()
     try checkDNS(fixture: fixture)
     try checkFakeIP(fixture: fixture)
-    print("共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS 域名连接已验证，路由执行尚未接入。")
+    try checkRouting(fixture: fixture)
+    try checkRoutedCancellation(fixture: fixture)
+    print(
+      "共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS、Fake-IP、路由执行与解析取消已验证。"
+    )
   }
 
   static func checkDNS(fixture: OutboundFixture) throws {
@@ -75,16 +79,7 @@ struct OutboundFFICheck {
       transport: .tcp
     ) }
     try client.addTrustedRoot(certificatePEM: fixture.certificatePEM)
-    let servers = [
-      DNSServer(transport: .udp, address: "127.0.0.1:\(fixture.dns)"),
-      DNSServer(transport: .tcp, address: "127.0.0.1:\(fixture.dns)"),
-      DNSServer(transport: .dot, address: "127.0.0.1:\(fixture.dot)", serverName: "localhost"),
-      DNSServer(
-        transport: .doh,
-        url: "https://localhost:\(fixture.doh)/dns-query",
-        bootstrap: "127.0.0.1:\(fixture.doh)"
-      ),
-    ]
+    let servers = dnsServers(fixture)
     for server in servers {
       try client.configureDNS(DNSConfiguration(servers: [server]))
       let opened = try client.open(
@@ -128,16 +123,7 @@ struct OutboundFFICheck {
   static func checkFakeIP(fixture: OutboundFixture) throws {
     let client = try NativeOutboundClient()
     try client.addTrustedRoot(certificatePEM: fixture.certificatePEM)
-    for server in [
-      DNSServer(transport: .udp, address: "127.0.0.1:\(fixture.dns)"),
-      DNSServer(transport: .tcp, address: "127.0.0.1:\(fixture.dns)"),
-      DNSServer(transport: .dot, address: "127.0.0.1:\(fixture.dot)", serverName: "localhost"),
-      DNSServer(
-        transport: .doh,
-        url: "https://localhost:\(fixture.doh)/dns-query",
-        bootstrap: "127.0.0.1:\(fixture.doh)"
-      ),
-    ] {
+    for server in dnsServers(fixture) {
       let configuration = DNSConfiguration(servers: [server], fakeIP: FakeIPConfiguration())
       try client.configureDNS(configuration)
       for ipv6 in [false, true] {
@@ -177,6 +163,99 @@ struct OutboundFFICheck {
     }
     precondition(excluded)
     try client.closeAll()
+  }
+
+  static func checkRouting(fixture: OutboundFixture) throws {
+    let client = try NativeOutboundClient()
+    let target = RoutingTarget(domain: "connect.example.test", port: fixture.tcp, transport: .tcp)
+    let allow = try RoutingRule(type: .domainSuffix, value: "example.test", policy: .direct)
+    let deny = try RoutingRule(type: .ipCIDR, value: "127.0.0.0/8", policy: .reject)
+    let reject = try RoutingRule(type: .domainSuffix, value: "example.test", policy: .reject)
+    let proxy = try RoutingRule(
+      type: .domainSuffix,
+      value: "example.test",
+      policy: .proxy,
+      outbound: "unimplemented"
+    )
+    try client.configureRouting(RoutingConfiguration(rules: [reject]))
+    try rejection { _ = try client.openRouted(target) }
+    try client.configureRouting(RoutingConfiguration(rules: [proxy]))
+    try rejection { _ = try client.openRouted(target) }
+    try client.addTrustedRoot(certificatePEM: fixture.certificatePEM)
+    for server in dnsServers(fixture) {
+      try client.configureDNS(DNSConfiguration(servers: [server]))
+      try client.configureRouting(RoutingConfiguration(rules: [deny, allow]))
+      try rejection { _ = try client.openRouted(target, family: .ipv4) }
+      try client.configureRouting(RoutingConfiguration(rules: [allow, deny]))
+      let opened = try client.openRouted(target)
+      precondition(opened.decision.ruleIndex == 0 && opened.decision.policy == .direct)
+      try client.write(Data([42]), id: opened.id)
+      let read = try client.read(id: opened.id)
+      precondition(read.data == Data([42]))
+      try client.close(id: opened.id)
+      try client.configureRouting(RoutingConfiguration(settings: RoutingSettings(mode: .direct)))
+      let udp = try client.openRouted(RoutingTarget(
+        address: "127.0.0.1",
+        port: fixture.udp,
+        transport: .udp
+      ))
+      precondition(udp.decision.reason == .mode)
+      try client.write(Data([43]), id: udp.id)
+      let datagram = try client.read(id: udp.id)
+      precondition(datagram.data == Data([43]))
+      try client.close(id: udp.id)
+    }
+    try client.configureDNS(DNSConfiguration(
+      servers: [dnsServers(fixture)[0]],
+      fakeIP: FakeIPConfiguration()
+    ))
+    try client.configureRouting(RoutingConfiguration(rules: [
+      RoutingRule(type: .ipCIDR, value: "198.18.0.0/15", policy: .reject),
+      allow,
+    ]))
+    let mapped = try client.fakeIP(domain: "connect.example.test")
+    let fakeTarget = RoutingTarget(address: mapped.address, port: fixture.tcp, transport: .tcp)
+    try rejection { _ = try client.openRouted(fakeTarget) }
+    let opened = try client.openRouted(
+      fakeTarget,
+      family: .ipv4,
+      mappingGeneration: mapped.generation
+    )
+    precondition(opened.decision.ruleIndex == 1)
+    try client.close(id: opened.id)
+    try client.closeAll()
+  }
+
+  static func checkRoutedCancellation(fixture: OutboundFixture) throws {
+    let client = try NativeOutboundClient()
+    try client.configureDNS(DNSConfiguration(servers: [dnsServers(fixture)[0]]))
+    try client.configureRouting(RoutingConfiguration(settings: RoutingSettings(mode: .direct)))
+    let finished = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      do {
+        _ = try client.openRouted(
+          RoutingTarget(domain: "timeout.cancel.example.test", port: fixture.tcp, transport: .tcp),
+          timeoutMilliseconds: 60000
+        )
+        preconditionFailure("路由解析被取消后不能返回成功")
+      } catch { finished.signal() }
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+    try client.closeAll()
+    precondition(finished.wait(timeout: .now() + 1) == .success)
+  }
+
+  static func dnsServers(_ fixture: OutboundFixture) -> [DNSServer] {
+    [
+      DNSServer(transport: .udp, address: "127.0.0.1:\(fixture.dns)"),
+      DNSServer(transport: .tcp, address: "127.0.0.1:\(fixture.dns)"),
+      DNSServer(transport: .dot, address: "127.0.0.1:\(fixture.dot)", serverName: "localhost"),
+      DNSServer(
+        transport: .doh,
+        url: "https://localhost:\(fixture.doh)/dns-query",
+        bootstrap: "127.0.0.1:\(fixture.doh)"
+      ),
+    ]
   }
 
   static func checkCancellation(client: NativeOutboundClient, port: UInt16) throws {

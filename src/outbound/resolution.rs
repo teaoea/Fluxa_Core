@@ -69,7 +69,7 @@ fn addresses(answer: Answer, v4: bool) -> Result<Vec<IpAddr>> {
     }
     Ok(values)
 }
-async fn resolve(
+pub(super) async fn resolve(
     resolver: &Resolver,
     name: &str,
     family: Family,
@@ -177,29 +177,43 @@ impl Manager {
         }
         self.establish(deadline, async {
             let addresses = resolve(resolver, &name, target.family, real).await?;
-            let mut tasks = tokio::task::JoinSet::new();
-            let mut next = 0;
-            let mut failure = Error::Network;
-            let mut due = tokio::time::Instant::now();
-            loop {
-                tokio::select! {
-                    result = tasks.join_next(), if !tasks.is_empty() => {
-                        match result {
-                            Some(Ok(Ok(socket))) => return Ok(socket),
-                            Some(Ok(Err(error))) => { failure = error; if tasks.is_empty() { due = tokio::time::Instant::now(); } },
-                            _ => return Err(Error::Internal),
-                        }
-                    }
-                    _ = tokio::time::sleep_until(due), if next < addresses.len() => {
-                        let address = SocketAddr::new(addresses[next], target.port);
-                        let transport = target.transport;
-                        tasks.spawn(async move { dial(address, transport).await });
-                        next += 1;
-                        due = tokio::time::Instant::now() + Duration::from_millis(250);
-                    }
-                    else => return Err(failure),
+            candidates(
+                addresses
+                    .into_iter()
+                    .map(|ip| SocketAddr::new(ip, target.port))
+                    .collect(),
+                target.transport,
+            )
+            .await
+        })
+        .await
+    }
+}
+
+pub(super) async fn candidates(
+    addresses: Vec<SocketAddr>,
+    transport: Transport,
+) -> Result<super::Dialed> {
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut next = 0;
+    let mut failure = Error::Network;
+    let mut due = tokio::time::Instant::now();
+    loop {
+        tokio::select! {
+            result = tasks.join_next(), if !tasks.is_empty() => {
+                match result {
+                    Some(Ok(Ok(socket))) => return Ok(socket),
+                    Some(Ok(Err(error))) => { failure = error; if tasks.is_empty() { due = tokio::time::Instant::now(); } },
+                    _ => return Err(Error::Internal),
                 }
             }
-        }).await
+            _ = tokio::time::sleep_until(due), if next < addresses.len() => {
+                let address = addresses[next];
+                tasks.spawn(async move { dial(address, transport).await });
+                next += 1;
+                due = tokio::time::Instant::now() + Duration::from_millis(250);
+            }
+            else => return Err(failure),
+        }
     }
 }

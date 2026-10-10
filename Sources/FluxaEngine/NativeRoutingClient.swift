@@ -23,11 +23,15 @@ public final class NativeRoutingClient: Sendable {
   }
 
   public func configure(_ configuration: RoutingConfiguration) throws {
+    _ = try client.command(Self.configurationCommand(configuration))
+  }
+
+  static func configurationCommand(_ configuration: RoutingConfiguration) throws -> [String: Any] {
     var command = try object(configuration.settings)
     command["rules"] = try JSONSerialization
       .jsonObject(with: JSONEncoder().encode(configuration.rules))
     command["operation"] = "route_configure"
-    _ = try client.command(command)
+    return command
   }
 
   public func evaluate(_ target: RoutingTarget) throws -> NativeRouteDecision {
@@ -44,14 +48,14 @@ public final class NativeRoutingClient: Sendable {
   }
 
   private func decision(_ target: RoutingTarget, operation: String) throws -> NativeRouteDecision {
-    var command = try object(target)
+    var command = try Self.object(target)
     command["operation"] = operation
     guard let value = try client.command(command).routeDecision
     else { throw NativeClientError.boundary }
     return value
   }
 
-  private func object(_ value: some Encodable) throws -> [String: Any] {
+  private static func object(_ value: some Encodable) throws -> [String: Any] {
     guard let object = try JSONSerialization
       .jsonObject(with: JSONEncoder().encode(value)) as? [String: Any]
     else { throw NativeClientError.boundary }

@@ -169,32 +169,24 @@ impl Resolver {
     pub async fn resolve_real(&self, query: Query) -> Result<Answer> {
         self.resolve_inner(query, false).await
     }
-    async fn resolve_inner(&self, query: Query, synthetic: bool) -> Result<Answer> {
-        let name = normalize(&query.name)?;
-        if query.query_type.len() > 16 {
-            return Err(Error::InvalidInput);
-        }
-        let kind = RecordType::from_str(&query.query_type.to_ascii_uppercase())
-            .map_err(|_| Error::Unsupported)?;
-        if matches!(
-            kind,
-            RecordType::ANY
-                | RecordType::AXFR
-                | RecordType::IXFR
-                | RecordType::OPT
-                | RecordType::Unknown(_)
-        ) {
+    /// 只生成本地映射，排除项直接拒绝，不向上游查询。
+    pub fn allocate_fake_ip(&self, query: Query) -> Result<Answer> {
+        let (name, kind) = validated_query(query)?;
+        if !matches!(kind, RecordType::A | RecordType::AAAA) {
             return Err(Error::Unsupported);
         }
         let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
-        if synthetic
-            && let Some(table) = &self.fake_ip
+        self.synthetic_answer(&name, kind)?
+            .ok_or(Error::FakeIpUnavailable)
+    }
+    fn synthetic_answer(&self, name: &str, kind: RecordType) -> Result<Option<Answer>> {
+        if let Some(table) = &self.fake_ip
             && matches!(kind, RecordType::A | RecordType::AAAA)
-            && let Some((address, from_cache)) = table.allocate(&name, kind == RecordType::AAAA)?
+            && let Some((address, from_cache)) = table.allocate(name, kind == RecordType::AAAA)?
         {
-            return Ok(Answer {
-                wire: wire::synthetic(&name, &address, kind)?,
-                name: name.clone(),
+            return Ok(Some(Answer {
+                wire: wire::synthetic(name, &address, kind)?,
+                name: name.to_string(),
                 query_type: kind.to_string(),
                 records: vec![Record {
                     name: format!("{name}."),
@@ -208,7 +200,15 @@ impl Resolver {
                 validation: "synthetic".into(),
                 from_cache,
                 duration_ms: 0,
-            });
+            }));
+        }
+        Ok(None)
+    }
+    async fn resolve_inner(&self, query: Query, synthetic: bool) -> Result<Answer> {
+        let (name, kind) = validated_query(query)?;
+        let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
+        if synthetic && let Some(answer) = self.synthetic_answer(&name, kind)? {
+            return Ok(answer);
         }
         let key = (name.clone(), kind.to_string());
         let started = Instant::now();
@@ -401,4 +401,24 @@ pub(super) fn normalize(name: &str) -> Result<String> {
         return Err(Error::InvalidInput);
     }
     Ok(name.to_ascii_lowercase())
+}
+
+fn validated_query(query: Query) -> Result<(String, RecordType)> {
+    let name = normalize(&query.name)?;
+    if query.query_type.len() > 16 {
+        return Err(Error::InvalidInput);
+    }
+    let kind = RecordType::from_str(&query.query_type.to_ascii_uppercase())
+        .map_err(|_| Error::Unsupported)?;
+    if matches!(
+        kind,
+        RecordType::ANY
+            | RecordType::AXFR
+            | RecordType::IXFR
+            | RecordType::OPT
+            | RecordType::Unknown(_)
+    ) {
+        return Err(Error::Unsupported);
+    }
+    Ok((name, kind))
 }

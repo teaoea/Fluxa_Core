@@ -7,6 +7,7 @@ pub enum Error {
     DnsTimeout,
     DnsResponse,
     DnsValidation,
+    FakeIpUnavailable,
     ResourceLimit,
     Network,
     NetworkTimeout,
@@ -23,6 +24,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::FakeIpUnavailable => "当前域名未生成 Fake-IP 映射，请检查配置及排除项",
             Self::DnsTimeout => "DNS 查询超时",
             Self::DnsValidation => "DNSSEC 验证或验证查询失败",
             Self::DnsResponse => "DNS 上游返回错误状态",

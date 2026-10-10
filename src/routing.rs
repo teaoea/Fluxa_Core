@@ -214,6 +214,13 @@ impl Router {
         })
     }
     pub fn evaluate(&self, target: Target) -> Result<Decision> {
+        self.evaluate_inner(target, false)?.ok_or(Error::Internal)
+    }
+    /// None 表示前序 CIDR 尚无地址，不允许跳过它匹配后面的规则。
+    pub fn evaluate_before_dns(&self, target: Target) -> Result<Option<Decision>> {
+        self.evaluate_inner(target, true)
+    }
+    fn evaluate_inner(&self, target: Target, defer_ip: bool) -> Result<Option<Decision>> {
         if target.port == 0 || (target.domain.is_none() && target.address.is_none()) {
             return Err(Error::InvalidInput);
         }
@@ -234,9 +241,12 @@ impl Router {
             } else {
                 Policy::Proxy
             };
-            return Ok(self.decision(policy, None, Reason::Mode, None));
+            return Ok(Some(self.decision(policy, None, Reason::Mode, None)));
         }
         for (index, rule) in self.rules.iter().enumerate() {
+            if defer_ip && address.is_none() && matches!(&rule.matcher, Matcher::Network(_)) {
+                return Ok(None);
+            }
             let matched = match &rule.matcher {
                 Matcher::Domain(value, suffix) => name.as_ref().is_some_and(|name| {
                     name == value
@@ -250,15 +260,20 @@ impl Router {
                 Matcher::Transport(value) => *value == target.transport,
             };
             if matched {
-                return Ok(self.decision(
+                return Ok(Some(self.decision(
                     rule.policy,
                     Some(index),
                     Reason::Rule,
                     rule.outbound.clone(),
-                ));
+                )));
             }
         }
-        Ok(self.decision(self.fallback, None, Reason::Fallback, None))
+        Ok(Some(self.decision(
+            self.fallback,
+            None,
+            Reason::Fallback,
+            None,
+        )))
     }
     fn decision(
         &self,

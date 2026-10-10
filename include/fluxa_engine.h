@@ -15,6 +15,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 6 代表 DNS 客户端；位 8 代表有访问控制的 UDP/TCP DNS 服务。
 // 位 5 仅代表 IP 数据包检查，不代表系统 TUN 或 TCP/UDP 转发可用。
 // 位 12 代表带映射代次的 Fake-IP 连接，不代表 TUN 转发。
+// 位 13 代表路由决策实际执行，不代表逻辑代理出站协议可用。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);

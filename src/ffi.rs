@@ -52,6 +52,14 @@ impl Engine {
         }
         client.clone().ok_or(Error::Internal)
     }
+    fn router(&self) -> Result<Arc<crate::routing::Router>, Error> {
+        self.router
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .as_ref()
+            .cloned()
+            .ok_or(Error::InvalidState)
+    }
     fn dns(&self) -> Result<Arc<crate::dns::Resolver>, Error> {
         self.dns
             .lock()
@@ -130,6 +138,7 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
     OutboundConnect(crate::outbound::DomainTarget),
+    OutboundRoute(crate::outbound::RoutedTarget),
     OutboundConnectFakeIp(crate::outbound::FakeIPTarget),
     OutboundFakeIp {
         domain: String,
@@ -291,13 +300,19 @@ impl From<crate::https::Response> for Reply {
     }
 }
 impl Reply {
-    fn dns(resolver: &crate::dns::Resolver, query: crate::dns::Query) -> Result<Self, Error> {
-        Ok(Self {
+    fn dns_result(answer: crate::dns::Answer, generation: Option<u64>) -> Self {
+        Self {
             success: true,
-            dns_answer: Some(runtime()?.block_on(resolver.resolve(query))?),
-            dns_generation: resolver.fake_ip_generation(),
+            dns_answer: Some(answer),
+            dns_generation: generation,
             ..Self::default()
-        })
+        }
+    }
+    fn dns(resolver: &crate::dns::Resolver, query: crate::dns::Query) -> Result<Self, Error> {
+        Ok(Self::dns_result(
+            runtime()?.block_on(resolver.resolve(query))?,
+            resolver.fake_ip_generation(),
+        ))
     }
 }
 impl From<crate::outbound::Opened> for Reply {
@@ -308,6 +323,13 @@ impl From<crate::outbound::Opened> for Reply {
             outbound_peer: Some(opened.address),
             ..Self::default()
         }
+    }
+}
+impl From<crate::outbound::RoutedOpened> for Reply {
+    fn from(opened: crate::outbound::RoutedOpened) -> Self {
+        let mut reply = Self::from(opened.connection);
+        reply.route_decision = Some(opened.decision);
+        reply
     }
 }
 impl From<Error> for Reply {
@@ -354,6 +376,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         &command,
         Command::OutboundOpen { .. }
             | Command::OutboundConnect(_)
+            | Command::OutboundRoute(_)
             | Command::OutboundConnectFakeIp(_)
             | Command::OutboundRead { .. }
             | Command::OutboundWrite { .. }
@@ -375,6 +398,16 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::OutboundRoute(target) => {
+            let router = engine.router()?;
+            let resolver = engine.dns.lock().map_err(|_| Error::Internal)?.clone();
+            let opened = runtime()?.block_on(engine.outbound.connect_routed(
+                &router,
+                resolver.as_deref(),
+                target,
+            ))?;
+            Ok(Reply::from(opened))
+        }
         Command::OutboundFakeIp {
             domain,
             ipv6,
@@ -382,13 +415,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         } => {
             policy.check_support()?;
             let resolver = engine.dns()?;
-            Reply::dns(
-                &resolver,
-                crate::dns::Query {
-                    name: domain,
-                    query_type: if ipv6 { "AAAA" } else { "A" }.into(),
-                },
-            )
+            let query = crate::dns::Query {
+                name: domain,
+                query_type: if ipv6 { "AAAA" } else { "A" }.into(),
+            };
+            Ok(Reply::dns_result(
+                resolver.allocate_fake_ip(query)?,
+                resolver.fake_ip_generation(),
+            ))
         }
         Command::OutboundConnectFakeIp(target) => {
             target.policy.check_support()?;
@@ -486,13 +520,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::RouteEvaluate(target) | Command::RouteCheck(target) => {
-            let router = engine
-                .router
-                .lock()
-                .map_err(|_| Error::Internal)?
-                .as_ref()
-                .cloned()
-                .ok_or(Error::InvalidState)?;
+            let router = engine.router()?;
             let decision = router.evaluate(target)?;
             if checked_route {
                 decision.check_support()?;
@@ -816,7 +844,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    8191
+    16383
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -919,7 +947,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 8191);
+        assert_eq!(fluxa_engine_capabilities(), 16383);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {
