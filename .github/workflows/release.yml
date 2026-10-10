@@ -2,7 +2,7 @@ name: 发布内核二进制
 on:
   push:
     branches: [dev]
-    paths: [Release.version]
+    paths: [Release.version, .github/workflows/release.yml]
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,8 +19,8 @@ jobs:
           fetch-depth: 0
       - name: 安装 Rust 工具链
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.98.1
       - name: 验证 Rust 与实际 Swift FFI
         run: |
           cargo fetch --locked
