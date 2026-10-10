@@ -15,6 +15,7 @@ public enum NativeClientError: LocalizedError {
 }
 
 struct NativeCommandReply: Decodable {
+  let dnsAnswer: NativeDNSAnswer?
   let packetInfo: NativePacketInfo?
   let scriptResultJSON: String?
   let success: Bool
@@ -32,6 +33,7 @@ struct NativeCommandReply: Decodable {
   enum CodingKeys: String, CodingKey {
     case success, error, status, headers, body
     case port, capture
+    case dnsAnswer = "dns_answer"
     case packetInfo = "packet_info"
     case scriptResultJSON = "script_result_json"
     case certificatePEM = "certificate_pem"

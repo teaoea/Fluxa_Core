@@ -9,6 +9,7 @@ extern "C" {
 /* 状态码：0 成功，1 无效句柄，2 能力未实现，3 内部错误。 */
 uint32_t fluxa_engine_abi_version(void);
 /* 能力位：0 HTTPS，1 MITM，2 同步 JSON 脚本，3 通用 HTTP 调试，4 内置流量脚本；不代表代理协议已实现。 */
+// 位 6 代表显式配置的 DNS 查询；不代表局域网 DNS 服务或 Fake-IP。
 // 位 5 仅代表 IP 数据包检查，不代表系统 TUN 或 TCP/UDP 转发可用。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */

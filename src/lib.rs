@@ -2,6 +2,7 @@
 //! HTTPS、MITM 与脚本运行时复用资源管理；代理协议分阶段实现。
 
 mod budget;
+pub mod dns;
 pub mod error;
 pub mod http;
 pub mod https;

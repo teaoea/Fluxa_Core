@@ -36,6 +36,10 @@ struct ConnectionOptions {
     allow_http: bool,
 }
 impl HttpsClient {
+    /// 复用受验证的根证书配置供加密 DNS；不提供跳过证书校验入口。
+    pub(crate) fn tls_config(&self) -> ClientConfig {
+        self.config.as_ref().clone()
+    }
     pub fn system() -> Result<Self> {
         Self::system_with_additional_roots(Vec::new())
     }

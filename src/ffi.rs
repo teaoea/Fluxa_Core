@@ -35,6 +35,7 @@ const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
 struct Engine {
     client: Mutex<Option<HttpsClient>>,
     busy: AtomicBool,
+    dns: Mutex<Option<Arc<crate::dns::Resolver>>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
@@ -117,6 +118,11 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    DnsConfigure(crate::dns::Config),
+    DnsValidate(crate::dns::Config),
+    DnsClose,
+    DnsQuery(crate::dns::Query),
+    DnsClearCache,
     PacketOpen {
         mtu: usize,
     },
@@ -178,6 +184,8 @@ impl serde::Serialize for Secret {
 }
 #[derive(Default, Serialize)]
 struct Reply {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns_answer: Option<crate::dns::Answer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     packet_info: Option<crate::tun::PacketInfo>,
     success: bool,
@@ -242,6 +250,52 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let _permit = REQUESTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
     let command: Command = serde_json::from_slice(bytes).map_err(|_| Error::InvalidInput)?;
     match command {
+        Command::DnsValidate(config) => {
+            config.validate()?;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::DnsClose => {
+            *engine.dns.lock().map_err(|_| Error::Internal)? = None;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::DnsConfigure(config) => {
+            let resolver =
+                crate::dns::Resolver::with_tls_config(config, engine.client()?.tls_config())?;
+            *engine.dns.lock().map_err(|_| Error::Internal)? = Some(Arc::new(resolver));
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::DnsQuery(query) => {
+            let resolver = engine
+                .dns
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .as_ref()
+                .map(Arc::clone)
+                .ok_or(Error::InvalidState)?;
+            Ok(Reply {
+                success: true,
+                dns_answer: Some(runtime()?.block_on(resolver.resolve(query))?),
+                ..Reply::default()
+            })
+        }
+        Command::DnsClearCache => {
+            if let Some(resolver) = engine.dns.lock().map_err(|_| Error::Internal)?.as_ref() {
+                resolver.clear()?;
+            }
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::TunStart => Err(Error::Unsupported),
         Command::PacketOpen { mtu } => {
             let mut session = engine.packet_session.lock().map_err(|_| Error::Internal)?;
@@ -430,10 +484,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发）；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    63
+    127
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -533,7 +587,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 63);
+        assert_eq!(fluxa_engine_capabilities(), 127);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

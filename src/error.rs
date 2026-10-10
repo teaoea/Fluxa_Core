@@ -4,6 +4,9 @@ use std::{fmt, io};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     InvalidInput,
+    DnsTimeout,
+    DnsResponse,
+    DnsValidation,
     ResourceLimit,
     Network,
     Tls,
@@ -18,6 +21,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::DnsTimeout => "DNS 查询超时",
+            Self::DnsValidation => "DNSSEC 验证或验证查询失败",
+            Self::DnsResponse => "DNS 上游返回错误状态",
             Self::InvalidInput => "请求或配置不合法",
             Self::ResourceLimit => "超过资源上限",
             Self::Network => "网络连接或读写失败",

@@ -1,0 +1,309 @@
+//! DNS 客户端共用层：固定上游、加密传输、DNSSEC、正负 TTL 缓存及资源预算。
+//! Hickory 负责标准报文/密码学验证；不读取系统 DNS 或 hosts，不隐式降级。
+mod config;
+use crate::{
+    budget::{ByteBudget, ByteLease},
+    error::{Error, Result},
+};
+pub use config::{Config, Server};
+use hickory_resolver::{
+    TokioResolver,
+    net::runtime::TokioRuntimeProvider,
+    net::{DnsError, NetError},
+    proto::{
+        dnssec::Proof,
+        rr::{RData, RecordType},
+    },
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    str::FromStr,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
+use tokio::sync::Semaphore;
+const MAX_CACHE: usize = 128;
+const MAX_RESULT_BYTES: usize = 16 * 1024;
+static CACHE_BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
+static CLIENTS: Semaphore = Semaphore::const_new(16);
+static QUERIES: Semaphore = Semaphore::const_new(16);
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Query {
+    pub name: String,
+    pub query_type: String,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct Record {
+    pub name: String,
+    pub record_type: String,
+    pub ttl: u32,
+    pub data: String,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct Answer {
+    pub name: String,
+    pub query_type: String,
+    pub records: Vec<Record>,
+    pub addresses: Vec<String>,
+    pub ttl: u32,
+    pub rcode: u16,
+    pub validation: String,
+    pub from_cache: bool,
+    pub duration_ms: u64,
+}
+struct Cached {
+    answer: Answer,
+    expires: Instant,
+    _lease: ByteLease,
+}
+/// 所有上游显式配置；实例最多 16 个，每次查询有总期限，缓存不提高 TTL。
+pub struct Resolver {
+    inner: Vec<TokioResolver>,
+    config: Config,
+    cache: Mutex<BTreeMap<(String, String), Cached>>,
+    _permit: tokio::sync::SemaphorePermit<'static>,
+}
+impl Resolver {
+    pub fn new(config: Config) -> Result<Self> {
+        Self::build(config, None, None)
+    }
+    pub fn with_tls_config(config: Config, tls: rustls::ClientConfig) -> Result<Self> {
+        Self::build(config, Some(tls), None)
+    }
+    /// 显式私有 DNSSEC 根信任锚，仅影响此解析器；普通客户端使用内置根锚。
+    pub fn with_trust_anchors(
+        config: Config,
+        anchors: hickory_resolver::proto::dnssec::TrustAnchors,
+    ) -> Result<Self> {
+        Self::build(config, None, Some(std::sync::Arc::new(anchors)))
+    }
+    fn build(
+        config: Config,
+        tls: Option<rustls::ClientConfig>,
+        anchors: Option<std::sync::Arc<hickory_resolver::proto::dnssec::TrustAnchors>>,
+    ) -> Result<Self> {
+        config.validate()?;
+        let permit = CLIENTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
+        let mut inner = Vec::with_capacity(config.servers.len());
+        for server in &config.servers {
+            let single = Config {
+                servers: vec![server.clone()],
+                timeout_ms: config.timeout_ms,
+                dnssec: config.dnssec,
+            };
+            let (servers, mut options) = single.build()?;
+            options.timeout =
+                Duration::from_millis((config.timeout_ms / config.servers.len() as u64).max(50));
+            let mut builder =
+                TokioResolver::builder_with_config(servers, TokioRuntimeProvider::default())
+                    .with_options(options);
+            if let Some(mut tls) = tls.clone() {
+                tls.alpn_protocols.clear();
+                builder = builder.with_tls_config(tls);
+            }
+            if let Some(anchors) = &anchors {
+                builder = builder.with_trust_anchor(anchors.clone());
+            }
+            inner.push(builder.build().map_err(|_| Error::InvalidInput)?);
+        }
+        Ok(Self {
+            inner,
+            config,
+            cache: Mutex::new(BTreeMap::new()),
+            _permit: permit,
+        })
+    }
+    pub fn clear(&self) -> Result<()> {
+        self.cache.lock().map_err(|_| Error::Internal)?.clear();
+        Ok(())
+    }
+    pub async fn resolve(&self, query: Query) -> Result<Answer> {
+        let name = normalize(&query.name)?;
+        if query.query_type.len() > 16 {
+            return Err(Error::InvalidInput);
+        }
+        let kind = RecordType::from_str(&query.query_type.to_ascii_uppercase())
+            .map_err(|_| Error::Unsupported)?;
+        if matches!(
+            kind,
+            RecordType::ANY
+                | RecordType::AXFR
+                | RecordType::IXFR
+                | RecordType::OPT
+                | RecordType::Unknown(_)
+        ) {
+            return Err(Error::Unsupported);
+        }
+        let key = (name.clone(), kind.to_string());
+        let started = Instant::now();
+        {
+            let mut cache = self.cache.lock().map_err(|_| Error::Internal)?;
+            cache.retain(|_, v| v.expires > started);
+            if let Some(entry) = cache.get(&key) {
+                let mut answer = entry.answer.clone();
+                answer.from_cache = true;
+                answer.duration_ms = 0;
+                answer.ttl = entry.expires.saturating_duration_since(started).as_secs() as u32;
+                for record in &mut answer.records {
+                    record.ttl = record.ttl.min(answer.ttl);
+                }
+                return Ok(answer);
+            }
+        }
+        let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
+        let fqdn = if name == "." {
+            name.clone()
+        } else {
+            format!("{name}.")
+        };
+        let attempt =
+            Duration::from_millis((self.config.timeout_ms / self.inner.len() as u64).max(50));
+        let lookup = tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
+            let mut last = Err(NetError::Timeout);
+            for resolver in &self.inner {
+                last = tokio::time::timeout(attempt, resolver.lookup(fqdn.clone(), kind))
+                    .await
+                    .unwrap_or(Err(NetError::Timeout));
+                if last.is_ok() || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_))))
+                {
+                    break;
+                }
+                // DNSSEC 错误不以其他上游结果掩盖，防止验证失败被当成普通重试。
+                if self.config.dnssec && !matches!(&last, Err(NetError::Timeout)) {
+                    break;
+                }
+            }
+            last
+        })
+        .await
+        .map_err(|_| Error::DnsTimeout)?;
+        let mut answer = Answer {
+            name,
+            query_type: kind.to_string(),
+            records: vec![],
+            addresses: vec![],
+            ttl: 0,
+            rcode: 0,
+            validation: if self.config.dnssec {
+                "insecure"
+            } else {
+                "disabled"
+            }
+            .into(),
+            from_cache: false,
+            duration_ms: started.elapsed().as_millis() as u64,
+        };
+        let mut cache_deadline = None;
+        match lookup {
+            Ok(lookup) => {
+                if lookup.answers().len() > 128 {
+                    return Err(Error::ResourceLimit);
+                }
+                let mut size = 0;
+                let mut secure = true;
+                let now = Instant::now();
+                let deadline = lookup.valid_until().min(now + Duration::from_secs(3600));
+                answer.ttl = deadline
+                    .saturating_duration_since(now)
+                    .as_millis()
+                    .div_ceil(1000) as u32;
+                cache_deadline = Some(deadline);
+                for record in lookup.answers() {
+                    let data = &record.data;
+                    let text = data.to_string();
+                    let owner = record.name.to_ascii();
+                    size += text.len() + owner.len();
+                    if size > MAX_RESULT_BYTES {
+                        return Err(Error::ResourceLimit);
+                    }
+                    if matches!(data, RData::A(_) | RData::AAAA(_)) {
+                        answer.addresses.push(text.clone());
+                    }
+                    secure &= record.proof == Proof::Secure;
+                    answer.records.push(Record {
+                        name: owner,
+                        record_type: record.record_type().to_string(),
+                        ttl: record.ttl,
+                        data: text,
+                    });
+                }
+                if self.config.dnssec && secure && !answer.records.is_empty() {
+                    answer.validation = "secure".into();
+                }
+            }
+            Err(NetError::Dns(DnsError::NoRecordsFound(no_records))) => {
+                answer.rcode = u16::from(no_records.response_code);
+                if answer.rcode != 0 && answer.rcode != 3 {
+                    return Err(Error::DnsResponse);
+                }
+                answer.ttl = no_records.negative_ttl.unwrap_or(0).min(300);
+                if self.config.dnssec {
+                    let secure = no_records.authorities.as_ref().is_some_and(|records| {
+                        !records.is_empty() && records.iter().all(|r| r.proof == Proof::Secure)
+                    });
+                    answer.validation = if secure { "secure" } else { "insecure" }.into();
+                    // 仅按已验证且裁剪过 TTL 的 SOA/NSEC 缓存否定结果。
+                    if secure && let Some(soa) = &no_records.soa {
+                        let proof_ttl = no_records
+                            .authorities
+                            .as_ref()
+                            .and_then(|records| records.iter().map(|r| r.ttl).min())
+                            .unwrap_or(0);
+                        answer.ttl = soa.ttl.min(soa.data.minimum).min(proof_ttl).min(300);
+                    }
+                }
+            }
+            Err(NetError::Timeout) => return Err(Error::DnsTimeout),
+            Err(_) if self.config.dnssec => return Err(Error::DnsValidation),
+            Err(_) => return Err(Error::DnsResponse),
+        }
+        if answer.ttl > 0 {
+            let mut cache = self.cache.lock().map_err(|_| Error::Internal)?;
+            let now = Instant::now();
+            cache.retain(|_, v| v.expires > now);
+            if cache.len() >= MAX_CACHE
+                && let Some(old) = cache
+                    .iter()
+                    .min_by_key(|(_, v)| v.expires)
+                    .map(|(k, _)| k.clone())
+            {
+                cache.remove(&old);
+            }
+            // 返回文本上限 16 KiB；固定 64 KiB 覆盖记录、克隆文本和缓存容器开销。
+            if let Ok(lease) = CACHE_BUDGET.reserve(64 * 1024) {
+                cache.insert(
+                    key,
+                    Cached {
+                        expires: cache_deadline
+                            .unwrap_or(now + Duration::from_secs(u64::from(answer.ttl))),
+                        answer: answer.clone(),
+                        _lease: lease,
+                    },
+                );
+            }
+        }
+        Ok(answer)
+    }
+}
+pub(super) fn normalize(name: &str) -> Result<String> {
+    if name == "." {
+        return Ok(".".into());
+    }
+    let name = name.strip_suffix('.').unwrap_or(name);
+    if name.is_empty()
+        || name.len() > 253
+        || !name.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
+    {
+        return Err(Error::InvalidInput);
+    }
+    Ok(name.to_ascii_lowercase())
+}
