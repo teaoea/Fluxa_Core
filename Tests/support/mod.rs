@@ -91,6 +91,7 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
     let path = parts.get(1).copied().unwrap_or("/");
     let response: Vec<u8> = match path {
                             "/headers" => { let payload = serde_json::to_vec(&head.headers).unwrap(); let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
+                            "/json" => { let payload = br#"{"ad":{"url":"https://example.com/ad"},"title":"keep","id":18446744073709551615,"nested":{"ad":"keep"}}"#; let mut response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: old\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
                             "/chunked" => b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".to_vec(),
                             "/ambiguous" => b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n".to_vec(),
                             "/oversized" => b"HTTP/1.1 200 OK\r\nContent-Length: 8388609\r\n\r\n".to_vec(),

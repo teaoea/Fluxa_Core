@@ -44,8 +44,11 @@ public struct NativeRewriteRule: Encodable, Sendable {
   public let header: String?
   public let value: String?
   public let match: String?
+  public let script: String?
+  public let jsonKeys: [String]?
   enum CodingKeys: String, CodingKey {
-    case host, action, header, value, match
+    case host, action, header, value, match, script
+    case jsonKeys = "json_keys"
     case pathPrefix = "path_prefix"
   }
 
@@ -55,7 +58,9 @@ public struct NativeRewriteRule: Encodable, Sendable {
     action: String,
     header: String? = nil,
     value: String? = nil,
-    match: String? = nil
+    match: String? = nil,
+    script: String? = nil,
+    jsonKeys: [String]? = nil
   ) {
     self.host = host
     self.pathPrefix = pathPrefix
@@ -63,6 +68,8 @@ public struct NativeRewriteRule: Encodable, Sendable {
     self.header = header
     self.value = value
     self.match = match
+    self.script = script
+    self.jsonKeys = jsonKeys
   }
 }
 

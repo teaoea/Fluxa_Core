@@ -377,10 +377,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    15
+    31
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -480,7 +480,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 15);
+        assert_eq!(fluxa_engine_capabilities(), 31);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

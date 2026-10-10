@@ -16,6 +16,8 @@ pub struct Rewrite {
     pub header: Option<String>,
     pub value: Option<String>,
     pub r#match: Option<String>,
+    pub script: Option<crate::traffic_script::Script>,
+    pub json_keys: Option<Vec<String>>,
 }
 #[derive(Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -24,11 +26,17 @@ pub enum Action {
     RequestHeader,
     ResponseHeader,
     ReplaceResponseText,
+    ResponseScript,
 }
 impl Rewrite {
     pub fn validate(&self) -> Result<()> {
         normalize_host(&self.host)?;
         if !self.path_prefix.starts_with('/') || self.path_prefix.len() > 2048 {
+            return Err(Error::InvalidInput);
+        }
+        if self.action != Action::ResponseScript
+            && (self.script.is_some() || self.json_keys.is_some())
+        {
             return Err(Error::InvalidInput);
         }
         match self.action {
@@ -65,6 +73,14 @@ impl Rewrite {
                 if pattern.is_empty() || pattern.len() > 8192 || value.len() > 8192 {
                     return Err(Error::InvalidInput);
                 }
+            }
+            Action::ResponseScript => {
+                if self.header.is_some() || self.value.is_some() || self.r#match.is_some() {
+                    return Err(Error::InvalidInput);
+                }
+                self.script
+                    .ok_or(Error::InvalidInput)?
+                    .validate(self.json_keys.as_deref().ok_or(Error::InvalidInput)?)?;
             }
             Action::Reject => {}
         }
@@ -109,6 +125,36 @@ pub fn response(url: &str, response: &mut Response, rules: &[Rewrite]) -> Result
         if rule.action == Action::ResponseHeader {
             replace_header(&mut response.headers, rule)?;
         }
+        if rule.action == Action::ResponseScript {
+            let mime = response
+                .headers
+                .iter()
+                .find(|h| h.name.eq_ignore_ascii_case("content-type"))
+                .map(|h| {
+                    h.value
+                        .split(';')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_ascii_lowercase()
+                });
+            if response.headers.iter().any(|h| {
+                h.name.eq_ignore_ascii_case("content-encoding")
+                    && !h.value.eq_ignore_ascii_case("identity")
+            }) || !mime.is_some_and(|m| {
+                m == "application/json" || (m.starts_with("application/") && m.ends_with("+json"))
+            }) {
+                return Err(Error::Unsupported);
+            }
+            let body = rule.script.ok_or(Error::InvalidInput)?.execute(
+                &response.body,
+                rule.json_keys.as_deref().ok_or(Error::InvalidInput)?,
+            )?;
+            if body != response.body {
+                response.body = body;
+                remove_body_validators(&mut response.headers);
+            }
+        }
         if rule.action != Action::ReplaceResponseText || response.body.len() > 1024 * 1024 {
             continue;
         }
@@ -147,11 +193,36 @@ pub fn response(url: &str, response: &mut Response, rules: &[Rewrite]) -> Result
         }
         if count != 0 {
             response.body = text.replace(pattern, value).into_bytes();
-            response.headers.retain(|h| {
-                !["etag", "content-md5", "digest", "content-length"]
-                    .contains(&h.name.to_ascii_lowercase().as_str())
-            });
+            remove_body_validators(&mut response.headers);
         }
     }
     Ok(())
+}
+
+fn remove_body_validators(headers: &mut Vec<Header>) {
+    headers.retain(|h| {
+        !["etag", "content-md5", "digest", "content-length"]
+            .contains(&h.name.to_ascii_lowercase().as_str())
+    });
+}
+
+/// 脚本在阻塞任务线程执行，不占用 socket I/O 线程；响应所有权保留在 Rust 内。
+pub async fn process_response(
+    url: &str,
+    mut value: Response,
+    rules: &[Rewrite],
+) -> Result<Response> {
+    if rules.iter().any(|r| r.action == Action::ResponseScript) {
+        let url = url.to_owned();
+        let rules = rules.to_vec();
+        tokio::task::spawn_blocking(move || {
+            response(&url, &mut value, &rules)?;
+            Ok(value)
+        })
+        .await
+        .map_err(|_| Error::Internal)?
+    } else {
+        response(url, &mut value, rules)?;
+        Ok(value)
+    }
 }

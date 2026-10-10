@@ -247,3 +247,125 @@ fn replacement_expansion_is_bounded_before_allocation() {
     );
     assert_eq!(response.body.len(), 1024 * 1024);
 }
+
+#[tokio::test]
+async fn traffic_script_runs_on_http_and_https_and_captures_processed_body() {
+    let tls = support::fixture().await;
+    let plain = support::plain_fixture().await;
+    let ca = Arc::new(Authority::generate().unwrap());
+    let captures = Arc::new(CaptureStore::default());
+    let mut roots = RootCertStore::empty();
+    roots.add(tls.root.clone()).unwrap();
+    let server = proxy(ProxyOptions {
+        hosts: vec!["localhost".into()], capture_bodies: true,
+        rewrites: rules(serde_json::json!([
+            {"host":"localhost","path_prefix":"/json","action":"response-script","script":"remove-json-keys","json_keys":["ad"]},
+            {"host":"localhost","path_prefix":"/json","action":"response-header","header":"X-Processed","value":"yes"}
+        ])), ..Default::default()
+    }, roots, Arc::clone(&captures), Arc::clone(&ca)).await;
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(CertificateDer::from(ca.certificate_der().to_vec()))
+        .unwrap();
+    let client = HttpsClient::with_roots(roots).unwrap();
+    for url in [
+        format!("http://localhost:{}/json", plain.port),
+        format!("https://localhost:{}/json", tls.port),
+    ] {
+        let response = client
+            .execute_request("GET", &url, &[], &[], Some(server.port()))
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
+        assert!(value.get("ad").is_none());
+        assert_eq!(value["title"], "keep");
+        assert_eq!(value["nested"]["ad"], "keep");
+        assert_eq!(value["id"].as_u64(), Some(u64::MAX));
+        assert!(
+            !response
+                .headers
+                .iter()
+                .any(|h| h.name.eq_ignore_ascii_case("etag"))
+        );
+        assert!(
+            response
+                .headers
+                .iter()
+                .any(|h| h.name == "X-Processed" && h.value == "yes")
+        );
+        timeout(Duration::from_secs(2), async {
+            while captures.peek().unwrap().is_none() {
+                sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let record = captures.peek().unwrap().unwrap();
+        assert_eq!(record.response_body, response.body);
+        assert!(record.error.is_none());
+        captures.acknowledge(record.id).unwrap();
+    }
+    server.stop().await.unwrap();
+}
+
+#[test]
+fn traffic_scripts_validate_configuration_and_bound_processing() {
+    use libfluxa_core::{
+        http::Header,
+        https::Response,
+        rewrite,
+        traffic_script::{MAX_BODY, Script},
+    };
+    let keys = vec!["ad".to_owned()];
+    assert!(Script::RemoveJsonKeys.validate(&[]).is_err());
+    assert!(
+        Script::RemoveJsonKeys
+            .validate(&["ad".into(), "ad".into()])
+            .is_err()
+    );
+    assert_eq!(
+        Script::RemoveJsonKeys.execute(&vec![b' '; MAX_BODY + 1], &keys),
+        Err(Error::ResourceLimit)
+    );
+    assert_eq!(
+        Script::RemoveJsonKeys.execute(b"[]", &keys),
+        Err(Error::Unsupported)
+    );
+    assert!(
+        Script::RemoveJsonKeys
+            .execute(b"invalid JSON", &keys)
+            .is_err()
+    );
+    assert!(serde_json::from_value::<Rewrite>(serde_json::json!({"host":"localhost","path_prefix":"/","action":"response-script","script":"https://example.com/script.js"})).is_err());
+    let rule = rules(
+        serde_json::json!([{"host":"localhost","path_prefix":"/","action":"response-script","script":"remove-json-keys","json_keys":["ad"]}]),
+    );
+    rule[0].validate().unwrap();
+    for (mime, encoding) in [("text/plain", "identity"), ("application/json", "gzip")] {
+        let original = br#"{"ad":1,"keep":2}"#.to_vec();
+        let mut response = Response {
+            status: 200,
+            headers: vec![
+                Header {
+                    name: "Content-Type".into(),
+                    value: mime.into(),
+                },
+                Header {
+                    name: "Content-Encoding".into(),
+                    value: encoding.into(),
+                },
+            ],
+            body: original.clone(),
+            duration_ms: 0,
+        };
+        assert_eq!(
+            rewrite::response("http://localhost/", &mut response, &rule),
+            Err(Error::Unsupported)
+        );
+        assert_eq!(response.body, original);
+    }
+    let wrong_stage = rules(
+        serde_json::json!([{"host":"localhost","path_prefix":"/","action":"request-header","header":"X-Test","value":"x","script":"remove-json-keys","json_keys":["ad"]}]),
+    );
+    assert!(wrong_stage[0].validate().is_err());
+}

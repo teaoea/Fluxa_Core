@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.88"
@@ -12,7 +12,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["src/**", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md"]
+include = ["src/**", "include/**", "Tests/**/*.rs", "examples/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICESE.md", "DEPENDENCIES.md", "HTTPS.md", "MITM.md", "JS.md", "MemorySafety.md", "DebugProxy.md", "TrafficProcessing.md"]
 
 [lib]
 name = "libfluxa_core"
@@ -39,7 +39,7 @@ rustls-native-certs = "=0.8.4"
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
 serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.149"
+serde_json = { version = "=1.0.149", features = ["arbitrary_precision"] }
 zeroize = "=1.9.0"
 httparse = "=1.10.1"
 url = "=2.5.8"

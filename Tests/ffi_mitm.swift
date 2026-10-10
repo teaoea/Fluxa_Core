@@ -19,11 +19,39 @@ struct MitmFFITests {
   static func main() throws {
     let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
     let fixture = try JSONDecoder().decode(Fixture.self, from: data)
+    try trafficScript(fixture)
     try interception(fixture)
     try passthrough(fixture)
     try untrustedUpstream(fixture)
     try captureDisabled(fixture)
     print("Swift 客户端 FFI MITM：启动、双 TLS、日志、透传、CA 恢复和停止全部通过")
+  }
+
+  private static func trafficScript(_ fixture: Fixture) throws {
+    let proxy = try NativeMitmClient()
+    try proxy.addTrustedUpstreamRoot(fixture.certificatePEM)
+    let root = try proxy.rootCertificate()
+    let port = try proxy.start(hosts: ["localhost"], captureBodies: true, rewrites: [
+      NativeRewriteRule(
+        host: "localhost",
+        pathPrefix: "/json",
+        action: "response-script",
+        script: "remove-json-keys",
+        jsonKeys: ["ad"]
+      ),
+    ])
+    defer { try? proxy.stop() }
+    let client = try NativeHttpsClient()
+    try client.addTrustedRoot(root)
+    let response = try client.execute(method: "GET", url: fixture.url + "/json", proxyPort: port)
+    guard let body = try JSONSerialization.jsonObject(with: response.body) as? [String: Any],
+          let text = String(data: response.body, encoding: .utf8)
+    else { throw NativeClientError.boundary }
+    precondition(body["ad"] == nil && body["title"] as? String == "keep")
+    precondition(text.contains("18446744073709551615"))
+    precondition(!response.headers.contains { $0.name.lowercased() == "etag" })
+    let record = try waitForCapture(proxy)
+    precondition(record.intercepted && record.responseBody == response.body && record.error == nil)
   }
 
   private static func interception(_ fixture: Fixture) throws {

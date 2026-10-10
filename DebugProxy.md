@@ -4,7 +4,7 @@
 
 Rust 负责普通 HTTP 代理、CONNECT、精确域名 HTTPS MITM、上游证书验证、请求执行、声明式改写、连接及资源管理。SwiftUI 负责页面与展示；Swift 平台层只负责 Keychain、证书文件导出、启停调用和 Apple 必需接口。
 
-macOS RequestRunner 与 RustDebugProxy 已通过实际 C ABI 调用内核。旧 Swift HTTPProxyServer、ProxySession、CertificateAuthority、RewriteProcessor 及 HTTPCodec 已移除。订阅下载和 IP 查询目前仍使用旧 Swift 服务，后续单独迁移；本次没有实现 SOCKS、TUN、DNS、网关或代理出站协议，也没有将 JS 接入流量管线。
+macOS RequestRunner 与 RustDebugProxy 已通过实际 C ABI 调用内核。旧 Swift HTTPProxyServer、ProxySession、CertificateAuthority、RewriteProcessor 及 HTTPCodec 已移除。订阅下载和 IP 查询目前仍使用旧 Swift 服务，后续单独迁移；本次没有实现 SOCKS、TUN、DNS、网关或代理出站协议，0.2.0 已将受限内置 JS 接入 HTTP/HTTPS 响应管线，完整规则路由仍待开发。
 
 Swift 产品名为 FluxaEngine，客户端使用 `import FluxaEngine`。Rust crate 保留内部 rlib 供测试；对外交付 `FluxaEngine.xcframework`，内部是 `libfluxa_core.framework`，真正的二进制文件名是 `libfluxa_core`，没有扩展名且内容为静态 archive。Cargo 自动生成的中间 archive 文件在打包时改名，不作为最终交付名称；不编译 cdylib。
 
@@ -23,7 +23,7 @@ mitm_start 接收端口、精确域名、正文捕获开关、可选本机上游
 
 监听仅绑定 127.0.0.1。allow_lan 为 true 明确拒绝，LAN 认证与网关属于后续功能。没有隐式修改 macOS 系统代理、系统证书信任或路由。
 
-保留原有精确域名加路径前缀声明式改写：拒绝、请求头、响应头、UTF-8 文本响应替换。受保护协议头不可改写，头部总量受 32 KiB/128 项限制；文本替换只处理不压缩的 text/json 正文，原文至多 1 MiB，先检查展开后长度再分配，结果至多 8 MiB。完整 JS/规则流量处理属于后续阶段。
+保留原有精确域名加路径前缀声明式改写：拒绝、请求头、响应头、UTF-8 文本响应替换。受保护协议头不可改写，头部总量受 32 KiB/128 项限制；文本替换只处理不压缩的 text/json 正文，原文至多 1 MiB，先检查展开后长度再分配，结果至多 8 MiB。内置 JSON 响应脚本见 TrafficProcessing.md；完整路由及自定义脚本处理属于后续阶段。
 
 HTTP/1.1、正文/解码 8 MiB、头部 32 KiB/128 项，60 秒会话/请求超时。不支持流水线、Upgrade、Expect、WebSocket、HTTP/2/3；不自动跟随重定向或解压压缩正文。请求编辑器在后台执行阻塞 FFI，超时有上限；尚未提供请求任务的立即取消接口。
 

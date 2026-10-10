@@ -304,10 +304,18 @@ impl HttpsClient {
             name: "Accept-Encoding".into(),
             value: "identity".into(),
         });
+        if options.proxy_port == Some(0) {
+            return Err(Error::InvalidInput);
+        }
+        let http_proxy =
+            url.scheme() == "http" && options.proxy_port.is_some() && options.stream.is_none();
         let mut path = url.path().to_owned();
         if let Some(query) = url.query() {
             path.push('?');
             path.push_str(query);
+        }
+        if http_proxy {
+            path = url.as_str().to_owned();
         }
         if path.len() + header_bytes > http::MAX_HEADER {
             return Err(Error::ResourceLimit);
@@ -315,8 +323,10 @@ impl HttpsClient {
         let stream = match options.stream {
             Some(stream) => stream,
             None => {
-                if url.scheme() == "http" {
-                    Self::connect_plain(&host, port, options.proxy_port).await?
+                if let Some(proxy_port) = options.proxy_port.filter(|_| http_proxy) {
+                    Box::new(TcpStream::connect(("127.0.0.1", proxy_port)).await?) as SecureStream
+                } else if url.scheme() == "http" {
+                    Self::connect_plain(&host, port, None).await?
                 } else {
                     self.connect_tls(&host, port, options.proxy_port).await?
                 }

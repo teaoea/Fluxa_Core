@@ -384,15 +384,19 @@ async fn forward<S: Duplex>(
                 .await
         }
     };
-    let mut response = match result {
+    let response = match result {
         Ok(response) => response,
         Err(error) => {
             return failure(socket, capture, error, 502, state.options.capture_bodies).await;
         }
     };
-    if let Err(error) = rewrite::response(target, &mut response, &state.options.rewrites) {
-        return failure(socket, capture, error, 502, state.options.capture_bodies).await;
-    }
+    let response = match rewrite::process_response(target, response, &state.options.rewrites).await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return failure(socket, capture, error, 502, state.options.capture_bodies).await;
+        }
+    };
     capture.status = Some(response.status);
     capture.response_headers = response.headers.clone();
     capture.response_body_length = response.body.len();
