@@ -121,30 +121,63 @@ fn main() {
         let _ = std::fs::remove_dir_all(&path);
         let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
         let start = Instant::now();
-        store
-            .update(
-                Config {
-                    fallback: Policy::Direct,
-                    ..Config::default()
-                },
-                sources(input.clone()),
-            )
-            .expect("第一次 YAML 提交必须实际成功");
-        store
-            .update(
-                Config {
-                    fallback: Policy::Direct,
-                    ..Config::default()
-                },
-                sources(input),
-            )
-            .expect("新旧快照共存更新必须实际成功");
+        if std::env::args().any(|arg| arg == "--background") {
+            let service = libfluxa_core::routing::background::Service::new(
+                store,
+                std::sync::Arc::new(libfluxa_core::outbound::Manager::default()),
+            );
+            for rules in [input.clone(), input] {
+                let submitted = Instant::now();
+                let job = service
+                    .start(
+                        Config {
+                            fallback: Policy::Direct,
+                            ..Config::default()
+                        },
+                        sources(rules),
+                    )
+                    .expect("后台提交必须成功");
+                println!("background_submit_us={}", submitted.elapsed().as_micros());
+                loop {
+                    let job = service.job(job.id).unwrap();
+                    match job.phase {
+                        libfluxa_core::routing::background::Phase::Compiling => {
+                            std::thread::sleep(std::time::Duration::from_millis(1))
+                        }
+                        libfluxa_core::routing::background::Phase::Succeeded => break,
+                        _ => panic!("后台生成失败：{:?}", job.error),
+                    }
+                }
+            }
+            service.close().unwrap();
+            // Service 关闭后仍可从磁盘验证完整生成产物。
+        } else {
+            store
+                .update(
+                    Config {
+                        fallback: Policy::Direct,
+                        ..Config::default()
+                    },
+                    sources(input.clone()),
+                )
+                .expect("第一次 YAML 提交必须实际成功");
+            store
+                .update(
+                    Config {
+                        fallback: Policy::Direct,
+                        ..Config::default()
+                    },
+                    sources(input),
+                )
+                .expect("新旧快照共存更新必须实际成功");
+            store.close().unwrap();
+        }
         println!(
             "two_atomic_updates_ms={} stable_rss_kib={}",
             start.elapsed().as_millis(),
             rss()
         );
-        store.close().unwrap();
+        // 同步模式在上面的分支内关闭，异步模式由 Service 关闭。
         let reopened = libfluxa_core::routing::store::Store::open(&path)
             .expect("磁盘 YAML 必须能够重新加载编译");
         assert_eq!(reopened.snapshot().unwrap().document().rules.len(), count);

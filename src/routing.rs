@@ -228,7 +228,7 @@ impl Router {
     pub fn evaluate(&self, target: Target) -> Result<Decision> {
         self.runtime.evaluate(&target)
     }
-    /// 域名非拦截规则不能跳过真实地址检查。
+    /// 域名命中直接决定动作，未命中才进入真实 IP 规则阶段。
     pub fn evaluate_before_dns(&self, target: Target) -> Result<Option<Decision>> {
         self.runtime.evaluate_before_dns(&target)
     }
@@ -239,3 +239,6 @@ pub mod runtime;
 
 /// 原子文件提交和不可变规则快照生命周期。
 pub mod store;
+
+/// 有界后台生成任务；提交期间连接继续使用原子快照。
+pub mod background;

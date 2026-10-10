@@ -41,7 +41,7 @@ struct Engine {
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
     captures: Arc<CaptureStore>,
-    runtime_rules: Mutex<Option<crate::routing::store::Store>>,
+    runtime_rules: Mutex<Option<crate::routing::background::Service>>,
 }
 impl Engine {
     fn client(&self) -> Result<HttpsClient, Error> {
@@ -178,14 +178,20 @@ enum Command {
     RuntimeRulesOpen {
         directory: String,
     },
-    RuntimeRulesUpdate {
+    RuntimeRulesStatus,
+    RuntimeRulesBegin {
         settings: crate::routing::Config,
         sources: Vec<crate::routing::runtime::Source>,
     },
-    RuntimeRulesUpdateFile {
+    RuntimeRulesBeginFile {
         path: String,
     },
-    RuntimeRulesStatus,
+    RuntimeRulesJob {
+        id: u64,
+    },
+    RuntimeRulesCancel {
+        id: u64,
+    },
     RuntimeRulesClose,
     RouteConfigure(crate::routing::Config),
     RouteEvaluate(crate::routing::Target),
@@ -293,6 +299,8 @@ struct Reply {
     network_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_rules: Option<RuntimeRulesSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_rules_job: Option<crate::routing::background::Job>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_status: Option<crate::outbound::Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -407,6 +415,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                     ..Reply::default()
                 });
             }
+            Ok(Command::RuntimeRulesCancel { id }) => {
+                let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+                guard.as_ref().ok_or(Error::InvalidState)?.cancel(id)?;
+                return Ok(Reply {
+                    success: true,
+                    ..Reply::default()
+                });
+            }
             Ok(Command::OutboundCloseAll) => {
                 engine.outbound.close_all()?;
                 return Ok(Reply {
@@ -433,6 +449,11 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             | Command::OutboundClose { .. }
             | Command::OutboundCloseAll
             | Command::OutboundStatus
+            | Command::RuntimeRulesJob { .. }
+            | Command::RuntimeRulesCancel { .. }
+            | Command::RuntimeRulesStatus
+            | Command::RouteEvaluate(_)
+            | Command::RouteCheck(_)
     );
     let _busy = if concurrent {
         None
@@ -594,6 +615,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             if directory.len() > 4096 {
                 return Err(Error::InvalidInput);
             }
+            let mut guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            if guard.is_some() {
+                return Err(Error::InvalidState);
+            }
             let store = crate::routing::store::Store::open(directory)?;
             let summary = match store.snapshot() {
                 Ok(snapshot) => {
@@ -608,50 +633,64 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 }
                 Err(error) => return Err(error),
             };
-            *engine.runtime_rules.lock().map_err(|_| Error::Internal)? = Some(store);
+            *guard = Some(crate::routing::background::Service::new(
+                store,
+                Arc::clone(&engine.outbound),
+            ));
             Ok(Reply {
                 success: true,
                 runtime_rules: summary,
                 ..Reply::default()
             })
         }
-        Command::RuntimeRulesUpdate { settings, sources } => {
+        Command::RuntimeRulesBegin { settings, sources } => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
-            let store = guard.as_ref().ok_or(Error::InvalidState)?;
-            let commit = store.update_network(settings, sources, &engine.outbound)?;
-            let snapshot = store.snapshot()?;
+            let job = guard
+                .as_ref()
+                .ok_or(Error::InvalidState)?
+                .start(settings, sources)?;
             Ok(Reply {
                 success: true,
-                runtime_rules: Some(RuntimeRulesSummary::new(
-                    &snapshot,
-                    Some(commit.directory_synced),
-                )),
+                runtime_rules_job: Some(job),
                 ..Reply::default()
             })
         }
-        Command::RuntimeRulesUpdateFile { path } => {
-            if path.len() > 4096 || !std::path::Path::new(&path).is_absolute() {
-                return Err(Error::InvalidInput);
-            }
-            let input = crate::routing::runtime::GenerationInput::from_yaml(
-                &crate::routing::store::read(std::path::Path::new(&path))?,
-            )?;
+        Command::RuntimeRulesBeginFile { path } => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
-            let store = guard.as_ref().ok_or(Error::InvalidState)?;
-            let commit = store.update_network(input.settings, input.sources, &engine.outbound)?;
-            let snapshot = store.snapshot()?;
+            let job = guard
+                .as_ref()
+                .ok_or(Error::InvalidState)?
+                .start_file(path.into())?;
             Ok(Reply {
                 success: true,
-                runtime_rules: Some(RuntimeRulesSummary::new(
-                    &snapshot,
-                    Some(commit.directory_synced),
-                )),
+                runtime_rules_job: Some(job),
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesJob { id } => {
+            let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            let job = guard.as_ref().ok_or(Error::InvalidState)?.job(id)?;
+            Ok(Reply {
+                success: true,
+                runtime_rules_job: Some(job),
+                ..Reply::default()
+            })
+        }
+        Command::RuntimeRulesCancel { id } => {
+            let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
+            guard.as_ref().ok_or(Error::InvalidState)?.cancel(id)?;
+            Ok(Reply {
+                success: true,
                 ..Reply::default()
             })
         }
         Command::RuntimeRulesStatus => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
-            let snapshot = guard.as_ref().ok_or(Error::InvalidState)?.snapshot()?;
+            let snapshot = guard
+                .as_ref()
+                .ok_or(Error::InvalidState)?
+                .store
+                .snapshot()?;
             Ok(Reply {
                 success: true,
                 runtime_rules: Some(RuntimeRulesSummary::new(&snapshot, None)),
@@ -660,10 +699,11 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         }
         Command::RuntimeRulesClose => {
             let mut guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
-            engine.outbound.configure_routing(None)?;
+            // 先阻止后台提交，再清空活动路由，避免关闭后被迟到的任务重新装回。
             if let Some(store) = guard.take() {
                 store.close()?;
             }
+            engine.outbound.configure_routing(None)?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
@@ -1003,7 +1043,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    131071
+    262143
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1106,7 +1146,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 131071);
+        assert_eq!(fluxa_engine_capabilities(), 262143);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

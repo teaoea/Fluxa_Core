@@ -19,6 +19,7 @@ public enum NativeClientError: LocalizedError {
 
 struct NativeCommandReply: Decodable {
   let runtimeRules: NativeRuntimeRulesSummary?
+  let runtimeRulesJob: NativeRuntimeRulesJob?
   let networkRevision: UInt64?
   let outboundStatus: NativeOutboundStatus?
   let dnsGeneration: UInt64?
@@ -48,6 +49,7 @@ struct NativeCommandReply: Decodable {
     case success, error, status, headers, body
     case port, capture
     case runtimeRules = "runtime_rules"
+    case runtimeRulesJob = "runtime_rules_job"
     case networkRevision = "network_revision"
     case outboundStatus = "outbound_status"
     case dnsGeneration = "dns_generation"

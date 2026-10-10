@@ -34,36 +34,105 @@ public struct NativeRuntimeRulesSummary: Decodable, Sendable {
   }
 }
 
+/// 后台生成状态，不传日志或规则正文；失败时活动规则版本不会改变。
+public struct NativeRuntimeRulesJob: Decodable, Sendable {
+  public enum Phase: String, Decodable, Sendable {
+    case compiling, succeeded, failed, cancelled
+  }
+
+  public let id: UInt64
+  public let phase: Phase
+  public let version: UInt64?
+  public let directorySynced: Bool?
+  public let error: String?
+  enum CodingKeys: String, CodingKey {
+    case id, phase, version, error
+    case directorySynced = "directory_synced"
+  }
+}
+
 /// 生成文件和内核快照由 Rust 原子提交；客户端只传递原始输入与显示统计。
 public final class NativeRuntimeRulesClient: Sendable {
   private let client: NativeCommandClient
   public init(directory: URL) throws {
     guard directory.isFileURL else { throw NativeClientError.boundary }
-    client = try NativeCommandClient(requiredCapabilities: 65536)
+    client = try NativeCommandClient(requiredCapabilities: 196_608)
     _ = try client.command(["operation": "runtime_rules_open", "directory": directory.path])
   }
 
-  public func update(
-    settings: RoutingSettings, sources: [NativeRuleSource]
-  ) throws -> NativeRuntimeRulesSummary {
+  /// 仅提交任务，去重、裁剪、编译和完整验证均由 Rust 的有界工作线程执行。
+  public func beginUpdate(
+    settings: RoutingSettings,
+    sources: [NativeRuleSource]
+  ) throws -> NativeRuntimeRulesJob {
     let reply = try client.command([
-      "operation": "runtime_rules_update",
+      "operation": "runtime_rules_begin",
       "settings": JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)),
       "sources": JSONSerialization.jsonObject(with: JSONEncoder().encode(sources)),
     ])
-    guard let summary = reply.runtimeRules else { throw NativeClientError.boundary }
-    return summary
+    guard let job = reply.runtimeRulesJob else { throw NativeClientError.boundary }
+    return job
   }
 
-  /// 大规则集采用 YAML 文件输入，保持 FFI 的既有缓冲区上限。
-  public func update(inputFile: URL) throws -> NativeRuntimeRulesSummary {
+  public func beginUpdate(inputFile: URL) throws -> NativeRuntimeRulesJob {
     guard inputFile.isFileURL else { throw NativeClientError.boundary }
     let reply = try client.command([
-      "operation": "runtime_rules_update_file",
+      "operation": "runtime_rules_begin_file",
       "path": inputFile.path,
     ])
-    guard let summary = reply.runtimeRules else { throw NativeClientError.boundary }
-    return summary
+    guard let job = reply.runtimeRulesJob else { throw NativeClientError.boundary }
+    return job
+  }
+
+  public func jobStatus(id: UInt64) throws -> NativeRuntimeRulesJob {
+    guard let job = try client.command(["operation": "runtime_rules_job", "id": id]).runtimeRulesJob
+    else { throw NativeClientError.boundary }
+    return job
+  }
+
+  /// 取消只影响尚未提交的任务；已经完成的文件及快照不会被回滚。
+  public func cancelJob(id: UInt64) throws {
+    _ = try client.command(["operation": "runtime_rules_cancel", "id": id])
+  }
+
+  public func update(
+    settings: RoutingSettings,
+    sources: [NativeRuleSource]
+  ) async throws -> NativeRuntimeRulesSummary {
+    let job = try await Task.detached(priority: .utility) {
+      try self.beginUpdate(settings: settings, sources: sources)
+    }.value
+    return try await waitForJob(id: job.id)
+  }
+
+  public func update(inputFile: URL) async throws -> NativeRuntimeRulesSummary {
+    let job = try await Task
+      .detached(priority: .utility) { try self.beginUpdate(inputFile: inputFile) }.value
+    return try await waitForJob(id: job.id)
+  }
+
+  private func waitForJob(id: UInt64) async throws -> NativeRuntimeRulesSummary {
+    try await withTaskCancellationHandler {
+      while true {
+        try Task.checkCancellation()
+        let job = try jobStatus(id: id)
+        switch job.phase {
+        case .compiling:
+          try await Task.sleep(nanoseconds: 50_000_000)
+        case .succeeded:
+          let summary = try status()
+          guard summary.version == job.version
+          else { throw NativeClientError.rejected("规则结果已被后续更新替换。") }
+          return summary
+        case .failed:
+          throw NativeClientError.rejected(job.error ?? "规则编译失败。")
+        case .cancelled:
+          throw CancellationError()
+        }
+      }
+    } onCancel: {
+      try? self.cancelJob(id: id)
+    }
   }
 
   public func status() throws -> NativeRuntimeRulesSummary {

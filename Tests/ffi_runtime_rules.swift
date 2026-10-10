@@ -2,7 +2,7 @@ import Foundation
 
 @main
 struct RuntimeRulesFFICheck {
-  static func main() throws {
+  static func main() async throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("fluxa-runtime-ffi-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -15,7 +15,7 @@ struct RuntimeRulesFFICheck {
       RoutingRule(type: .domain, value: "ads.bbb.com", policy: .reject),
       RoutingRule(type: .ipCIDR, value: "192.0.2.0/24", policy: .reject),
     ])
-    let summary = try client.update(
+    let summary = try await client.update(
       settings: RoutingSettings(fallback: .direct),
       sources: [local, remote]
     )
@@ -31,7 +31,7 @@ struct RuntimeRulesFFICheck {
       precondition(decision.policy == .reject)
     }
     for mode in [RoutingMode.direct, .global] {
-      _ = try client.update(
+      _ = try await client.update(
         settings: RoutingSettings(mode: mode, outbound: "test"),
         sources: [local, remote]
       )
@@ -48,7 +48,7 @@ struct RuntimeRulesFFICheck {
       from: Data(#"{"type":"ip-cidr","value":"bad","policy":"direct"}"#.utf8)
     )
     do {
-      _ = try client.update(
+      _ = try await client.update(
         settings: RoutingSettings(),
         sources: [NativeRuleSource(id: "invalid", layer: .local, rules: [invalid])]
       )
@@ -62,7 +62,8 @@ struct RuntimeRulesFFICheck {
     let reopened = try NativeRuntimeRulesClient(directory: directory)
     let recovered = try reopened.status()
     precondition(recovered.version == 3)
-    try checkYAMLInput(reopened, directory: directory)
+    try await checkYAMLInput(reopened, directory: directory)
+    try await checkBackground(reopened, directory: directory)
     try reopened.close()
     print("运行时规则真实 Swift FFI：来源、裁剪、IP/域名拦截、模式、失败保留、关闭及恢复通过。")
   }
@@ -82,7 +83,7 @@ struct RuntimeRulesFFICheck {
     try shared.close()
   }
 
-  static func checkYAMLInput(_ client: NativeRuntimeRulesClient, directory: URL) throws {
+  static func checkYAMLInput(_ client: NativeRuntimeRulesClient, directory: URL) async throws {
     let input = directory.appendingPathComponent("original-input.yaml")
     let yaml = """
     format_version: 1
@@ -104,7 +105,7 @@ struct RuntimeRulesFFICheck {
             policy: reject
     """
     try Data(yaml.utf8).write(to: input)
-    let summary = try client.update(inputFile: input)
+    let summary = try await client.update(inputFile: input)
     precondition(summary.version == 4 && summary.effective == 2)
     let hit = try client.evaluate(RoutingTarget(domain: "myexample.net", address: "192.0.2.1"))
     precondition(hit.policy == .direct)
@@ -112,10 +113,50 @@ struct RuntimeRulesFFICheck {
     precondition(miss.policy == .reject)
     try Data((yaml + "\nformat_version: 1\n").utf8).write(to: input)
     do {
-      _ = try client.update(inputFile: input)
+      _ = try await client.update(inputFile: input)
       preconditionFailure("重复 YAML 键必须拒绝")
     } catch NativeClientError.rejected {}
     let retained = try client.status()
     precondition(retained.version == 4)
+  }
+
+  static func checkBackground(_ client: NativeRuntimeRulesClient, directory: URL) async throws {
+    var rules = try (0 ..< 50000).map {
+      try RoutingRule(type: .domain, value: "d\($0).unrelated.test", policy: .direct)
+    }
+    try rules.append(RoutingRule(type: .domainKeyword, value: "example", policy: .reject))
+    let job = try client.beginUpdate(
+      settings: RoutingSettings(),
+      sources: [NativeRuleSource(id: "local", layer: .local, rules: rules)]
+    )
+    precondition(job.phase == .compiling)
+    let deadline = Date().addingTimeInterval(20)
+    while true {
+      let state = try client.jobStatus(id: job.id)
+      let decision = try client.evaluate(RoutingTarget(
+        domain: "myexample.net",
+        address: "192.0.2.1"
+      ))
+      precondition((decision.ruleVersion == 4 && decision.policy == .direct) ||
+        (decision.ruleVersion == 5 && decision.policy == .reject))
+      if state.phase == .succeeded {
+        precondition(state.version == 5)
+        break
+      }
+      precondition(state.phase == .compiling && Date() < deadline)
+      try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    let input = directory.appendingPathComponent("original-input.yaml")
+    do {
+      _ = try await client.update(inputFile: input)
+      preconditionFailure("后台重复 YAML 键必须拒绝")
+    } catch NativeClientError.rejected {}
+    let retained = try client.status()
+    precondition(retained.version == 5)
+    let updated = try await client.update(
+      settings: RoutingSettings(fallback: .direct),
+      sources: []
+    )
+    precondition(updated.version == 6 && updated.effective == 0)
   }
 }

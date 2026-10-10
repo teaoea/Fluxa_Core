@@ -40,10 +40,25 @@ impl Drop for Fixture {
         }
     }
 }
+// TCP 的临时端口不保证 UDP 同号端口空闲；只对端口占用进行有界重试。
+async fn bind_pair() -> std::io::Result<(TcpListener, UdpSocket)> {
+    for _ in 0..32 {
+        let tcp = TcpListener::bind("127.0.0.1:0").await?;
+        let port = tcp.local_addr()?.port();
+        match UdpSocket::bind(("127.0.0.1", port)).await {
+            Ok(udp) => return Ok((tcp, udp)),
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AddrInUse,
+        "测试 DNS 同号 TCP/UDP 端口分配失败",
+    ))
+}
 pub async fn fixture() -> Fixture {
-    let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (tcp, udp) = bind_pair().await.unwrap();
     let port = tcp.local_addr().unwrap().port();
-    let udp = UdpSocket::bind(("127.0.0.1", port)).await.unwrap();
     let dot = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let dot_port = dot.local_addr().unwrap().port();
     let doh = TcpListener::bind("127.0.0.1:0").await.unwrap();

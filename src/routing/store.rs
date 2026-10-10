@@ -17,6 +17,7 @@ struct State {
     snapshot: Option<Arc<Snapshot>>,
     closed: bool,
     lock: Option<File>,
+    job: Option<(u64, bool, bool)>,
 }
 struct Temporary(PathBuf);
 impl Drop for Temporary {
@@ -82,6 +83,7 @@ impl Store {
                 snapshot,
                 closed: false,
                 lock: Some(lock),
+                job: None,
             }),
         })
     }
@@ -93,7 +95,7 @@ impl Store {
         state.snapshot.clone().ok_or(Error::InvalidState)
     }
     pub fn update(&self, settings: Config, sources: Vec<Source>) -> Result<Commit> {
-        self.update_inner(settings, sources, None)
+        self.update_inner(settings, sources, None, None)
     }
     pub fn update_network(
         &self,
@@ -101,19 +103,25 @@ impl Store {
         sources: Vec<Source>,
         manager: &crate::outbound::Manager,
     ) -> Result<Commit> {
-        self.update_inner(settings, sources, Some(manager))
+        self.update_inner(settings, sources, Some(manager), None)
     }
     fn update_inner(
         &self,
         settings: Config,
         sources: Vec<Source>,
         manager: Option<&crate::outbound::Manager>,
+        job: Option<u64>,
     ) -> Result<Commit> {
         let previous = {
             let state = self.current.lock().map_err(|_| Error::Internal)?;
             if state.closed {
-                return Err(Error::InvalidState);
+                return Err(if job.is_some() {
+                    Error::Cancelled
+                } else {
+                    Error::InvalidState
+                });
             }
+            Self::check_job(&state, job)?;
             state.snapshot.as_ref().map_or(0, |s| s.document().version)
         };
         let version = previous.checked_add(1).ok_or(Error::ResourceLimit)?;
@@ -141,6 +149,7 @@ impl Store {
         if state.closed {
             return Err(Error::Cancelled);
         }
+        Self::check_job(&state, job)?;
         if state.snapshot.as_ref().map_or(0, |s| s.document().version) != previous {
             return Err(Error::InvalidState);
         }
@@ -160,6 +169,9 @@ impl Store {
         // 文件已提交：余下只替换 Arc，不执行可失败的内核启动、分配或索引编译。
         // 旧查询持有旧 Arc；进程在此处退出时下次启动会读取完整的新文件。
         state.snapshot = Some(snapshot);
+        if let Some((_, _, committed)) = state.job.as_mut() {
+            *committed = true;
+        }
         let directory_synced = File::open(&self.directory)
             .and_then(|file| file.sync_all())
             .is_ok();
@@ -168,6 +180,57 @@ impl Store {
             version,
             directory_synced,
         })
+    }
+    // 任务身份与取消状态放在提交锁内，消除“检查取消后又提交”的竞态。
+    fn check_job(state: &State, job: Option<u64>) -> Result<()> {
+        match (state.job, job) {
+            (None, None) => Ok(()),
+            (Some((id, false, false)), Some(expected)) if id == expected => Ok(()),
+            (Some((id, true, false)), Some(expected)) if id == expected => Err(Error::Cancelled),
+            _ => Err(Error::InvalidState),
+        }
+    }
+    pub(crate) fn begin_job(&self) -> Result<u64> {
+        let mut state = self.current.lock().map_err(|_| Error::Internal)?;
+        if state.closed || state.job.is_some() {
+            return Err(Error::InvalidState);
+        }
+        let id = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        state.job = Some((id, false, false));
+        Ok(id)
+    }
+    pub(crate) fn cancel_job(&self, id: u64) -> Result<()> {
+        let mut state = self.current.lock().map_err(|_| Error::Internal)?;
+        match state.job.as_mut() {
+            Some((active, cancelled, false)) if *active == id => {
+                *cancelled = true;
+                Ok(())
+            }
+            _ => Err(Error::InvalidState),
+        }
+    }
+    pub(crate) fn job_cancelled(&self, id: u64) -> Result<bool> {
+        let state = self.current.lock().map_err(|_| Error::Internal)?;
+        Ok(state.closed
+            || state.job.is_some_and(|(active, cancelled, committed)| {
+                active == id && cancelled && !committed
+            }))
+    }
+    pub(crate) fn finish_job(&self, id: u64) -> Result<()> {
+        let mut state = self.current.lock().map_err(|_| Error::Internal)?;
+        if state.job.is_some_and(|(active, _, _)| active == id) {
+            state.job = None;
+        }
+        Ok(())
+    }
+    pub(crate) fn update_job(
+        &self,
+        settings: Config,
+        sources: Vec<Source>,
+        manager: &crate::outbound::Manager,
+        id: u64,
+    ) -> Result<Commit> {
+        self.update_inner(settings, sources, Some(manager), Some(id))
     }
     pub fn close(&self) -> Result<()> {
         let mut state = self.current.lock().map_err(|_| Error::Internal)?;
