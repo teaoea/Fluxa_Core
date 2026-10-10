@@ -29,4 +29,4 @@
 
 每项功能完成本轮流程后才推进下一项。目标平台、协议互通或真机条件不可用时记录未测，不伪造通过；发布不能代替功能验收，禁止未经授权合并 main。
 
-- 用户已确定下一顺序：TUN 数据包基础 → UDP/DNS → TCP 流与返回包 → 共用路由/出站 → macOS Network Extension 接入；之后网关、SOCKS/HTTP。每阶段分别验证及交付，不将数据包解析当成 VPN 已可用。
+- 当前只交付 TUN 数据包检查基础；必须先补齐 DNS → 路由 → 共用出站基础，再继续 TUN UDP/TCP 转发、返回包和 macOS Network Extension 接入，之后网关、SOCKS/HTTP。每阶段分别验证及交付，不将数据包解析当成 VPN 已可用。

@@ -33,3 +33,11 @@ Rust 38 项、Clippy、真实 FFI 四组、远程 Swift 包 10 项全部通过�
 ## 0.3.0 发布准备
 
 TUN 基础检查层新增功能，Rust 46 项、严格 Clippy、真实 Swift FFI 五组、内核 SwiftFormat 与 SwiftLint 均通过。包内容白名单收窄到 src/**/*.rs，排除 Finder 元数据。当前只提供数据包结构与校验和检查；真实 TUN 转发、返回包和系统隧道未实现。具体边界与验证见 TUN.md。源码提交后从干净副本预检并发布，二进制与版本标签由工作流生成，再记录实际发布结果。
+
+## 0.3.0 发布核验
+
+构建与 crate 源码提交 6562dadd169238fc867def9ebfb81ece105d1c8c，最终标签 e40f55af5ffd919484ade300dcb4828f0ce52ee0 仅更新 Package.swift 校验值；Rust 与发布包源码相同。干净副本的 .cargo_vcs_info.json 已核对，包列表不含 Swift、二进制或 Finder 元数据。crates.io 实际上传且索引可用；GitHub Actions 38023539148 全部成功，包含 Rust 46 项、真实 FFI 五组与远程 Swift 包 11 项测试。
+
+框架 SHA-256：8800e08f820d79ec9db6b09386bb1e92b66c2499ec5bc0455a54de0b9019dc33；测试服务 SHA-256：3336f61db0c2820ba8060d0de5eac02afe3bbabb4eb33911bcb5c7489d4c30b5。仅 macOS ARM64；无系统 TUN、TCP/UDP 转发或 DNS 互通验收。
+
+优先顺序纠正：检查基础交付后暂停后续 TUN 转发，先完成 DNS、路由、共用出站基础，再推进系统 TUN、网关和 SOCKS/HTTP；当前连接中的系统域名解析不能视为独立 DNS 模块，规则配置模型也不能视为执行路由。
