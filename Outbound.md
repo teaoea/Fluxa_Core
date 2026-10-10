@@ -99,3 +99,13 @@ HTTP 主动请求、HTTPS TLS、普通代理转发、CONNECT 透传和 MITM 上�
 显式本机 HTTP 中转先检查原目标规则，再连接本机端口；若中转由 Fluxa 管理，其实际上游另执行自身配置。外部中转自行决定的最终 DNS 和地址不可由此客户端证明，不把预检查宣称为第三方代理的最终出口约束。CONNECT 透传仍保留端到端 TLS，不捕获明文；MITM 只解密指定域名。
 
 本机 macOS ARM64：104 项 Rust 测试及九组真实 Swift FFI 回归通过，覆盖真实 HTTP/TLS 请求取消、空闲回收、拒绝/未实现代理不回退、重配置恢复、证书拒绝、双向 TLS、日志与脚本处理。严格 Clippy、SwiftFormat、SwiftLint 已检查。最低 macOS 14、其他架构/平台、系统 TUN/网关、GUI 与真机 VPN 未运行验收；此阶段不增加 TUN 转发。
+
+## HTTP/HTTPS/MITM 共用连接管线（2026-10-10）
+
+内核 v1.3.0 构建源码 2783f9591887fe439b442d96a7910188ecd1d2c1，最终标签 de2479252c32c632b7aa6bbbebffb0a2940a1d81；标签只更新 Package.swift 二进制校验值。GitHub Actions 38052985771 成功：104 项 Rust 测试、九组真实 Swift FFI、严格 Clippy 和远程 Swift 包 11 项测试通过。发布前 SwiftFormat、严格 SwiftLint 零违规；实际下载 crates.io 包 66 个归档条目，VCS 来源一致，没有 Swift 或二进制。
+
+框架 SHA-256 eeae9fb47c085fe14ca5cecf72930637d091cae20cf7530e1ac2107b39692554；测试服务 SHA-256 8081e150acf51dc3e94d72c26f43a735f5d33b9a703e7510361b88a6d52cf2b4。Fluxa v1.1.0 / build 11 固定远程内核 v1.3.0，55 项客户端测试零失败、无跳过；包括真实 HTTP/HTTPS、双 TLS MITM、日志/脚本、默认拒绝、无 DNS 不回退系统解析、启用 Fake-IP 后按真实地址连接。下载 URL 与 SHA-256 和实际远程包一致，SwiftFormat、严格 SwiftLint、资源一致性、SwiftUI/macOS 宿主编译及 Xcode 27 依赖解析通过，客户端检查没有编译本地 Rust。
+
+请求编辑器使用当前主配置的 DNS、活动路由与 outbound-limits；调试代理启动时固定同一配置快照，修改主配置后需停止并重新启动以应用。缺少域名 DNS、默认拒绝或尚未实现代理出站时报告失败，不静默直连。管理流支持 HTTP/TLS 取消、空闲回收及 RAII 释放；TCP 计数包含 TLS 线上开销，不等同于日志正文大小。显式第三方本机中转的最终解析/出口不可由客户端保证，Fluxa 管理的上游另执行自身规则。
+
+本机全量 FFI 两次分别在出站组出现 DNS 超时、在 DNS 服务组出现网络失败；出站组独立重跑和 DNS 服务组三次独立循环均通过，GitHub 全量回归通过，未在独立诊断中复现且原因未确认，保留失败记录。CI 调试 FFI 有 macOS 15.5 对象链接 15.0 的部署版本警告；对外交付框架通过 MACOSX_DEPLOYMENT_TARGET=14.0 构建，本次 App 编译无警告，但最低 macOS 14 实际运行仍未测。当前环境 macOS 27.2 ARM64 / Xcode 27.0；Mac 锁定导致 GUI 未验收，其他架构/平台、真机 VPN、TUN/网关及远端代理协议未运行验收。订阅与 IP 查询的 Swift 网络服务仍待独立迁移。main 未合并，用户两张首页标注图不提交。
