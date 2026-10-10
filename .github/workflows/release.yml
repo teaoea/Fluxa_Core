@@ -25,6 +25,7 @@ jobs:
         run: |
           cargo fetch --locked
           cargo fmt --check
+          cargo package --list --locked > /tmp/fluxa-package-files.txt
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
           bash check-ffi.sh all

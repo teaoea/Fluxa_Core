@@ -109,7 +109,7 @@ struct DNSServiceFFICheck {
       process.waitUntilExit()
       precondition(process.terminationStatus == 0)
       precondition(
-        String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
           == "198.18.0.1",
         "独立 dig 客户端应能通过 UDP/TCP 解析"
       )
