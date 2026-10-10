@@ -52,3 +52,9 @@ Rust Config 是 mode/fallback/outbound/rules 的类型结构；C ABI 复用 ABI 
 验证覆盖顺序与域名后缀边界、IPv4/IPv6 前缀、缺失元数据、端口范围、传输类型、模式、未命中和指定出站、无效配置、并发快照、最后所有者及限额回收、有界随机值不 panic。真实 Swift FFI 覆盖相同关键决策、失败保留、明确拒绝代理/拒绝策略、关闭及 100 次生命周期。路由没有独立网络协议，不能以决策测试冒充 TCP/UDP 转发互通；既有 HTTP/DNS/MITM 协议和 FFI 回归另行运行。只验证当前 macOS ARM64，最低 macOS 14、其他平台和系统 TUN 均未验收。
 
 本轮发布前检查：70 项 Rust 测试、八组真实 Swift FFI、cargo fmt 与严格 Clippy、SwiftFormat 与严格 SwiftLint 已通过。远程二进制和 App 接入验证记录在发布后补充。
+
+## 发布验证记录（2026-10-10）
+
+v0.7.0 构建源码 793d9ad1753c6abe73011ca69e27188cb1e12daf，最终发布标签 07d9248dfb7eefef73cdd21e6374d54bdd2a48b9，二者仅有 Package.swift 的二进制校验值差异。crates.io 实际下载包核对 VCS 来源及 53 个文件；GitHub Actions 38032863652 成功，70 项 Rust 测试、八组真实 Swift FFI、严格 Clippy 与远程二进制包 11 项测试通过。发布前 SwiftFormat/SwiftLint strict 通过。
+
+框架 SHA-256 cfb045a58f6d3eef5a958d07d34b911032d120b74118d3789b34cb7975f1643c，测试服务 SHA-256 fe35522671ccddb90a36a882c646a6b9f66176be622b366960c2690fdb260db7。Fluxa 固定远程 0.7.0，43 项客户端测试、严格 Swift 检查与 Xcode 包解析通过，新增诊断入口不建立连接。测试环境 macOS 27.2 ARM64 / Xcode 27.0；最低系统和其他平台尚未实际运行。原生界面检查遇到 Mac 锁定，GUI 操作未验收。没有真实系统 TUN/网关转发或代理出站互通结论，未合并 main。
