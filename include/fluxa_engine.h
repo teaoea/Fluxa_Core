@@ -9,6 +9,7 @@ extern "C" {
 /* 状态码：0 成功，1 无效句柄，2 能力未实现，3 内部错误。 */
 uint32_t fluxa_engine_abi_version(void);
 /* 能力位：0 HTTPS，1 MITM，2 同步 JSON 脚本，3 通用 HTTP 调试，4 内置流量脚本；不代表代理协议已实现。 */
+// 位 11 代表配置 DNS 的域名出站，不代表 Fake-IP 连接或代理出站协议。
 // 位 9 代表纯路由决策，位 10 代表数字地址 TCP/UDP 出站，不代表代理协议或 TUN 转发。
 // 位 7 代表 Fake-IP 双向映射，不代表 TUN 转发可用。
 // 位 6 代表 DNS 客户端；位 8 代表有访问控制的 UDP/TCP DNS 服务。

@@ -83,16 +83,22 @@ pub struct Decision {
     pub rule_index: Option<usize>,
     pub reason: Reason,
 }
-impl Decision {
-    /// 仅检查决策可用性，不执行网络连接；代理协议未交付，绝不转换为直连。
-    pub fn check_support(&self) -> Result<()> {
-        match self.policy {
-            Policy::Direct => Ok(()),
-            Policy::Reject => Err(Error::Rejected),
-            Policy::Proxy => Err(Error::Unsupported),
+impl Policy {
+    /// 共用策略能力检查，不建立连接，不将未实现代理转换为直连。
+    pub fn check_support(self) -> Result<()> {
+        match self {
+            Self::Direct => Ok(()),
+            Self::Reject => Err(Error::Rejected),
+            Self::Proxy => Err(Error::Unsupported),
         }
     }
 }
+impl Decision {
+    pub fn check_support(&self) -> Result<()> {
+        self.policy.check_support()
+    }
+}
+
 enum Matcher {
     Domain(String, bool),
     Network(Network),

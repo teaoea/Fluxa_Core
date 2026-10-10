@@ -129,6 +129,7 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    OutboundConnect(crate::outbound::DomainTarget),
     OutboundOpen {
         address: String,
         transport: crate::routing::Transport,
@@ -233,6 +234,8 @@ struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    outbound_peer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     outbound_eof: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_written: Option<usize>,
@@ -323,6 +326,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let concurrent = matches!(
         &command,
         Command::OutboundOpen { .. }
+            | Command::OutboundConnect(_)
             | Command::OutboundRead { .. }
             | Command::OutboundWrite { .. }
             | Command::OutboundShutdownWrite { .. }
@@ -343,6 +347,17 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::OutboundConnect(target) => {
+            target.policy.check_support()?;
+            let resolver = engine.dns()?;
+            let opened = runtime()?.block_on(engine.outbound.connect(&resolver, target))?;
+            Ok(Reply {
+                success: true,
+                outbound_id: Some(opened.id),
+                outbound_peer: Some(opened.address),
+                ..Reply::default()
+            })
+        }
         Command::OutboundOpen {
             address,
             transport,
@@ -749,10 +764,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    2047
+    4095
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -855,7 +870,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 2047);
+        assert_eq!(fluxa_engine_capabilities(), 4095);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

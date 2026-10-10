@@ -96,7 +96,7 @@ public final class NativeDNSClient: Sendable {
     _ = try client.command(["operation": "add_trusted_root", "certificate_pem": certificatePEM])
   }
 
-  private static func configurationCommand(_ configuration: DNSConfiguration) throws
+  static func configurationCommand(_ configuration: DNSConfiguration) throws
     -> [String: Any] {
     let data = try JSONEncoder().encode(configuration)
     guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any],

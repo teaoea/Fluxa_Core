@@ -23,3 +23,13 @@ Rust 测试使用独立 TCP/UDP 对端，覆盖二进制数据、双向读写、
 数字地址出站支持 TCP 独立读写、半关闭/EOF、连接式 UDP 完整报文、截止时间及取消；真实对端另验证 IPv4/IPv6、超时恢复、TCP 背压写超时使连接失效、会话上限与回收。Fluxa 工具提供手动短会话测试，原始数据只在本次操作中使用。此版本不解析域名、不自动执行路由；HTTP/MITM 仍待后续共用出站接入。
 
 测试环境 macOS 27.2 ARM64 / Xcode 27.0。尝试读取原生界面仍报告 Mac 锁定，本轮 GUI 操作未验收；最低 macOS 14、其他架构/平台、TUN/网关和代理协议均未运行验收。不合并 main，保留用户两张首页标注图。
+
+## 配置 DNS 到域名出站（v0.9.0）
+
+新增 Manager::connect、outbound_connect C ABI 与 NativeOutboundClient 域名接口。必须先配置 DNS，使用既有 UDP/TCP/DoT/DoH 解析、缓存及 DNSSEC 验证；不调用系统解析或 hosts，不自动改变系统配置。输入域名、非零端口、TCP/UDP 和 auto/ipv4/ipv6 地址族，结果包含会话标识及实际连接地址。拒绝及未实现代理策略在 DNS 查询前返回错误。
+
+打开截止时间覆盖 DNS 与全部候选连接。自动地址族交错 IPv6/IPv4 候选，每 250 ms 启动下一项，上一项全部失败可立即尝试；最多 16 个地址，成功只登记胜出会话，取消或失败释放所有候选。TCP 成功表示连接已建立；UDP 建立 socket 不验证对端可达，选定地址后不会自动重发或切换，避免重复业务报文。close_all/stop 可取消正在解析或连接的操作。
+
+NXDOMAIN、空记录、DNSSEC 失败、合成 Fake-IP 明确拒绝；DNSSEC/资源/输入错误不能被另一地址族掩盖。Fake-IP 还原与路由执行属于后续独立交付。现有 HTTP/HTTPS/MITM 尚未迁移到本流程。当前验证只覆盖本机真实协议夹具，不代表公网服务或最低系统运行验收。
+
+本轮本机验证：新增六项域名出站真实套接字测试，全量 Rust 共 83 项通过；严格 Clippy、SwiftFormat、严格 SwiftLint（零违规）及九组真实 Swift FFI 通过。环境 macOS 27.2 ARM64；最低系统及其他平台未运行，不代表 TUN/网关或公网互通验收。

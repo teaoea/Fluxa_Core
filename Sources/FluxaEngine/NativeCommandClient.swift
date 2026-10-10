@@ -15,6 +15,7 @@ public enum NativeClientError: LocalizedError {
 }
 
 struct NativeCommandReply: Decodable {
+  let outboundPeer: String?
   let outboundID: UInt64?
   let outboundEOF: Bool?
   let outboundWritten: Int?
@@ -39,6 +40,7 @@ struct NativeCommandReply: Decodable {
   enum CodingKeys: String, CodingKey {
     case success, error, status, headers, body
     case port, capture
+    case outboundPeer = "outbound_peer"
     case outboundID = "outbound_id"
     case outboundEOF = "outbound_eof"
     case outboundWritten = "outbound_written"

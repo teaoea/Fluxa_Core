@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.88"
@@ -83,3 +83,7 @@ path = "Tests/routing.rs"
 [[test]]
 name = "outbound"
 path = "Tests/outbound.rs"
+
+[[test]]
+name = "outbound_dns"
+path = "Tests/outbound_dns.rs"

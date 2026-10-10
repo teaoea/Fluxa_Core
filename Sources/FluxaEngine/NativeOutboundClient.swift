@@ -3,6 +3,16 @@ import Foundation
 import FluxaCore
 #endif
 
+/// 域名解析使用显式配置的 DNS，地址族由内核筛选。
+public enum NativeOutboundFamily: String, Codable, CaseIterable, Sendable {
+  case auto, ipv4, ipv6
+}
+
+public struct NativeOutboundOpened: Sendable {
+  public let id: UInt64
+  public let address: String
+}
+
 public struct NativeOutboundRead: Sendable {
   public let data: Data
   public let eof: Bool
@@ -12,7 +22,38 @@ public struct NativeOutboundRead: Sendable {
 public final class NativeOutboundClient: Sendable {
   private let client: NativeCommandClient
   public init() throws {
-    client = try NativeCommandClient(requiredCapabilities: 1024)
+    client = try NativeCommandClient(requiredCapabilities: 3072)
+  }
+
+  public func configureDNS(_ configuration: DNSConfiguration) throws {
+    var command = try NativeDNSClient.configurationCommand(configuration)
+    command["operation"] = "dns_configure"
+    _ = try client.command(command)
+  }
+
+  /// 只添加调用者明确提供的信任根，不修改系统信任。
+  public func addTrustedRoot(certificatePEM: String) throws {
+    _ = try client.command([
+      "operation": "add_trusted_root", "certificate_pem": certificatePEM,
+    ])
+  }
+
+  public func open(
+    domain: String,
+    port: UInt16,
+    transport: RoutingTransport,
+    family: NativeOutboundFamily = .auto,
+    policy: RoutingRule.Policy = .direct,
+    timeoutMilliseconds: UInt64 = 5000
+  ) throws -> NativeOutboundOpened {
+    let reply = try client.command([
+      "operation": "outbound_connect", "domain": domain, "port": port,
+      "transport": transport.rawValue, "family": family.rawValue,
+      "policy": policy.rawValue, "timeout_ms": timeoutMilliseconds,
+    ])
+    guard let id = reply.outboundID, let address = reply.outboundPeer
+    else { throw NativeClientError.boundary }
+    return NativeOutboundOpened(id: id, address: address)
   }
 
   public func open(

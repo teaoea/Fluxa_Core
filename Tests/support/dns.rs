@@ -209,7 +209,12 @@ fn answer(bytes: &[u8], udp: bool, count: &AtomicUsize) -> Option<Vec<u8>> {
         };
         let mut owner = question.name;
         if name.starts_with("alias.") {
-            let target = Name::from_ascii("target.example.test.").unwrap();
+            let target = Name::from_ascii(if name.starts_with("alias.connect.") {
+                "connect.example.test."
+            } else {
+                "target.example.test."
+            })
+            .unwrap();
             reply.add_answer(Record::from_rdata(
                 owner,
                 10,
@@ -218,8 +223,22 @@ fn answer(bytes: &[u8], udp: bool, count: &AtomicUsize) -> Option<Vec<u8>> {
             owner = target;
         }
         let data = match question.query_type {
-            RecordType::A => RData::A(A::new(192, 0, 2, 44)),
-            RecordType::AAAA => RData::AAAA(AAAA("2001:db8::44".parse().unwrap())),
+            RecordType::A => RData::A(
+                if name.starts_with("connect.") || name.starts_with("alias.connect.") {
+                    A::new(127, 0, 0, 1)
+                } else {
+                    A::new(192, 0, 2, 44)
+                },
+            ),
+            RecordType::AAAA => RData::AAAA(AAAA(
+                if name.starts_with("connect.") || name.starts_with("alias.connect.") {
+                    "::1"
+                } else {
+                    "2001:db8::44"
+                }
+                .parse()
+                .unwrap(),
+            )),
             RecordType::TXT => RData::TXT(TXT::new(if name.starts_with("large.") {
                 vec!["x".repeat(200); 10]
             } else {

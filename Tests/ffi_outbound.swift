@@ -1,9 +1,17 @@
 import Foundation
 
 struct OutboundFixture: Decodable {
+  let dns: UInt16
+  let dot: UInt16
+  let doh: UInt16
+  let certificatePEM: String
   let tcp: UInt16
   let udp: UInt16
   enum CodingKeys: String, CodingKey {
+    case dns = "dns_port"
+    case dot = "dot_port"
+    case doh = "doh_port"
+    case certificatePEM = "dns_certificate_pem"
     case tcp = "outbound_tcp_port"
     case udp = "outbound_udp_port"
   }
@@ -54,7 +62,66 @@ struct OutboundFFICheck {
     }
     try client.closeAll()
     try client.closeAll()
-    print("共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；域名解析与路由执行尚未接入。")
+    try checkDNS(fixture: fixture)
+    print("共用出站真实 Swift FFI：TCP/UDP、二进制数据、半关闭、EOF、报文边界、取消和 100 次生命周期通过；配置 DNS 域名连接已验证，路由执行尚未接入。")
+  }
+
+  static func checkDNS(fixture: OutboundFixture) throws {
+    let client = try NativeOutboundClient()
+    try rejection { _ = try client.open(
+      domain: "connect.example.test",
+      port: fixture.tcp,
+      transport: .tcp
+    ) }
+    try client.addTrustedRoot(certificatePEM: fixture.certificatePEM)
+    let servers = [
+      DNSServer(transport: .udp, address: "127.0.0.1:\(fixture.dns)"),
+      DNSServer(transport: .tcp, address: "127.0.0.1:\(fixture.dns)"),
+      DNSServer(transport: .dot, address: "127.0.0.1:\(fixture.dot)", serverName: "localhost"),
+      DNSServer(
+        transport: .doh,
+        url: "https://localhost:\(fixture.doh)/dns-query",
+        bootstrap: "127.0.0.1:\(fixture.doh)"
+      ),
+    ]
+    for server in servers {
+      try client.configureDNS(DNSConfiguration(servers: [server]))
+      let opened = try client.open(
+        domain: "alias.connect.example.test",
+        port: fixture.tcp,
+        transport: .tcp
+      )
+      precondition(opened.address == "127.0.0.1:\(fixture.tcp)")
+      try client.write(Data("dns".utf8), id: opened.id)
+      let read = try client.read(id: opened.id)
+      precondition(read.data == Data("dns".utf8))
+      try client.close(id: opened.id)
+      let udp = try client.open(
+        domain: "connect.example.test",
+        port: fixture.udp,
+        transport: .udp,
+        family: .ipv4
+      )
+      try client.write(Data("udp".utf8), id: udp.id)
+      let datagram = try client.read(id: udp.id)
+      precondition(datagram.data == Data("udp".utf8))
+      try client.close(id: udp.id)
+    }
+    for policy in [RoutingRule.Policy.reject, .proxy] {
+      try rejection { _ = try client.open(
+        domain: "connect.example.test",
+        port: fixture.tcp,
+        transport: .tcp,
+        policy: policy
+      ) }
+    }
+    try client.configureDNS(DNSConfiguration(servers: [servers[0]], fakeIP: FakeIPConfiguration()))
+    try rejection { _ = try client.open(
+      domain: "connect.example.test",
+      port: fixture.tcp,
+      transport: .tcp
+    ) }
+    try client.closeAll()
   }
 
   static func checkCancellation(client: NativeOutboundClient, port: UInt16) throws {

@@ -109,49 +109,47 @@ impl Manager {
         policy: Policy,
         milliseconds: u64,
     ) -> Result<u64> {
-        let deadline = duration(milliseconds)?;
         if address.port() == 0 || address.ip().is_unspecified() {
             return Err(Error::InvalidInput);
         }
-        match policy {
-            Policy::Reject => return Err(Error::Rejected),
-            Policy::Proxy => return Err(Error::Unsupported),
-            Policy::Direct => {}
-        }
+        policy.check_support()?;
+        Ok(self
+            .establish(duration(milliseconds)?, dial(address, transport))
+            .await?
+            .id)
+    }
+    async fn establish(
+        &self,
+        deadline: Duration,
+        future: impl std::future::Future<Output = Result<(Socket, ByteLease, SocketAddr)>>,
+    ) -> Result<Opened> {
         let mut generation = self.generation.subscribe();
         let epoch = *generation.borrow();
         if self.state.lock().map_err(|_| Error::Internal)?.stopped {
             return Err(Error::InvalidState);
         }
-        let lease = CONNECTIONS.reserve(1)?;
-        let socket = tokio::select! {
+        let (socket, lease, address) = tokio::select! {
             biased;
             _ = generation.changed() => return Err(Error::Cancelled),
-            result = timeout(deadline, async {
-                Ok::<_, Error>(match transport {
-                    Transport::Tcp => { let socket = TcpStream::connect(address).await?; socket.set_nodelay(true)?; let (reader, writer) = socket.into_split(); Socket::Tcp { reader: tokio::sync::Mutex::new(reader), writer: tokio::sync::Mutex::new(writer) } }
-                    Transport::Udp => {
-                        let bind = if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
-                        let socket = UdpSocket::bind(bind).await?;
-                        socket.connect(address).await?;
-                        Socket::Udp { socket, reader: tokio::sync::Mutex::new(()) }
-                    }
-                })
-            }) => result.map_err(|_| Error::NetworkTimeout)??,
+            result = timeout(deadline, future) => result.map_err(|_| Error::NetworkTimeout)??,
         };
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         if state.stopped || *generation.borrow() != epoch {
             return Err(Error::Cancelled);
         }
         let (cancel, _) = watch::channel(false);
-        state
+        let id = state
             .registry
             .create(Arc::new(Connection {
                 socket,
                 cancel,
                 _lease: lease,
             }))
-            .ok_or(Error::ResourceLimit)
+            .ok_or(Error::ResourceLimit)?;
+        Ok(Opened {
+            id,
+            address: address.to_string(),
+        })
     }
     fn connection(&self, id: u64) -> Result<Arc<Connection>> {
         self.state
@@ -282,3 +280,38 @@ impl Drop for Manager {
         let _ = self.stop();
     }
 }
+
+/// DNS 与数字地址路径共用真实连接及配额；竞争失败的 socket 随任务所有权释放。
+async fn dial(
+    address: SocketAddr,
+    transport: Transport,
+) -> Result<(Socket, ByteLease, SocketAddr)> {
+    let lease = CONNECTIONS.reserve(1)?;
+    let socket = match transport {
+        Transport::Tcp => {
+            let socket = TcpStream::connect(address).await?;
+            socket.set_nodelay(true)?;
+            let (reader, writer) = socket.into_split();
+            Socket::Tcp {
+                reader: tokio::sync::Mutex::new(reader),
+                writer: tokio::sync::Mutex::new(writer),
+            }
+        }
+        Transport::Udp => {
+            let bind = if address.is_ipv4() {
+                "0.0.0.0:0"
+            } else {
+                "[::]:0"
+            };
+            let socket = UdpSocket::bind(bind).await?;
+            socket.connect(address).await?;
+            Socket::Udp {
+                socket,
+                reader: tokio::sync::Mutex::new(()),
+            }
+        }
+    };
+    Ok((socket, lease, address))
+}
+mod resolution;
+pub use resolution::{DomainTarget, Family, Opened};
