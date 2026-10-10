@@ -60,6 +60,7 @@ fn main() {
         .unwrap_or_else(|| "100000".into())
         .parse()
         .expect("规则规模必须为数字");
+    println!("baseline_rss_kib={}", rss());
     let mut rules = Vec::with_capacity(count);
     for i in 0..count {
         let (kind, value) = match i % 10 {
@@ -92,6 +93,7 @@ fn main() {
             },
         ));
     }
+    println!("input_rss_kib={}", rss());
     let start = Instant::now();
     let snapshot = Snapshot::generate(
         Config {
@@ -152,7 +154,7 @@ fn main() {
             service.close().unwrap();
             // Service 关闭后仍可从磁盘验证完整生成产物。
         } else {
-            store
+            let first = store
                 .update(
                     Config {
                         fallback: Policy::Direct,
@@ -161,7 +163,8 @@ fn main() {
                     sources(input.clone()),
                 )
                 .expect("第一次 YAML 提交必须实际成功");
-            store
+            print_update(1, &first);
+            let second = store
                 .update(
                     Config {
                         fallback: Policy::Direct,
@@ -170,10 +173,12 @@ fn main() {
                     sources(input),
                 )
                 .expect("新旧快照共存更新必须实际成功");
+            print_update(2, &second);
+            println!("active_snapshot_rss_kib={}", rss());
             store.close().unwrap();
         }
         println!(
-            "two_atomic_updates_ms={} stable_rss_kib={}",
+            "two_atomic_updates_ms={} closed_rss_kib={}",
             start.elapsed().as_millis(),
             rss()
         );
@@ -232,5 +237,18 @@ fn main() {
     println!(
         "threads=4 queries=400000 throughput_per_second={:.0}",
         400000.0 / start.elapsed().as_secs_f64()
+    );
+}
+
+fn print_update(number: usize, commit: &libfluxa_core::routing::store::Commit) {
+    let t = &commit.timings;
+    println!(
+        "update={number} compile_us={} encode_us={} validate_us={} write_sync_us={} switch_us={} directory_sync_us={}",
+        t.compile.as_micros(),
+        t.encode.as_micros(),
+        t.validate.as_micros(),
+        t.write_sync.as_micros(),
+        t.switch.as_micros(),
+        t.directory_sync.as_micros()
     );
 }

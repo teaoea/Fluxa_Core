@@ -7,6 +7,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
 pub struct Store {
@@ -25,10 +26,21 @@ impl Drop for Temporary {
         let _ = fs::remove_file(&self.0);
     }
 }
+/// 更新阶段耗时随完成结果返回，不在匹配路径采样或写入日志。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UpdateTimings {
+    pub compile: Duration,
+    pub encode: Duration,
+    pub validate: Duration,
+    pub write_sync: Duration,
+    pub switch: Duration,
+    pub directory_sync: Duration,
+}
 #[derive(Clone, Copy, Debug)]
 pub struct Commit {
     pub version: u64,
     pub directory_synced: bool,
+    pub timings: UpdateTimings,
 }
 pub(crate) fn read(path: &Path) -> Result<String> {
     // 调用者提供自己的应用数据目录。拒绝符号链接，避免把配置源文件当作生成文件。
@@ -125,10 +137,18 @@ impl Store {
             state.snapshot.as_ref().map_or(0, |s| s.document().version)
         };
         let version = previous.checked_add(1).ok_or(Error::ResourceLimit)?;
+        let mut timings = UpdateTimings::default();
+        let started = Instant::now();
         let snapshot = Arc::new(Snapshot::generate(settings, sources, version)?);
+        timings.compile = started.elapsed();
+        let started = Instant::now();
         let yaml = snapshot.to_yaml()?;
+        timings.encode = started.elapsed();
+        let started = Instant::now();
         // 完整严格解析校验生成文件；索引已经编译，不能在文件提交后再运行可能失败的编译。
         snapshot.verify_yaml(&yaml)?;
+        timings.validate = started.elapsed();
+        let started = Instant::now();
         let unique = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
         let temporary = Temporary(self.directory.join(format!(
             ".runtime-rules-{}-{unique}.tmp",
@@ -145,6 +165,8 @@ impl Store {
         file.write_all(yaml.as_bytes())?;
         file.sync_all()?;
         drop(file);
+        timings.write_sync = started.elapsed();
+        let started = Instant::now();
         let mut state = self.current.lock().map_err(|_| Error::Internal)?;
         if state.closed {
             return Err(Error::Cancelled);
@@ -172,13 +194,17 @@ impl Store {
         if let Some((_, _, committed)) = state.job.as_mut() {
             *committed = true;
         }
+        timings.switch = started.elapsed();
+        let started = Instant::now();
         let directory_synced = File::open(&self.directory)
             .and_then(|file| file.sync_all())
             .is_ok();
+        timings.directory_sync = started.elapsed();
         // 目录刷盘失败作为耐久性状态报告，不能伪造回滚或声称旧文件仍有效。
         Ok(Commit {
             version,
             directory_synced,
+            timings,
         })
     }
     // 任务身份与取消状态放在提交锁内，消除“检查取消后又提交”的竞态。

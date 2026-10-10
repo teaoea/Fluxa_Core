@@ -52,7 +52,7 @@ pub enum Layer {
     Local,
     Remote,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
     pub id: String,
@@ -70,14 +70,14 @@ pub struct Origin {
     pub source: u16,
     pub sequence: u32,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EffectiveRule {
     pub origin: Origin,
     pub additional_origins: Vec<Origin>,
     pub rule: Rule,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceIdentity {
     pub id: String,
@@ -90,14 +90,14 @@ pub enum RemovalReason {
     Conflict,
     Covered,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Removal {
     pub origin: Origin,
     pub reason: RemovalReason,
     pub covered_by: Origin,
 }
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Report {
     pub original: usize,
@@ -107,7 +107,7 @@ pub struct Report {
     pub effective: usize,
     pub removals: Vec<Removal>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Document {
     pub format_version: u32,
@@ -336,6 +336,13 @@ impl Snapshot {
                 }
             }
         }
+        // 去重与覆盖结构仅用于生成；先释放临时索引和原始输入，再构建最终索引。
+        // 新旧活动快照仍由各自 Arc 保有，不能提前释放正在服务的旧版本。
+        drop(ids);
+        drop(sources);
+        drop(exact);
+        drop(conditions);
+        drop(coverage);
         document.report.effective = entries.len();
         let index = Index::compile(&entries)?;
         Ok(Self {
@@ -375,10 +382,8 @@ impl Snapshot {
         let _temporary =
             MEMORY.reserve(input.len().checked_mul(8).ok_or(Error::ResourceLimit)? + 4096)?;
         let document: Document = yaml::decode(input)?;
-        // 逐字段比较序列化流，避免同时创建两棵大型 JSON 值树。
-        let original = serde_json::to_vec(&self.document).map_err(|_| Error::Internal)?;
-        let restored = serde_json::to_vec(&document).map_err(|_| Error::Internal)?;
-        if original != restored {
+        // 直接比较完整类型值，包括来源与诊断，避免两份整文件 JSON 缓冲区。
+        if self.document != document {
             return Err(Error::InvalidInput);
         }
         Ok(())
@@ -832,5 +837,41 @@ impl Reference {
     }
     pub fn evaluate(&self, target: &Target) -> Result<Decision> {
         self.0.evaluate_reference(target)
+    }
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    #[test]
+    fn full_value_validation_detects_provenance_and_report_changes() {
+        let snapshot = Snapshot::generate(
+            Config::default(),
+            vec![Source {
+                id: "local".into(),
+                layer: Layer::Local,
+                enabled: true,
+                rules: vec![Rule {
+                    r#type: Match::Domain,
+                    value: "example.com".into(),
+                    policy: Policy::Reject,
+                    outbound: None,
+                }],
+            }],
+            7,
+        )
+        .unwrap();
+        let valid = snapshot.to_yaml().unwrap();
+        snapshot.verify_yaml(&valid).unwrap();
+        for invalid in [
+            valid.replace("example.com", "different.com"),
+            valid.replace("\"version\": 7", "\"version\": 8"),
+            valid.replace("\"sequence\": 0", "\"sequence\": 1"),
+            valid.replace("\"effective\": 1", "\"effective\": 0"),
+            valid.replace("\"local\"", "\"other\""),
+        ] {
+            assert_ne!(invalid, valid);
+            assert!(snapshot.verify_yaml(&invalid).is_err());
+        }
     }
 }

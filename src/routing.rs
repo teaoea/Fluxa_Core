@@ -38,7 +38,7 @@ pub enum Match {
     DestinationPort,
     Transport,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
     pub r#type: Match,
@@ -47,7 +47,7 @@ pub struct Rule {
     #[serde(default)]
     pub outbound: Option<String>,
 }
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]

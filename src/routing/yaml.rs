@@ -208,66 +208,7 @@ impl<'de> de::Deserializer<'de> for &mut Decoder<'_> {
     }
     serde::forward_to_deserialize_any! { bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf unit unit_struct seq tuple tuple_struct map struct identifier ignored_any }
 }
-/// 用标准 YAML 块集合和 JSON 兼容引号输出，避免值被当作布尔、数字或标签。
-pub(super) fn emit(value: &Value) -> Result<String> {
-    fn write(value: &Value, depth: usize, output: &mut String) -> Result<()> {
-        if depth > MAX_DEPTH || output.len() > MAX_BYTES {
-            return Err(Error::ResourceLimit);
-        }
-        let indent = "  ".repeat(depth);
-        match value {
-            Value::Object(values) if !values.is_empty() => {
-                for (key, value) in values {
-                    output.push_str(&indent);
-                    output.push_str(&serde_json::to_string(key).map_err(|_| Error::Internal)?);
-                    output.push(':');
-                    if matches!(value, Value::Object(v) if !v.is_empty())
-                        || matches!(value, Value::Array(v) if !v.is_empty())
-                    {
-                        output.push('\n');
-                        write(value, depth + 1, output)?;
-                    } else {
-                        output.push(' ');
-                        output
-                            .push_str(&serde_json::to_string(value).map_err(|_| Error::Internal)?);
-                        output.push('\n');
-                    }
-                }
-            }
-            Value::Array(values) if !values.is_empty() => {
-                for value in values {
-                    output.push_str(&indent);
-                    output.push('-');
-                    if matches!(value, Value::Object(v) if !v.is_empty())
-                        || matches!(value, Value::Array(v) if !v.is_empty())
-                    {
-                        output.push('\n');
-                        write(value, depth + 1, output)?;
-                    } else {
-                        output.push(' ');
-                        output
-                            .push_str(&serde_json::to_string(value).map_err(|_| Error::Internal)?);
-                        output.push('\n');
-                    }
-                }
-            }
-            _ => {
-                output.push_str(&indent);
-                output.push_str(&serde_json::to_string(value).map_err(|_| Error::Internal)?);
-                output.push('\n');
-            }
-        }
-        if output.len() > MAX_BYTES {
-            return Err(Error::ResourceLimit);
-        }
-        Ok(())
-    }
-    let mut output = String::new();
-    write(value, 0, &mut output)?;
-    Ok(output)
-}
-
-/// 逐条生成标准 YAML，避免把十万条规则复制到完整中间值树。
+/// 逐条直接写入最终 YAML 缓冲区，避免逐行格式化与中间文本副本。
 pub(super) struct Writer {
     output: String,
 }
@@ -289,6 +230,65 @@ impl Writer {
         self.output.push_str(text);
         Ok(())
     }
+    fn indent(&mut self, depth: usize) -> Result<()> {
+        if depth > MAX_DEPTH {
+            return Err(Error::ResourceLimit);
+        }
+        // 最大深度固定；从常量切片取缩进，不为每条规则分配缩进字符串。
+        const SPACES: &str = "                                                                ";
+        self.append(&SPACES[..depth * 2])
+    }
+    fn scalar<T: serde::Serialize>(&mut self, value: &T) -> Result<()> {
+        self.append(&serde_json::to_string(value).map_err(|_| Error::Internal)?)
+    }
+    fn nested(value: &Value) -> bool {
+        matches!(value, Value::Object(v) if !v.is_empty())
+            || matches!(value, Value::Array(v) if !v.is_empty())
+    }
+    fn item(&mut self, value: &Value, depth: usize) -> Result<()> {
+        if Self::nested(value) {
+            self.append("\n")?;
+            self.value(value, depth + 1)
+        } else {
+            self.append(" ")?;
+            self.scalar(value)?;
+            self.append("\n")
+        }
+    }
+    fn value(&mut self, value: &Value, depth: usize) -> Result<()> {
+        self.indent(depth)?;
+        match value {
+            Value::Object(values) if !values.is_empty() => {
+                for (index, (key, value)) in values.iter().enumerate() {
+                    if index != 0 {
+                        self.indent(depth)?;
+                    }
+                    self.scalar(key)?;
+                    self.append(":")?;
+                    self.item(value, depth)?;
+                }
+            }
+            Value::Array(values) if !values.is_empty() => {
+                for (index, value) in values.iter().enumerate() {
+                    if index != 0 {
+                        self.indent(depth)?;
+                    }
+                    self.append("-")?;
+                    self.item(value, depth)?;
+                }
+            }
+            _ => {
+                self.scalar(value)?;
+                self.append("\n")?;
+            }
+        }
+        Ok(())
+    }
+    fn key(&mut self, name: &str, depth: usize) -> Result<()> {
+        self.indent(depth)?;
+        self.scalar(&name)?;
+        self.append(":")
+    }
     pub(super) fn field<T: serde::Serialize>(
         &mut self,
         name: &str,
@@ -296,24 +296,15 @@ impl Writer {
         depth: usize,
     ) -> Result<()> {
         let value = serde_json::to_value(value).map_err(|_| Error::Internal)?;
-        let prefix = format!(
-            "{}{}:",
-            "  ".repeat(depth),
-            serde_json::to_string(name).map_err(|_| Error::Internal)?
-        );
-        self.append(&prefix)?;
+        self.key(name, depth)?;
         if !value.is_object() && !value.is_array() {
-            return self.append(&format!(
-                " {}\n",
-                serde_json::to_string(&value).map_err(|_| Error::Internal)?
-            ));
+            self.append(" ")?;
+            self.scalar(&value)?;
+            self.append("\n")
+        } else {
+            self.append("\n")?;
+            self.value(&value, depth + 1)
         }
-        self.append("\n")?;
-        let text = emit(&value)?;
-        for line in text.lines() {
-            self.append(&format!("{}{}\n", "  ".repeat(depth + 1), line))?;
-        }
-        Ok(())
     }
     pub(super) fn sequence<T: serde::Serialize>(
         &mut self,
@@ -321,29 +312,22 @@ impl Writer {
         values: &[T],
         depth: usize,
     ) -> Result<()> {
-        self.append(&format!(
-            "{}{}:",
-            "  ".repeat(depth),
-            serde_json::to_string(name).map_err(|_| Error::Internal)?
-        ))?;
+        self.key(name, depth)?;
         if values.is_empty() {
             return self.append(" []\n");
         }
         self.append("\n")?;
         for value in values {
-            self.append(&format!("{}-\n", "  ".repeat(depth + 1)))?;
+            self.indent(depth + 1)?;
+            self.append("-\n")?;
             let value = serde_json::to_value(value).map_err(|_| Error::Internal)?;
-            for line in emit(&value)?.lines() {
-                self.append(&format!("{}{}\n", "  ".repeat(depth + 2), line))?;
-            }
+            self.value(&value, depth + 2)?;
         }
         Ok(())
     }
     pub(super) fn mapping(&mut self, name: &str) -> Result<()> {
-        self.append(&format!(
-            "{}:\n",
-            serde_json::to_string(name).map_err(|_| Error::Internal)?
-        ))
+        self.key(name, 0)?;
+        self.append("\n")
     }
     pub(super) fn finish(self) -> String {
         self.output
