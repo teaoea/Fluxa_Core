@@ -19,6 +19,7 @@ struct NativeCommandReply: Decodable {
   let dnsAnswer: NativeDNSAnswer?
   let dnsServiceStatus: NativeDNSServiceStatus?
   let packetInfo: NativePacketInfo?
+  let routeDecision: NativeRouteDecision?
   let scriptResultJSON: String?
   let success: Bool
   let error: String?
@@ -39,6 +40,7 @@ struct NativeCommandReply: Decodable {
     case dnsAnswer = "dns_answer"
     case dnsServiceStatus = "dns_service_status"
     case packetInfo = "packet_info"
+    case routeDecision = "route_decision"
     case scriptResultJSON = "script_result_json"
     case certificatePEM = "certificate_pem"
     case certificateDER = "certificate_der"

@@ -1,11 +1,11 @@
 //! Rust HTTPS 解密客户端：系统根证书校验、有限 HTTP/1.1 分帧和明确错误。
+pub use crate::network::normalize_host;
 use crate::{
     error::{Error, Result},
     http::{self, Header},
 };
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use std::{
-    net::IpAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -383,30 +383,4 @@ impl HttpsClient {
 }
 pub(crate) fn is_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
-}
-pub fn normalize_host(host: &str) -> Result<String> {
-    let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
-    let host = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(&host)
-        .to_owned();
-    if host.parse::<IpAddr>().is_ok() {
-        return Ok(host);
-    }
-    if host.is_empty()
-        || host.len() > 253
-        || host.split('.').any(|label| {
-            label.is_empty()
-                || label.len() > 63
-                || label.starts_with('-')
-                || label.ends_with('-')
-                || !label
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        })
-    {
-        return Err(Error::InvalidInput);
-    }
-    Ok(host)
 }

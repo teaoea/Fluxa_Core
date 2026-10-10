@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 case "${1:-all}" in
-  lifecycle|https|mitm|script|tun|dns|dns_service) client_tests=("$1") ;;
-  all) client_tests=(lifecycle https mitm script tun dns dns_service) ;;
-  *) echo '支持 lifecycle、https、mitm、script、tun、dns、dns_service 或 all'; exit 1 ;;
+  lifecycle|https|mitm|script|tun|dns|dns_service|routing) client_tests=("$1") ;;
+  all) client_tests=(lifecycle https mitm script tun dns dns_service routing) ;;
+  *) echo '支持 lifecycle、https、mitm、script、tun、dns、dns_service、routing 或 all'; exit 1 ;;
 esac
 check_directory="$(mktemp -d /tmp/fluxa-ffi-check.XXXXXX)"
 fixture_pid=''
@@ -36,7 +36,7 @@ for client_test in "${client_tests[@]}"; do
   if [[ "$client_test" == lifecycle ]]; then
     swift_sources=(-import-objc-header include/fluxa_engine.h)
   else
-    swift_sources=(-I include Sources/FluxaCore/DNSConfiguration.swift Sources/FluxaEngine/Native*Client.swift)
+    swift_sources=(-I include Sources/FluxaCore/DNSConfiguration.swift Sources/FluxaCore/Routing*.swift Sources/FluxaCore/CoreError.swift Sources/FluxaEngine/Native*Client.swift)
   fi
   CLANG_MODULE_CACHE_PATH="$check_directory/modules" swiftc \
     -module-cache-path "$check_directory/modules" "${swift_sources[@]}" \

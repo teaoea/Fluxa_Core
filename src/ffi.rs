@@ -35,6 +35,7 @@ const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
 struct Engine {
     client: Mutex<Option<HttpsClient>>,
     busy: AtomicBool,
+    router: Mutex<Option<Arc<crate::routing::Router>>>,
     dns: Mutex<Option<Arc<crate::dns::Resolver>>>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
@@ -129,6 +130,10 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 enum Command {
     DnsConfigure(crate::dns::Config),
     DnsValidate(crate::dns::Config),
+    RouteConfigure(crate::routing::Config),
+    RouteEvaluate(crate::routing::Target),
+    RouteCheck(crate::routing::Target),
+    RouteClose,
     DnsClose,
     DnsServiceStart,
     DnsServiceStop,
@@ -208,6 +213,8 @@ struct Reply {
     fake_ip_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     packet_info: Option<crate::tun::PacketInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route_decision: Option<crate::routing::Decision>,
     success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -269,7 +276,41 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     static REQUESTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
     let _permit = REQUESTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
     let command: Command = serde_json::from_slice(bytes).map_err(|_| Error::InvalidInput)?;
+    let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::RouteConfigure(config) => {
+            let router = crate::routing::Router::compile(config)?;
+            *engine.router.lock().map_err(|_| Error::Internal)? = Some(Arc::new(router));
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::RouteEvaluate(target) | Command::RouteCheck(target) => {
+            let router = engine
+                .router
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .as_ref()
+                .cloned()
+                .ok_or(Error::InvalidState)?;
+            let decision = router.evaluate(target)?;
+            if checked_route {
+                decision.check_support()?;
+            }
+            Ok(Reply {
+                success: true,
+                route_decision: Some(decision),
+                ..Reply::default()
+            })
+        }
+        Command::RouteClose => {
+            *engine.router.lock().map_err(|_| Error::Internal)? = None;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::DnsValidate(config) => {
             config.validate()?;
             Ok(Reply {
@@ -575,10 +616,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
     1
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    511
+    1023
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -678,7 +719,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 511);
+        assert_eq!(fluxa_engine_capabilities(), 1023);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

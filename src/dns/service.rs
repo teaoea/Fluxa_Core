@@ -1,6 +1,7 @@
 //! UDP/TCP DNS 监听：显式网段授权、查询/连接/来源上限、有限报文和可等待的停止。
 use super::Resolver;
 use crate::error::{Error, Result};
+use crate::network::Network;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -29,17 +30,6 @@ pub struct Config {
     #[serde(default)]
     pub allowed_clients: Vec<String>,
 }
-struct Network {
-    base: u128,
-    mask: u128,
-    v4: bool,
-}
-fn number(ip: IpAddr) -> (u128, bool) {
-    match ip {
-        IpAddr::V4(ip) => (u128::from(u32::from(ip)), true),
-        IpAddr::V6(ip) => (u128::from(ip), false),
-    }
-}
 fn private(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local(),
@@ -53,41 +43,6 @@ fn mapped(ip: IpAddr) -> IpAddr {
             .map(IpAddr::V4)
             .unwrap_or(IpAddr::V6(ip)),
         other => other,
-    }
-}
-impl Network {
-    fn parse(value: &str) -> Result<Self> {
-        if value.len() > 64 {
-            return Err(Error::InvalidInput);
-        }
-        let (ip, prefix) = value.split_once('/').ok_or(Error::InvalidInput)?;
-        let ip: IpAddr = ip.parse().map_err(|_| Error::InvalidInput)?;
-        let prefix: u32 = prefix.parse().map_err(|_| Error::InvalidInput)?;
-        let (base, v4) = number(ip);
-        let width = if v4 { 32 } else { 128 };
-        if prefix > width {
-            return Err(Error::InvalidInput);
-        }
-        let full = if v4 { u128::from(u32::MAX) } else { u128::MAX };
-        let mask = if prefix == 0 {
-            0
-        } else {
-            (u128::MAX << (width - prefix)) & full
-        };
-        let last = base | (full ^ mask);
-        let last = if v4 {
-            IpAddr::V4((last as u32).into())
-        } else {
-            IpAddr::V6(last.into())
-        };
-        if base & mask != base || !private(ip) || !private(last) {
-            return Err(Error::InvalidInput);
-        }
-        Ok(Self { base, mask, v4 })
-    }
-    fn includes(&self, ip: IpAddr) -> bool {
-        let (ip, v4) = number(ip);
-        self.v4 == v4 && ip & self.mask == self.base
     }
 }
 impl Config {
@@ -115,7 +70,13 @@ impl Config {
         let allowed = self
             .allowed_clients
             .iter()
-            .map(|s| Network::parse(s))
+            .map(|s| {
+                let network = Network::parse(s)?;
+                if !private(network.first()) || !private(network.last()) {
+                    return Err(Error::InvalidInput);
+                }
+                Ok(network)
+            })
             .collect::<Result<Vec<_>>>()?;
         Ok((address, allowed))
     }

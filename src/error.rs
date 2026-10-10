@@ -32,7 +32,7 @@ impl fmt::Display for Error {
             Self::InvalidState => "资源状态不允许此操作",
             Self::Unsupported => "请求的能力尚未支持",
             Self::Script => "脚本执行失败或结果不是有效 JSON 数据",
-            Self::Rejected => "请求被 Fluxa 插件规则拒绝",
+            Self::Rejected => "请求被 Fluxa 规则拒绝",
             Self::ScriptTimeout => "脚本执行超时",
             Self::Internal => "内部资源错误",
         })
