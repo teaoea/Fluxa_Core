@@ -33,6 +33,7 @@ struct NativeCommandReply: Decodable {
   let outboundEOF: Bool?
   let outboundWritten: Int?
   let fakeIPName: String?
+  let dnsObservation: NativeDNSObservation?
   let dnsAnswer: NativeDNSAnswer?
   let dnsServiceStatus: NativeDNSServiceStatus?
   let packetInfo: NativePacketInfo?
@@ -66,6 +67,7 @@ struct NativeCommandReply: Decodable {
     case outboundEOF = "outbound_eof"
     case outboundWritten = "outbound_written"
     case fakeIPName = "fake_ip_name"
+    case dnsObservation = "dns_observation"
     case dnsAnswer = "dns_answer"
     case dnsServiceStatus = "dns_service_status"
     case packetInfo = "packet_info"

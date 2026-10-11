@@ -2,6 +2,7 @@
 //! Hickory 负责标准报文/密码学验证；不读取系统 DNS 或 hosts，不隐式降级。
 mod config;
 pub mod fake_ip;
+pub mod observation;
 pub mod service;
 mod wire;
 use crate::{
@@ -70,6 +71,7 @@ pub struct Resolver {
     config: Config,
     fake_ip: Option<fake_ip::Table>,
     cache: Mutex<BTreeMap<(String, String), Cached>>,
+    observation: std::sync::Arc<Mutex<Option<observation::Observation>>>,
     _permit: tokio::sync::SemaphorePermit<'static>,
 }
 impl Resolver {
@@ -124,11 +126,28 @@ impl Resolver {
             .transpose()?;
         Ok(Self {
             inner,
+            observation: observation::shared(&config)?,
             fake_ip,
             config,
             cache: Mutex::new(BTreeMap::new()),
             _permit: permit,
         })
+    }
+    /// 只读最近一次默认服务器解析；读取不会查询 DNS。缓存命中为 0 ms，合成映射不更新。
+    pub fn last_query(&self) -> Result<Option<observation::Observation>> {
+        Ok(self
+            .observation
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .clone())
+    }
+    fn observe(&self, duration_ms: u64, from_cache: bool, successful: bool) -> Result<()> {
+        *self.observation.lock().map_err(|_| Error::Internal)? = Some(observation::Observation {
+            duration_ms,
+            from_cache,
+            successful,
+        });
+        Ok(())
     }
     pub async fn serve(self: std::sync::Arc<Self>) -> Result<service::Service> {
         let config = self.config.service.clone().ok_or(Error::InvalidState)?;
@@ -223,6 +242,7 @@ impl Resolver {
                 for record in &mut answer.records {
                     record.ttl = record.ttl.min(answer.ttl);
                 }
+                self.observe(0, true, answer.rcode == 0 || answer.rcode == 3)?;
                 return Ok(answer);
             }
         }
@@ -235,10 +255,21 @@ impl Resolver {
             Duration::from_millis((self.config.timeout_ms / self.inner.len() as u64).max(50));
         let lookup = tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
             let mut last = Err(NetError::Timeout);
-            for resolver in &self.inner {
+            for (index, resolver) in self.inner.iter().enumerate() {
+                let attempt_started = Instant::now();
                 last = tokio::time::timeout(attempt, resolver.lookup(fqdn.clone(), kind))
                     .await
                     .unwrap_or(Err(NetError::Timeout));
+                if index == 0 {
+                    // 同步写入一条小统计，不创建后台任务；失败保留失败状态，不伪造零延迟成功。
+                    self.observe(
+                        attempt_started.elapsed().as_millis() as u64,
+                        false,
+                        last.is_ok()
+                            || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_)))),
+                    )
+                    .map_err(|_| NetError::Timeout)?;
+                }
                 if last.is_ok() || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_))))
                 {
                     break;
@@ -251,7 +282,10 @@ impl Resolver {
             last
         })
         .await
-        .map_err(|_| Error::DnsTimeout)?;
+        .map_err(|_| {
+            let _ = self.observe(started.elapsed().as_millis() as u64, false, false);
+            Error::DnsTimeout
+        })?;
         let mut answer = Answer {
             name,
             query_type: kind.to_string(),

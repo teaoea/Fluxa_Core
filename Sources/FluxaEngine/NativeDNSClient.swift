@@ -3,6 +3,18 @@ import Foundation
 import FluxaCore
 #endif
 
+/// 默认 DNS 最近一次解析状态；Rust 保留统计，读取不发送网络请求。
+public struct NativeDNSObservation: Decodable, Sendable {
+  public let durationMilliseconds: UInt64
+  public let fromCache: Bool
+  public let successful: Bool
+  enum CodingKeys: String, CodingKey {
+    case durationMilliseconds = "duration_ms"
+    case fromCache = "from_cache"
+    case successful
+  }
+}
+
 public struct NativeDNSRecord: Decodable, Sendable {
   public let name: String
   public let recordType: String
@@ -48,6 +60,10 @@ public final class NativeDNSClient: Sendable {
     var command = try Self.configurationCommand(configuration)
     command["operation"] = "dns_validate"
     _ = try client.command(command)
+  }
+
+  public func lastQuery() throws -> NativeDNSObservation? {
+    try client.command(["operation": "dns_last_query"]).dnsObservation
   }
 
   public func query(name: String, type: String = "A") throws -> NativeDNSAnswer {

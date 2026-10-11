@@ -69,6 +69,15 @@ async fn udp_tcp_dot_doh_cname_aaaa_and_records() {
             .await
             .unwrap();
         assert_eq!(a.addresses, ["192.0.2.44"]);
+        let observed = resolver.last_query().unwrap().unwrap();
+        assert!(observed.successful && !observed.from_cache);
+        let cached = resolver
+            .resolve(query("alias.example.test", "A"))
+            .await
+            .unwrap();
+        assert!(cached.from_cache);
+        let observed = resolver.last_query().unwrap().unwrap();
+        assert!(observed.successful && observed.from_cache && observed.duration_ms == 0);
         assert!(a.records.iter().any(|r| r.record_type == "CNAME"));
         assert_eq!(
             resolver
@@ -159,6 +168,9 @@ async fn timeout_wrong_transaction_and_failure_recovery() {
     let resolver = Resolver::new(settings).unwrap();
     for name in ["timeout.example.test", "mismatch.example.test"] {
         assert!(resolver.resolve(query(name, "A")).await.is_err());
+        let observation = resolver.last_query().unwrap().unwrap();
+        assert!(!observation.successful && !observation.from_cache);
+        assert!(observation.duration_ms >= 50);
     }
     assert_eq!(
         resolver
@@ -283,6 +295,8 @@ async fn dnssec_signed_root_valid_tampered_expired_and_untrusted() {
     assert_eq!(valid.addresses, ["192.0.2.55"]);
     for name in ["bogus.", "expired."] {
         assert!(resolver.resolve(query(name, "A")).await.is_err());
+        let observation = resolver.last_query().unwrap().unwrap();
+        assert!(!observation.successful && !observation.from_cache);
     }
     let negative = resolver.resolve(query("nxdomain.", "A")).await.unwrap();
     assert_eq!(negative.rcode, 3);

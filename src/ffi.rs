@@ -232,6 +232,7 @@ enum Command {
     DnsServiceStop,
     DnsServiceStatus,
     DnsQuery(crate::dns::Query),
+    DnsLastQuery,
     DnsClearCache,
     DnsFakeIpReverse {
         address: String,
@@ -354,6 +355,8 @@ struct Reply {
     outbound_written: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dns_answer: Option<crate::dns::Answer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns_observation: Option<crate::dns::observation::Observation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dns_service_status: Option<crate::dns::service::Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -969,6 +972,11 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ..Reply::default()
             })
         }
+        Command::DnsLastQuery => Ok(Reply {
+            success: true,
+            dns_observation: engine.dns()?.last_query()?,
+            ..Reply::default()
+        }),
         Command::DnsQuery(query) => {
             let resolver = engine.dns()?;
             Reply::dns(&resolver, query)

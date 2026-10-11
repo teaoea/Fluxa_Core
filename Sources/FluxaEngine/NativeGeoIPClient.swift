@@ -35,6 +35,10 @@ public final class NativeGeoIPClient: Sendable {
     return address
   }
 
+  public func lastDNSQuery() throws -> NativeDNSObservation? {
+    try client.command(["operation": "dns_last_query"]).dnsObservation
+  }
+
   public func open(database: URL) throws {
     _ = try client.command(["operation": "geoip_open", "path": database.path])
   }
