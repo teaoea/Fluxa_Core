@@ -12,6 +12,57 @@ final class RealityProfileTests: XCTestCase {
     XCTAssertEqual(profile.shortID, "aabb")
   }
 
+  func testNativeFingerprintAndURIKeepParameters() throws {
+    let profile = try RealityProfile.parse(link.replacingOccurrences(
+      of: "fp=chrome",
+      with: "fp=fluxa"
+    ))
+    let decoded = try RealityProfile.parse(profile.uri)
+    XCTAssertEqual(decoded.userID, profile.userID)
+    XCTAssertEqual(decoded.host, profile.host)
+    XCTAssertEqual(decoded.fingerprint, "fluxa")
+    XCTAssertEqual(decoded.publicKey, profile.publicKey)
+    XCTAssertTrue(ProxyProtocol.vlessReality.isImplemented)
+    XCTAssertFalse(ProxyProtocol.socks5.isImplemented)
+  }
+
+  func testAllPublishedFingerprintNamesAndUnknownRejection() throws {
+    for name in [
+      "chrome",
+      "chrome120",
+      "chrome131",
+      "chrome133",
+      "firefox",
+      "firefox120",
+      "safari",
+      "safari16",
+      "ios",
+      "ios14",
+      "android",
+      "android-chrome120",
+      "android-chrome133",
+      "edge",
+      "edge106",
+      "random",
+      "fluxa",
+    ] {
+      let profile = try RealityProfile.parse(link.replacingOccurrences(
+        of: "fp=chrome",
+        with: "fp=" + name
+      ))
+      XCTAssertEqual(profile.fingerprint, name)
+      XCTAssertEqual(try RealityProfile.parse(profile.uri).fingerprint, name)
+    }
+    XCTAssertThrowsError(try RealityProfile.parse(link.replacingOccurrences(
+      of: "fp=chrome",
+      with: "fp=unknown"
+    )))
+    XCTAssertThrowsError(try RealityProfile.parse(link.replacingOccurrences(
+      of: "fp=chrome",
+      with: "fp=randomized"
+    )))
+  }
+
   func testRejectsTransportDowngradeAndUnknownParameters() {
     for value in [
       link.replacingOccurrences(of: "type=tcp", with: "type=ws"),

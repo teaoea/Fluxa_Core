@@ -10,6 +10,30 @@
 
 | 组件 | 版本 | 开源协议 |
 | --- | --- | --- |
+| cpufeatures | 0.2.17 | MIT OR Apache-2.0 |
+| curve25519-dalek | 4.1.3 | BSD-3-Clause |
+| curve25519-dalek-derive | 0.1.1 | MIT/Apache-2.0 |
+| fiat-crypto | 0.2.9 | MIT OR Apache-2.0 OR BSD-1-Clause |
+| rand_core | 0.6.4 | MIT OR Apache-2.0 |
+| x25519-dalek | 2.0.1 | BSD-3-Clause |
+| zeroize_derive | 1.5.0 | Apache-2.0 OR MIT |
+| base64ct | 1.8.3 | Apache-2.0 OR MIT |
+| block-buffer | 0.12.1 | MIT OR Apache-2.0 |
+| cmov | 0.5.4 | Apache-2.0 OR MIT |
+| const-oid | 0.10.2 | Apache-2.0 OR MIT |
+| crypto-common | 0.2.2 | MIT OR Apache-2.0 |
+| ctutils | 0.4.3 | Apache-2.0 OR MIT |
+| der | 0.8.2 | Apache-2.0 OR MIT |
+| digest | 0.11.3 | MIT OR Apache-2.0 |
+| hybrid-array | 0.4.15 | MIT OR Apache-2.0 |
+| keccak | 0.2.2 | Apache-2.0 OR MIT |
+| kem | 0.3.0 | Apache-2.0 OR MIT |
+| ml-kem | 0.3.2 | Apache-2.0 OR MIT |
+| module-lattice | 0.2.3 | Apache-2.0 OR MIT |
+| pkcs8 | 0.11.0 | Apache-2.0 OR MIT |
+| sha3 | 0.11.0 | MIT OR Apache-2.0 |
+| spki | 0.8.1 | Apache-2.0 OR MIT |
+| typenum | 1.20.1 | MIT OR Apache-2.0 |
 | aho-corasick | 1.1.4 | Unlicense OR MIT |
 | arraydeque | 0.5.1 | MIT/Apache-2.0 |
 | hashlink | 0.12.2 | MIT OR Apache-2.0 |

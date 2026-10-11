@@ -40,6 +40,7 @@ pub struct NetworkSnapshot {
     pub resolver: Option<Arc<Resolver>>,
     pub router: Option<Arc<Router>>,
     pub limits: Limits,
+    pub outbounds: Arc<std::collections::HashMap<String, Arc<crate::protocol::config::Node>>>,
 }
 impl Manager {
     pub fn network_snapshot(&self) -> Result<Arc<NetworkSnapshot>> {
@@ -54,12 +55,33 @@ impl Manager {
         router: Option<Arc<Router>>,
         limits: Limits,
     ) -> Result<u64> {
+        self.configure_network_with_outbounds(resolver, router, limits, Vec::new())
+    }
+    /// 所有节点先校验；重复标识、过量配置或不支持的协议失败不改变快照。
+    pub fn configure_network_with_outbounds(
+        &self,
+        resolver: Option<Arc<Resolver>>,
+        router: Option<Arc<Router>>,
+        limits: Limits,
+        profiles: Vec<crate::protocol::config::Profile>,
+    ) -> Result<u64> {
         limits.validate()?;
+        if profiles.len() > 128 {
+            return Err(Error::ResourceLimit);
+        }
+        let mut outbounds = std::collections::HashMap::with_capacity(profiles.len());
+        for profile in profiles {
+            let node = Arc::new(profile.validate()?);
+            if outbounds.insert(profile.id.clone(), node).is_some() {
+                return Err(Error::InvalidInput);
+            }
+        }
         self.replace_network(|_| NetworkSnapshot {
             revision: 0,
             resolver,
             router,
             limits,
+            outbounds: Arc::new(outbounds),
         })
     }
     pub fn configure_limits(&self, limits: Limits) -> Result<u64> {

@@ -1,11 +1,19 @@
 # Fluxa 完整主配置示例。作者：可莉唯一的狗。
 # 用户编辑本文件；运行时规则由 Rust 生成，不能直接编辑生成产物。
-# 未实现的代理协议、TUN 转发和网关能力不会因为示例出现而变为可用。
+# 已实现 VLESS TCP REALITY Vision 出站；TUN 转发、网关和其他协议仍明确拒绝。
 schema-version: 1
 kind: configuration
 name: My Fluxa
 
 # 节点 URI 含凭据，请使用自己的节点；当前示例不提供可用账号。
+# VLESS URI 必须指定 security=reality、flow=xtls-rprx-vision、sni、pbk、sid。
+# fp 支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、
+# android/android-chrome133、android-chrome120、edge/edge106、random 与原生 fluxa。默认 chrome133 模板。
+# 名称对应固定版本握手模板，random 在已支持模板中选择；未知指纹明确拒绝。
+# nodes 保留现有 name/uri 格式；客户端传递给内核的是稳定 id 与完整 uri。
+# 配置命令 network_configure 新增 outbounds: [{id: <稳定标识>, uri: <完整VLESS链接>}]
+# outbounds 默认 []，最多 128 条；routing.outbound 必须引用对应 id。重复 id 和不支持的组合拒绝整次更新。
+# 出站仅支持 TCP；UDP、Mux、XUDP 和不支持的传输明确拒绝，不回退直连。
 nodes: []
 
 # 订阅原始内容分别保留。enabled 仅控制自动更新及规则是否参与。
@@ -58,7 +66,7 @@ rules:
     value: udp
     policy: direct
 
-# 默认策略在没有适用规则时生效；未实现代理出站会明确失败，不回退直连。
+# 默认策略在没有适用规则时生效；缺失或无效代理出站明确失败，不回退直连。
 routing:
   mode: rules
   fallback: direct

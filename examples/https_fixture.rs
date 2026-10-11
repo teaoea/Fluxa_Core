@@ -30,7 +30,12 @@ async fn main() {
             let _ = udp.send_to(&bytes[..size], peer).await;
         }
     });
-    let fixture = support::fixture().await;
+    let fixture = match std::env::args().nth(1) {
+        Some(suite) => {
+            support::fixture_with_suite(suite.parse().expect("测试套件必须是数字")).await
+        }
+        None => support::fixture().await,
+    };
     let dns = dns_support::fixture().await;
     let plain = support::plain_fixture().await;
     println!(

@@ -39,11 +39,19 @@ pub fn endpoint(value: &str) -> Result<SocketAddr> {
     }
     Ok(address)
 }
+type BoxStream = crate::network::SecureStream;
+fn tcp_socket(stream: BoxStream) -> Socket {
+    let (reader, writer) = tokio::io::split(stream);
+    Socket::Tcp {
+        reader: tokio::sync::Mutex::new(reader),
+        writer: tokio::sync::Mutex::new(writer),
+    }
+}
 enum Socket {
     Detached,
     Tcp {
-        reader: tokio::sync::Mutex<tokio::net::tcp::OwnedReadHalf>,
-        writer: tokio::sync::Mutex<tokio::net::tcp::OwnedWriteHalf>,
+        reader: tokio::sync::Mutex<tokio::io::ReadHalf<BoxStream>>,
+        writer: tokio::sync::Mutex<tokio::io::WriteHalf<BoxStream>>,
     },
     Udp {
         socket: UdpSocket,
@@ -359,11 +367,7 @@ async fn dial(address: SocketAddr, transport: Transport) -> Result<Dialed> {
         Transport::Tcp => {
             let socket = TcpStream::connect(address).await?;
             socket.set_nodelay(true)?;
-            let (reader, writer) = socket.into_split();
-            Socket::Tcp {
-                reader: tokio::sync::Mutex::new(reader),
-                writer: tokio::sync::Mutex::new(writer),
-            }
+            tcp_socket(Box::new(socket))
         }
         Transport::Udp => {
             let bind = if address.is_ipv4() {

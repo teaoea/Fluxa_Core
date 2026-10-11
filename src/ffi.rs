@@ -142,6 +142,8 @@ enum Command {
         dns: Option<crate::dns::Config>,
         routing: crate::routing::Config,
         limits: crate::outbound::Limits,
+        #[serde(default)]
+        outbounds: Vec<crate::protocol::config::Profile>,
     },
     OutboundLimits(crate::outbound::Limits),
     OutboundStatus,
@@ -488,6 +490,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             dns,
             routing,
             limits,
+            outbounds,
         } => {
             if engine
                 .dns_service
@@ -505,9 +508,12 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                         .map(Arc::new)
                 })
                 .transpose()?;
-            let revision = engine
-                .outbound
-                .configure_network(resolver, Some(router), limits)?;
+            let revision = engine.outbound.configure_network_with_outbounds(
+                resolver,
+                Some(router),
+                limits,
+                outbounds,
+            )?;
             Ok(Reply {
                 success: true,
                 network_revision: Some(revision),
@@ -1058,7 +1064,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    524287
+    1048575
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1093,7 +1099,7 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
     }))
     .unwrap_or(INTERNAL_ERROR)
 }
-// 安全条件同上；尚未实现代理出站，不降级直连。
+// 安全条件同上；系统隧道与入口尚未实现，不伪造连接；独立协议出站通过命令调用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_start(handle: u64) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
@@ -1161,7 +1167,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 524287);
+        assert_eq!(fluxa_engine_capabilities(), 1048575);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

@@ -100,7 +100,7 @@ final class NativeCommandClient: Sendable {
   @discardableResult
   func configureNetwork(
     dns: DNSConfiguration?, routing: RoutingConfiguration,
-    limits: OutboundLimits
+    limits: OutboundLimits, outbounds: [NativeProxyOutbound] = []
   ) throws -> UInt64 {
     var route = try NativeRoutingClient.configurationCommand(routing)
     route.removeValue(forKey: "operation")
@@ -113,6 +113,7 @@ final class NativeCommandClient: Sendable {
     let reply = try command([
       "operation": "network_configure", "routing": route,
       "dns": dnsObject as Any? ?? NSNull(), "limits": object,
+      "outbounds": JSONSerialization.jsonObject(with: JSONEncoder().encode(outbounds)),
     ])
     guard let revision = reply.networkRevision else { throw NativeClientError.boundary }
     return revision

@@ -30,6 +30,24 @@ pub async fn fixture() -> Fixture {
     fixture_with_options(false, false).await
 }
 pub async fn fixture_with_options(expired: bool, tls12: bool) -> Fixture {
+    fixture_with_provider(expired, tls12, rustls::crypto::ring::default_provider()).await
+}
+/// 协议互通逐个强制 TLS 1.3 套件，避免只验证默认 AES-128。
+// 此函数仅由协议夹具程序调用；共用测试模块的其他目标不使用该入口。
+#[allow(dead_code)]
+pub async fn fixture_with_suite(suite: u16) -> Fixture {
+    let mut provider = rustls::crypto::ring::default_provider();
+    provider
+        .cipher_suites
+        .retain(|v| u16::from(v.suite()) == suite);
+    assert_eq!(provider.cipher_suites.len(), 1);
+    fixture_with_provider(false, false, provider).await
+}
+async fn fixture_with_provider(
+    expired: bool,
+    tls12: bool,
+    provider: rustls::crypto::CryptoProvider,
+) -> Fixture {
     let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
     params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
     params.key_usages = vec![KeyUsagePurpose::KeyCertSign];
@@ -42,20 +60,19 @@ pub async fn fixture_with_options(expired: bool, tls12: bool) -> Fixture {
     }
     let leaf = params.signed_by(&key, &ca).unwrap();
     let tls12_versions = [&rustls::version::TLS12];
-    let mut config =
-        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_protocol_versions(if tls12 {
-                &tls12_versions
-            } else {
-                rustls::DEFAULT_VERSIONS
-            })
-            .unwrap()
-            .with_no_client_auth()
-            .with_single_cert(
-                vec![leaf.der().clone()],
-                PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
-            )
-            .unwrap();
+    let mut config = ServerConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(if tls12 {
+            &tls12_versions
+        } else {
+            rustls::DEFAULT_VERSIONS
+        })
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![leaf.der().clone()],
+            PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
+        )
+        .unwrap();
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

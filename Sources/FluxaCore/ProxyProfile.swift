@@ -13,7 +13,7 @@ public enum ProxyProtocol: String, Codable, CaseIterable, Sendable {
   case http = "HTTP / HTTPS"
 
   public var isImplemented: Bool {
-    false
+    self == .vlessReality
   }
 }
 
@@ -29,6 +29,26 @@ public struct RealityProfile: Codable, Identifiable, Equatable, Sendable {
   public let shortID: String
   public let fingerprint: String
   public let flow: String
+
+  private static let supportedFingerprints = [
+    "fluxa",
+    "chrome",
+    "chrome120",
+    "chrome131",
+    "chrome133",
+    "firefox",
+    "firefox120",
+    "safari",
+    "safari16",
+    "ios",
+    "ios14",
+    "android",
+    "android-chrome120",
+    "android-chrome133",
+    "edge",
+    "edge106",
+    "random",
+  ]
 
   public static func parse(_ link: String) throws -> RealityProfile {
     guard let components = URLComponents(string: link
@@ -81,9 +101,7 @@ public struct RealityProfile: Codable, Identifiable, Equatable, Sendable {
           })
     else { throw CoreError.invalidRequest("请填写有效的 REALITY SNI 域名。") }
     let fingerprint = parameters["fp"] ?? "chrome"
-    guard ["chrome", "firefox", "safari", "ios", "android", "edge", "random", "randomized"]
-      .contains(fingerprint)
-    else {
+    guard supportedFingerprints.contains(fingerprint) else {
       throw CoreError.invalidRequest("不支持此 TLS fingerprint。")
     }
     return RealityProfile(
@@ -97,5 +115,27 @@ public struct RealityProfile: Codable, Identifiable, Equatable, Sendable {
       fingerprint: fingerprint,
       flow: flow
     )
+  }
+}
+
+public extension RealityProfile {
+  /// 完整保留导入参数，交给 Rust 执行最终协议校验；不替换用户指定的指纹。
+  var uri: String {
+    var components = URLComponents()
+    components.scheme = "vless"
+    components.user = userID.uuidString
+    components.host = host.contains(":") ? "[\(host)]" : host
+    components.port = Int(port)
+    components.queryItems = [
+      URLQueryItem(name: "security", value: "reality"),
+      URLQueryItem(name: "type", value: "tcp"),
+      URLQueryItem(name: "encryption", value: "none"),
+      URLQueryItem(name: "flow", value: flow),
+      URLQueryItem(name: "sni", value: serverName),
+      URLQueryItem(name: "pbk", value: publicKey),
+      URLQueryItem(name: "sid", value: shortID),
+      URLQueryItem(name: "fp", value: fingerprint),
+    ]
+    return components.string ?? ""
   }
 }

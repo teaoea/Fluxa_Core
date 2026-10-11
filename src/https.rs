@@ -13,12 +13,7 @@ use tokio::{io::BufReader, time::timeout};
 use tokio_rustls::TlsConnector;
 use url::Url;
 
-pub(crate) trait Duplex:
-    tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send
-{
-}
-impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Duplex for T {}
-pub(crate) type SecureStream = Box<dyn Duplex>;
+pub(crate) use crate::network::SecureStream;
 #[derive(Clone)]
 pub struct HttpsClient {
     config: Arc<ClientConfig>,

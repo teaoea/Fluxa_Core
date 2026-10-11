@@ -7,3 +7,5 @@ rcgen 用于 MITM CA、站点证书以及测试服务器证书生成；TLS 使�
 DNS 使用固定 Hickory resolver/proto/net 0.26.3，选择 MIT 许可；原始声明见 Notices/。传递依赖由 Cargo.lock 固定；清单不等于完整分发许可审计，没有引入代理内核。
 
 运行时规则 YAML 使用 yaml-rust2 0.13.0 的事件解析器，关闭默认字符编码转换；关键词索引使用 aho-corasick 1.1.4 的连续 NFA。新增传递依赖 arraydeque 0.5.1、hashlink 0.12.2 由 Cargo.lock 固定，上游声明原文保存于 Notices/。不引入代理内核。
+
+VLESS/REALITY/Vision 由自有 Rust 代码实现；ring 0.17.14、x25519-dalek 2.0.1、ml-kem 0.3.2（秘密清零）仅提供密码原语。指纹公开字段参考固定 uTLS 提交 ff1b50fbbe9a6dff1dcb1cfc0493bd5b0f073f67，保留 BSD 声明，不链接其 Go 实现。独立 Xray v26.3.27 只用于互通测试，不进入交付物。新增依赖及原文声明见 LICESE.md 与 Notices/。ml-kem 上游未独立审计，此处不宣称完成密码学或许可分发审计。

@@ -8,6 +8,8 @@
 
 ## 当前能力
 
+- 自研 VLESS + TCP + REALITY + Vision 出站：固定 Chrome、Firefox、Safari、iOS、Android Chrome、Edge 指纹；现代 Chrome 支持 X25519MLKEM768，详见 [Protocols.md](Protocols.md)。
+
 - HTTP 代理：请求转发、CONNECT 隧道与分块解码。
 - HTTPS：TLS 1.2/1.3、上游证书验证及请求/响应处理。
 - MITM：精确域名解密、证书签发及请求/响应捕获。
@@ -15,7 +17,7 @@
 - JavaScript：受限脚本执行、JSON 转换、内置 JSON 响应字段处理及执行隔离。
 
 - DNS：UDP/TCP、DoT/DoH、手动上游、正负缓存、DNSSEC、Fake-IP 双向映射及有访问控制的局域网 UDP/TCP 服务；详见 [DNS.md](DNS.md)。
-- 路由：来源感知的运行时规则生成、规范化、去重、完全覆盖裁剪与索引匹配，支持域名、IPv4/IPv6 CIDR、关键词、端口与 TCP/UDP；域名命中后跳过 IP 规则，同类型本地优先，详见 [RuntimeRules.md](RuntimeRules.md)。未实现的逻辑代理出站明确拒绝。
+- 路由：来源感知的运行时规则生成、规范化、去重、完全覆盖裁剪与索引匹配，支持域名、IPv4/IPv6 CIDR、关键词、端口与 TCP/UDP；域名命中后跳过 IP 规则，同类型本地优先，详见 [RuntimeRules.md](RuntimeRules.md)。缺失或不支持的代理出站明确拒绝。
 - TUN 基础：IPv4/IPv6、TCP/UDP 数据包检查、校验和验证与有界会话；尚不支持数据包转发。
 
 通过所有权和 RAII 管理资源，为连接、缓冲区、日志和脚本运行时设置上限。
@@ -28,7 +30,7 @@
 
 ## 后续计划
 
-完善共用出站、TUN 转发、网关与代理协议；首个协议目标为 VLESS + TCP + REALITY + Vision。
+完善 TUN 转发、网关及其他代理协议。
 
 ## 许可
 

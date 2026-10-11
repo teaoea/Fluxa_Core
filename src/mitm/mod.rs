@@ -4,7 +4,8 @@ pub mod capture;
 use crate::{
     error::{Error, Result},
     http::{self, Header},
-    https::{Duplex, HttpsClient, SecureStream, is_token, normalize_host},
+    https::{HttpsClient, SecureStream, is_token, normalize_host},
+    network::Duplex,
     rewrite::{self, Rewrite},
 };
 use authority::Authority;

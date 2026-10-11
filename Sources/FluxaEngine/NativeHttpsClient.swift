@@ -33,9 +33,10 @@ public final class NativeHttpsClient: Sendable {
   @discardableResult
   public func configureNetwork(
     dns: DNSConfiguration?, routing: RoutingConfiguration,
-    limits: OutboundLimits = OutboundLimits()
+    limits: OutboundLimits = OutboundLimits(),
+    outbounds: [NativeProxyOutbound] = []
   ) throws -> UInt64 {
-    try client.configureNetwork(dns: dns, routing: routing, limits: limits)
+    try client.configureNetwork(dns: dns, routing: routing, limits: limits, outbounds: outbounds)
   }
 
   public func outboundStatus() throws -> NativeOutboundStatus {

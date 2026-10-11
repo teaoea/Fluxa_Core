@@ -5,7 +5,7 @@ use super::{
 use crate::{
     dns::Resolver,
     error::{Error, Result},
-    routing::{Decision, Router, Target},
+    routing::{Decision, Policy, Router, Target, Transport},
 };
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
@@ -111,9 +111,9 @@ impl Manager {
         }
         let mut decision = None;
         let opened = self
-            .establish_with(snapshot, deadline, async {
+            .establish_with(std::sync::Arc::clone(&snapshot), deadline, async {
                 if let Some(early) = router.evaluate_before_dns(metadata.clone())? {
-                    early.check_support()?;
+                    check(&snapshot, &early, metadata.transport)?;
                 }
                 let addresses = if let Some(ip) = numeric {
                     vec![ip]
@@ -132,15 +132,84 @@ impl Manager {
                     let mut target = metadata.clone();
                     target.address = Some(ip.to_string());
                     let route = router.evaluate(target)?;
-                    route.check_support()?;
+                    check(&snapshot, &route, metadata.transport)?;
                     plans.push((SocketAddr::new(ip, metadata.port), route));
                 }
-                let dialed = candidates(
-                    hop.map(|hop| vec![hop])
-                        .unwrap_or_else(|| plans.iter().map(|(address, _)| *address).collect()),
-                    metadata.transport,
-                )
-                .await?;
+                let preferred = plans.first().ok_or(Error::DnsResponse)?;
+                // VLESS 无独立目标连接确认；自动模式优先同一路由的 IPv4，不重放已发送的数据。
+                let first = if preferred.1.policy == Policy::Proxy
+                    && matches!(request.family, Family::Auto)
+                {
+                    plans
+                        .iter()
+                        .find(|(a, r)| {
+                            a.is_ipv4()
+                                && r.policy == preferred.1.policy
+                                && r.outbound == preferred.1.outbound
+                        })
+                        .unwrap_or(preferred)
+                } else {
+                    preferred
+                };
+                let dialed = if first.1.policy == Policy::Proxy {
+                    if hop.is_some() {
+                        return Err(Error::Unsupported);
+                    }
+                    let node = snapshot
+                        .outbounds
+                        .get(first.1.outbound.as_deref().ok_or(Error::InvalidInput)?)
+                        .ok_or(Error::Unsupported)?;
+                    let node_ips = if let Ok(ip) = node.host.parse::<IpAddr>() {
+                        vec![ip]
+                    } else {
+                        resolve(
+                            resolver.ok_or(Error::InvalidState)?,
+                            &node.host,
+                            super::Family::Auto,
+                            true,
+                        )
+                        .await?
+                    };
+                    if node_ips.iter().any(|ip| {
+                        ip.is_unspecified() || resolver.is_some_and(|r| r.is_fake_ip(*ip))
+                    }) {
+                        return Err(Error::InvalidInput);
+                    }
+                    let lease = super::CONNECTIONS.reserve(1)?;
+                    let mut connected = None;
+                    for ip in node_ips {
+                        match tokio::net::TcpStream::connect(SocketAddr::new(ip, node.port)).await {
+                            Ok(socket) => {
+                                connected = Some(socket);
+                                break;
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                    let socket = connected.ok_or(Error::Network)?;
+                    socket.set_nodelay(true)?;
+                    // 已检查的真实候选作为 VLESS 目标，不让远端重新解析后切换到未经检查的地址。
+                    // 协议 future 独立置于有界连接预算内，避免放大 Swift 宿主线程的调用栈。
+                    let stream = Box::pin(crate::protocol::connect(
+                        socket,
+                        node,
+                        &first.0.ip().to_string(),
+                        metadata.port,
+                    ))
+                    .await?;
+                    (super::tcp_socket(Box::new(stream)), lease, first.0)
+                } else {
+                    let approved = plans
+                        .iter()
+                        .filter(|(_, r)| r.policy == first.1.policy)
+                        .map(|(a, _)| *a)
+                        .collect();
+                    candidates(
+                        hop.map(|hop| vec![hop]).unwrap_or(approved),
+                        metadata.transport,
+                    )
+                    .await?
+                };
                 decision = Some(
                     plans
                         .into_iter()
@@ -159,5 +228,27 @@ impl Manager {
             connection: opened,
             decision,
         })
+    }
+}
+
+fn check(
+    snapshot: &super::NetworkSnapshot,
+    decision: &Decision,
+    transport: Transport,
+) -> Result<()> {
+    match decision.policy {
+        Policy::Reject => Err(Error::Rejected),
+        Policy::Direct => Ok(()),
+        Policy::Proxy => {
+            if transport != Transport::Tcp {
+                return Err(Error::Unsupported);
+            }
+            let id = decision.outbound.as_deref().ok_or(Error::InvalidInput)?;
+            if snapshot.outbounds.contains_key(id) {
+                Ok(())
+            } else {
+                Err(Error::Unsupported)
+            }
+        }
     }
 }

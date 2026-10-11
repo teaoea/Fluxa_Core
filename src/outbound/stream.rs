@@ -1,5 +1,5 @@
 //! 可安全交给 TLS/HTTP 的受管理 TCP 流；取消和资源所有权沿用共用连接。
-use super::{Connection, Family, Manager, RoutedTarget, Socket, State};
+use super::{BoxStream, Connection, Family, Manager, RoutedTarget, Socket, State};
 use crate::{
     error::{Error, Result},
     routing::{Target, Transport},
@@ -12,10 +12,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
     task::{Context, Poll},
 };
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
-    net::TcpStream,
-};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 type Cancellation = Pin<Box<dyn Future<Output = ()> + Send>>;
 fn cancellation(connection: &Connection) -> Cancellation {
     let mut receiver = connection.cancel.subscribe();
@@ -24,7 +21,7 @@ fn cancellation(connection: &Connection) -> Cancellation {
     })
 }
 pub struct ManagedStream {
-    stream: TcpStream,
+    stream: BoxStream,
     connection: Arc<Connection>,
     owner: Weak<Mutex<State>>,
     id: u64,
@@ -153,10 +150,7 @@ impl Manager {
             let Socket::Tcp { reader, writer } = socket else {
                 return Err(Error::Unsupported);
             };
-            let stream = reader
-                .into_inner()
-                .reunite(writer.into_inner())
-                .map_err(|_| Error::Internal)?;
+            let stream = reader.into_inner().unsplit(writer.into_inner());
             Ok(ManagedStream {
                 stream,
                 owner: Arc::downgrade(&self.state),

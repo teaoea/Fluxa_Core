@@ -115,7 +115,7 @@ enum Matcher {
 pub struct Router {
     runtime: std::sync::Arc<runtime::Snapshot>,
 }
-fn identifier(value: &str) -> Result<()> {
+pub(crate) fn identifier(value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 64
         || !value

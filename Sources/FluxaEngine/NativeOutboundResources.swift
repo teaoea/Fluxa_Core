@@ -26,3 +26,21 @@ public struct NativeOutboundStatus: Decodable, Sendable {
   public let limits: NativeOutboundLimits
   public let sessions: [NativeOutboundSessionStatus]
 }
+
+/// 代理出站仅传递原始配置；协议校验、认证和网络读写全部由 Rust 完成。
+public struct NativeProxyOutbound: Codable, Sendable {
+  public let id: String
+  public let uri: String
+
+  public init(id: String, uri: String) {
+    self.id = id
+    self.uri = uri
+  }
+
+  #if canImport(FluxaCore)
+  /// 节点选择、配置导入和调试共用同一标识与参数转换，不重建网络语义。
+  public init(profile: RealityProfile) {
+    self.init(id: profile.id.uuidString, uri: profile.uri)
+  }
+  #endif
+}

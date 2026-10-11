@@ -97,3 +97,11 @@ pub fn normalize_host(host: &str) -> Result<String> {
     }
     Ok(host)
 }
+
+/// HTTP、TLS 和代理字节流复用相同的安全双向接口。
+pub(crate) trait Duplex:
+    tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send
+{
+}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Duplex for T {}
+pub(crate) type SecureStream = Box<dyn Duplex>;
