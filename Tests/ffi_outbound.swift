@@ -25,6 +25,8 @@ struct OutboundFFICheck {
       from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
     )
     let client = try NativeOutboundClient()
+    _ = try client.measureLatency(host: "127.0.0.1", port: fixture.tcp)
+    try rejection { _ = try client.measureLatency(host: "127.0.0.1", port: 0) }
     let tcp = try client.open(address: "127.0.0.1:\(fixture.tcp)", transport: .tcp)
     try client.write(Data([0, 1, 2, 255]), id: tcp)
     var reply = Data()

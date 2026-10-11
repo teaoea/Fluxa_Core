@@ -34,6 +34,7 @@ const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
 #[derive(Default)]
 struct Engine {
     client: Mutex<Option<HttpsClient>>,
+    geoip: Mutex<Option<crate::geoip::Database>>,
     busy: AtomicBool,
     outbound: Arc<crate::outbound::Manager>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
@@ -134,6 +135,17 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    GeoipOpen {
+        path: String,
+    },
+    GeoipLookup {
+        address: String,
+        language: String,
+    },
+    GeoipClose,
+    PublicIp {
+        ipv6: bool,
+    },
     SubscriptionSchedule(crate::subscription::Check),
     SubscriptionRules {
         #[serde(default)]
@@ -154,6 +166,11 @@ enum Command {
     },
     OutboundLimits(crate::outbound::Limits),
     OutboundStatus,
+    OutboundProbe {
+        host: String,
+        port: u16,
+        timeout_ms: u64,
+    },
     OutboundConnect(crate::outbound::DomainTarget),
     OutboundRoute(crate::outbound::RoutedTarget),
     OutboundConnectFakeIp(crate::outbound::FakeIPTarget),
@@ -309,6 +326,10 @@ impl RuntimeRulesSummary {
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geoip: Option<crate::geoip::Location>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     subscription_schedule: Option<crate::subscription::Decision>,
     #[serde(skip_serializing_if = "Option::is_none")]
     subscription_rules: Option<Vec<crate::routing::Rule>>,
@@ -422,6 +443,25 @@ impl Drop for BusyGuard<'_> {
         self.0.store(false, Ordering::Release);
     }
 }
+// 将大型异步 future 的构造隔离到独立栈帧，避免增加每个 FFI 请求的调用栈占用。
+#[inline(never)]
+fn public_ip(engine: &Engine, ipv6: bool) -> Result<Reply, Error> {
+    let address = runtime()?.block_on(crate::geoip::current_address(&engine.client()?, ipv6))?;
+    Ok(Reply {
+        success: true,
+        address: Some(address),
+        ..Reply::default()
+    })
+}
+#[inline(never)]
+fn probe_latency(engine: &Engine, host: &str, port: u16, timeout_ms: u64) -> Result<Reply, Error> {
+    let duration_ms = runtime()?.block_on(engine.outbound.probe_latency(host, port, timeout_ms))?;
+    Ok(Reply {
+        success: true,
+        duration_ms,
+        ..Reply::default()
+    })
+}
 fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let engine = engine(handle)?;
     // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
@@ -506,6 +546,63 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         Command::SubscriptionFetch { url } => Ok(Reply::from(
             runtime()?.block_on(crate::subscription::fetch(&engine.client()?, &url))?,
         )),
+        Command::OutboundProbe {
+            host,
+            port,
+            timeout_ms,
+        } => probe_latency(&engine, &host, port, timeout_ms),
+        Command::PublicIp { ipv6 } => public_ip(&engine, ipv6),
+        Command::GeoipOpen { path } => {
+            if path.is_empty() || path.len() > 4096 {
+                return Err(Error::InvalidInput);
+            }
+            let database = crate::geoip::Database::open(std::path::Path::new(&path))?;
+            *engine.geoip.lock().map_err(|_| Error::Internal)? = Some(database);
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::GeoipLookup { address, language } => {
+            let address = if address.parse::<std::net::IpAddr>().is_ok() {
+                address
+            } else {
+                let name = crate::network::normalize_host(&address)?;
+                let resolver = engine.dns()?;
+                let mut selected = None;
+                for kind in ["A", "AAAA"] {
+                    let answer = runtime()?.block_on(resolver.resolve_real(crate::dns::Query {
+                        name: name.clone(),
+                        query_type: kind.into(),
+                    }))?;
+                    if answer.rcode != 0 {
+                        return Err(Error::DnsResponse);
+                    }
+                    if let Some(value) = answer.addresses.into_iter().next() {
+                        selected = Some(value);
+                        break;
+                    }
+                }
+                selected.ok_or(Error::DnsResponse)?
+            };
+            let database = engine.geoip.lock().map_err(|_| Error::Internal)?;
+            let location = database
+                .as_ref()
+                .ok_or(Error::InvalidState)?
+                .lookup(&address, &language)?;
+            Ok(Reply {
+                success: true,
+                geoip: location,
+                ..Reply::default()
+            })
+        }
+        Command::GeoipClose => {
+            *engine.geoip.lock().map_err(|_| Error::Internal)? = None;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::SubscriptionSchedule(check) => Ok(Reply {
             success: true,
             subscription_schedule: Some(check.evaluate()?),
@@ -1089,7 +1186,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    1048575
+    2097151
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1192,7 +1289,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 1048575);
+        assert_eq!(fluxa_engine_capabilities(), 2097151);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

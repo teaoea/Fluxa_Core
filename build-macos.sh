@@ -8,7 +8,7 @@ trap 'rm -rf "$build_directory"' EXIT
 MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --locked --offline --release --target-dir "$build_directory"
 framework="$build_directory/libfluxa_core.framework"
 mkdir -p "$framework/Headers" "$framework/Modules" "$framework/Resources/Notices"
-cp Notices/* "$framework/Resources/Notices/"
+cp -R Notices/. "$framework/Resources/Notices/"
 cp LICESE.md "$framework/Resources/Notices/"
 # Cargo 的中间文件转为 framework 内无扩展名的静态二进制，不生成动态库。
 mv "$build_directory/release/liblibfluxa_core.a" "$framework/libfluxa_core"

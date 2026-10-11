@@ -18,6 +18,8 @@ public enum NativeClientError: LocalizedError {
 }
 
 struct NativeCommandReply: Decodable {
+  let address: String?
+  let geoip: NativeGeoIPLocation?
   let subscriptionRulesCount: Int?
   let subscriptionRules: [RoutingRule]?
   let subscriptionSchedule: NativeSubscriptionScheduleDecision?
@@ -49,7 +51,7 @@ struct NativeCommandReply: Decodable {
   let droppedCaptures: UInt64?
   let durationMilliseconds: UInt64
   enum CodingKeys: String, CodingKey {
-    case success, error, status, headers, body
+    case success, error, status, headers, body, geoip, address
     case port, capture
     case subscriptionRulesCount = "subscription_rules_count"
     case subscriptionRules = "subscription_rules"

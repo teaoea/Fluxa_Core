@@ -4,6 +4,7 @@
 mod budget;
 pub mod dns;
 pub mod error;
+pub mod geoip;
 pub mod http;
 pub mod https;
 mod lifecycle;

@@ -25,6 +25,42 @@ pub struct RoutedOpened {
     pub decision: Decision,
 }
 impl Manager {
+    /// 节点 TCP 建连耗时；测量后立即关闭，不发送应用数据，不冒充代理握手验证。
+    pub async fn probe_latency(&self, host: &str, port: u16, timeout_ms: u64) -> Result<u64> {
+        let host = crate::network::normalize_host(host)?;
+        if port == 0 {
+            return Err(Error::InvalidInput);
+        }
+        let started = std::time::Instant::now();
+        let id = if let Ok(ip) = host.parse::<IpAddr>() {
+            self.open(
+                SocketAddr::new(ip, port),
+                Transport::Tcp,
+                Policy::Direct,
+                timeout_ms,
+            )
+            .await?
+        } else {
+            let snapshot = self.network_snapshot()?;
+            let resolver = snapshot.resolver.as_ref().ok_or(Error::InvalidState)?;
+            self.connect(
+                resolver,
+                super::DomainTarget {
+                    domain: host,
+                    port,
+                    transport: Transport::Tcp,
+                    policy: Policy::Direct,
+                    timeout_ms,
+                    family: Family::Auto,
+                },
+            )
+            .await?
+            .id
+        };
+        self.close(id)?;
+        Ok(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
+    }
+
     /// 全部地址候选可执行后才拨号，不通过切换地址族绕过拒绝策略。
     pub async fn connect_routed(
         &self,

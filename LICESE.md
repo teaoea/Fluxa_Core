@@ -241,3 +241,7 @@
 | rusqlite | 0.40.2 | MIT |
 | sqlite-wasm-rs | 0.5.5 | MIT |
 | vcpkg | 0.2.15 | MIT/Apache-2.0 |
+
+## v1.7.0 新增 GeoIP 依赖
+
+maxminddb 0.32.0：ISC，原文 Notices/maxminddb/LICENSE。ipnetwork 0.21.1：MIT/Apache-2.0，原文 Notices/ipnetwork/。数据库由宿主另行提供，不随 crate 分发；DB-IP Lite 数据适用 CC BY 4.0，自有内核 MIT 许可不覆盖其数据库。

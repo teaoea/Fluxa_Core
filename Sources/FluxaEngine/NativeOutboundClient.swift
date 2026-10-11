@@ -58,6 +58,18 @@ public final class NativeOutboundClient: Sendable {
     return revision
   }
 
+  /// 数字节点只测 TCP 建连；域名节点包含配置 DNS 解析耗时，不发送应用数据。
+  public func measureLatency(
+    host: String,
+    port: UInt16,
+    timeoutMilliseconds: UInt64 = 5000
+  ) throws -> UInt64 {
+    try client.command([
+      "operation": "outbound_probe", "host": host, "port": port,
+      "timeout_ms": timeoutMilliseconds,
+    ]).durationMilliseconds
+  }
+
   public func status() throws -> NativeOutboundStatus {
     guard let status = try client.command(["operation": "outbound_status"]).outboundStatus
     else { throw NativeClientError.boundary }

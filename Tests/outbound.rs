@@ -308,3 +308,30 @@ async fn tcp_write_timeout_invalidates_connection_to_prevent_duplicate_retry() {
     );
     manager.close(id).unwrap();
 }
+
+#[tokio::test]
+async fn latency_probe_closes_connection_without_application_data() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buffer = [0; 1];
+        assert_eq!(
+            timeout(Duration::from_secs(2), socket.read(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+    });
+    let manager = Manager::default();
+    manager
+        .probe_latency("127.0.0.1", address.port(), 1000)
+        .await
+        .unwrap();
+    assert!(matches!(
+        manager.probe_latency("127.0.0.1", 0, 1000).await,
+        Err(Error::InvalidInput)
+    ));
+    server.await.unwrap();
+}
