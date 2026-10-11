@@ -9,12 +9,38 @@ public struct NativeRuleSource: Encodable, Sendable {
   public var id: String
   public var layer: Layer
   public var enabled: Bool
-  public var rules: [RoutingRule]
+  public var rules: [RoutingRule]?
+  public var payloadYaml: String?
+  public var policy: RoutingRule.Policy?
+  public var outbound: String?
+  enum CodingKeys: String, CodingKey { case id, layer, enabled, rules, policy, outbound
+    case payloadYaml = "payload_yaml"
+  }
+
   public init(id: String, layer: Layer, enabled: Bool = true, rules: [RoutingRule]) {
     self.id = id
     self.layer = layer
     self.enabled = enabled
     self.rules = rules
+    payloadYaml = nil
+    policy = nil
+    outbound = nil
+  }
+
+  public init(
+    id: String,
+    enabled: Bool = true,
+    payloadYaml: String,
+    policy: RoutingRule.Policy = .proxy,
+    outbound: String? = nil
+  ) {
+    self.id = id
+    layer = .remote
+    self.enabled = enabled
+    rules = nil
+    self.payloadYaml = payloadYaml
+    self.policy = policy
+    self.outbound = outbound
   }
 }
 
@@ -154,5 +180,20 @@ public final class NativeRuntimeRulesClient: Sendable {
 
   public func close() throws {
     _ = try client.command(["operation": "runtime_rules_close"])
+  }
+}
+
+/// 持有 Rust 快照的生命周期锚点；仅传递句柄，不在 Swift 中复制索引或规则匹配。
+/// 在途请求保留本对象，新版本提交不会使尚未配置网络客户端的旧句柄失效。
+public final class NativeRuleSnapshot: Sendable {
+  public let summary: NativeRuntimeRulesSummary
+  public let routing: RoutingConfiguration
+  private let keeper: NativeRoutingClient
+
+  public init(summary: NativeRuntimeRulesSummary, settings: RoutingSettings) throws {
+    self.summary = summary
+    routing = RoutingConfiguration(settings: settings, runtimeHandle: summary.snapshotHandle)
+    keeper = try NativeRoutingClient()
+    try keeper.configure(routing)
   }
 }

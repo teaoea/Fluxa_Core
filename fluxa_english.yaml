@@ -1,5 +1,6 @@
 # Fluxa 完整主配置示例。作者：可莉唯一的狗。
-# 用户编辑本文件；运行时规则由 Rust 生成，不能直接编辑生成产物。
+# 用户编辑本文件；Rust 合并后写入 runtime-rules.sqlite，内存索引执行匹配。
+# 四类规则类型仅接受大写；远程规则使用 Clash classical 的 payload 列表。
 # 已实现 VLESS TCP REALITY Vision 出站；TUN 转发、网关和其他协议仍明确拒绝。
 schema-version: 1
 kind: configuration
@@ -22,6 +23,8 @@ subscriptions:
     name: Daily remote rules
     url: https://example.com/fluxa/rules.yaml
     kind: rules
+    policy: proxy # 订阅条目不写动作；由此字段统一指定 direct、proxy 或 reject。
+    # outbound: my-node # 可选；省略时在生成规则快照时继承主配置出站。
     enabled: false # 示例地址为占位符；换成自己的真实地址后启用。
     # 每天 UTC 12:00；必须使用带引号的 HH:mm，不使用设备本地时区。
     # 休眠、退出或断网错过时，恢复后仅补最近到期的一次，不逐天补跑。
@@ -31,6 +34,8 @@ subscriptions:
     name: Manual remote rules
     url: https://example.com/fluxa/manual-rules.yaml
     kind: rules
+    policy: proxy # 订阅条目不写动作；由此字段统一指定 direct、proxy 或 reject。
+    # outbound: my-node # 可选；省略时在生成规则快照时继承主配置出站。
     enabled: false
     # 不设置 update-time 就不自动更新。单项更新及更新全部均为手动操作。
     # 旧 update-interval-hours 已移除；不要再填写该字段。
@@ -41,22 +46,22 @@ subscriptions:
 # IP 阶段：拦截最先，然后普通 IP-CIDR。相同类别本地优先于远程。
 # 同来源同类型保留原始顺序；只有证明完全无效的非拦截规则可裁剪。
 rules:
-  - type: domain
+  - type: DOMAIN
     value: ads.example.com
     policy: reject
-  - type: domain
+  - type: DOMAIN
     value: api.example.com
     policy: direct
-  - type: domain-suffix
+  - type: DOMAIN-SUFFIX
     value: example.com # 包含域名本身和各级子域，不匹配 badexample.com。
     policy: direct
-  - type: domain-keyword
+  - type: DOMAIN-KEYWORD
     value: tracker # 只匹配域名中的关键词，不匹配 URL 路径。
     policy: reject
-  - type: ip-cidr
+  - type: IP-CIDR
     value: 192.0.2.0/24
     policy: direct
-  - type: ip-cidr
+  - type: IP-CIDR
     value: 2001:db8::/32
     policy: direct
   - type: destination-port

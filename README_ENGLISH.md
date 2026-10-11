@@ -36,3 +36,5 @@ Configuration fields and both complete examples are updated together. See [Subsc
 TUN forwarding, gateway operation, and additional proxy protocols remain in development. VLESS + TCP + REALITY + Vision is implemented for TCP outbounds; UDP/XUDP/Mux and TUN forwarding remain unsupported.
 
 Original code is licensed under MIT; see [LICESE.md](LICESE.md). Third-party dependencies retain their upstream licenses.
+
+Rule subscriptions use Clash classical `payload` with uppercase DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD and IP-CIDR (IPv4/IPv6). Subscription policy/outbound selects the action. Effective merged rules are persisted in SQLite; matching uses immutable memory indexes. See [rules.yaml](rules.yaml).

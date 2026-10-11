@@ -4,7 +4,7 @@ use super::runtime::{Snapshot, Source};
 use crate::error::{Error, Result};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -83,10 +83,21 @@ impl Store {
             std::fs::TryLockError::WouldBlock => Error::InvalidState,
             std::fs::TryLockError::Error(_) => Error::Network,
         })?;
-        let path = directory.join("runtime-rules.yaml");
+        let path = directory.join("runtime-rules.sqlite");
         let snapshot = match fs::symlink_metadata(&path) {
-            Ok(_) => Some(Arc::new(Snapshot::from_yaml(&read(&path)?)?)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Ok(_) => Some(Arc::new(super::database::load(&path)?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let legacy = directory.join("runtime-rules.yaml");
+                if legacy.try_exists()? {
+                    let snapshot = Arc::new(Snapshot::migrate_yaml(&read(&legacy)?)?);
+                    let temporary = Self::prepare(&directory, &snapshot)?;
+                    fs::rename(&temporary.0, &path)?;
+                    File::open(&directory)?.sync_all()?;
+                    Some(snapshot)
+                } else {
+                    None
+                }
+            }
             Err(e) => return Err(e.into()),
         };
         Ok(Self {
@@ -98,6 +109,25 @@ impl Store {
                 job: None,
             }),
         })
+    }
+    fn prepare(directory: &Path, snapshot: &Snapshot) -> Result<Temporary> {
+        let unique = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        let temporary = Temporary(directory.join(format!(
+            ".runtime-rules-{}-{unique}.tmp",
+            std::process::id()
+        )));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = options.open(&temporary.0)?;
+        super::database::write(&temporary.0, snapshot)?;
+        file.sync_all()?;
+        drop(file);
+        Ok(temporary)
     }
     pub fn snapshot(&self) -> Result<Arc<Snapshot>> {
         let state = self.current.lock().map_err(|_| Error::Internal)?;
@@ -142,29 +172,7 @@ impl Store {
         let snapshot = Arc::new(Snapshot::generate(settings, sources, version)?);
         timings.compile = started.elapsed();
         let started = Instant::now();
-        let yaml = snapshot.to_yaml()?;
-        timings.encode = started.elapsed();
-        let started = Instant::now();
-        // 完整严格解析校验生成文件；索引已经编译，不能在文件提交后再运行可能失败的编译。
-        snapshot.verify_yaml(&yaml)?;
-        timings.validate = started.elapsed();
-        let started = Instant::now();
-        let unique = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
-        let temporary = Temporary(self.directory.join(format!(
-            ".runtime-rules-{}-{unique}.tmp",
-            std::process::id()
-        )));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temporary.0)?;
-        file.write_all(yaml.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
+        let temporary = Self::prepare(&self.directory, &snapshot)?;
         timings.write_sync = started.elapsed();
         let started = Instant::now();
         let mut state = self.current.lock().map_err(|_| Error::Internal)?;
@@ -175,7 +183,7 @@ impl Store {
         if state.snapshot.as_ref().map_or(0, |s| s.document().version) != previous {
             return Err(Error::InvalidState);
         }
-        let destination = self.directory.join("runtime-rules.yaml");
+        let destination = self.directory.join("runtime-rules.sqlite");
         if fs::symlink_metadata(&destination).is_ok_and(|m| m.file_type().is_symlink()) {
             return Err(Error::InvalidInput);
         }

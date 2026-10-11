@@ -1,7 +1,7 @@
 //! 所有宿主共用的有界后台生成任务，不在 UI 线程编译，不为查询创建线程。
 use super::{
     Config,
-    runtime::{GenerationInput, Source},
+    runtime::{GenerationInput, Source, SourceInput},
     store::{Commit, Store},
 };
 use crate::{
@@ -75,6 +75,28 @@ impl Service {
         let input = INPUTS.reserve(bytes)?;
         self.spawn(move || Ok((settings, sources)), input)
     }
+    pub fn start_inputs(&self, settings: Config, sources: Vec<SourceInput>) -> Result<Job> {
+        if sources.len() > super::runtime::MAX_SOURCES {
+            return Err(Error::ResourceLimit);
+        }
+        let bytes = sources.iter().try_fold(4096usize, |sum, source| {
+            sum.checked_add(source.input_bytes()?)
+                .ok_or(Error::ResourceLimit)
+        })?;
+        let input = INPUTS.reserve(bytes)?;
+        self.spawn(
+            move || {
+                Ok((
+                    settings,
+                    sources
+                        .into_iter()
+                        .map(SourceInput::into_source)
+                        .collect::<Result<_>>()?,
+                ))
+            },
+            input,
+        )
+    }
     /// 文件读取和严格 YAML 解码也由工作线程完成，提交接口仅接收有界路径。
     pub fn start_file(&self, path: PathBuf) -> Result<Job> {
         if !path.is_absolute() || path.as_os_str().len() > 4096 {
@@ -84,7 +106,14 @@ impl Service {
         self.spawn(
             move || {
                 let value = GenerationInput::from_yaml(&super::store::read(&path)?)?;
-                Ok((value.settings, value.sources))
+                Ok((
+                    value.settings,
+                    value
+                        .sources
+                        .into_iter()
+                        .map(SourceInput::into_source)
+                        .collect::<Result<_>>()?,
+                ))
             },
             input,
         )
@@ -316,7 +345,7 @@ mod tests {
             b"x"
         );
         manager.close(opened.connection.id).unwrap();
-        let before = std::fs::read(directory.join("runtime-rules.yaml")).unwrap();
+        let before = std::fs::read(directory.join("runtime-rules.sqlite")).unwrap();
         let mut invalid = sources(Policy::Direct);
         invalid[0].rules[0].value = "invalid".into();
         let failed = service.start(Config::default(), invalid).unwrap();
@@ -343,7 +372,7 @@ mod tests {
             Phase::Cancelled
         );
         assert_eq!(
-            std::fs::read(directory.join("runtime-rules.yaml")).unwrap(),
+            std::fs::read(directory.join("runtime-rules.sqlite")).unwrap(),
             before
         );
         let (send, receive) = mpsc::channel();

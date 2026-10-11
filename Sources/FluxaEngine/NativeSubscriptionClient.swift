@@ -41,6 +41,39 @@ public final class NativeSubscriptionClient: Sendable {
     return data
   }
 
+  /// Clash payload 的校验和规则转换全部由 Rust 完成。
+  public func parseRules(
+    yaml: String,
+    policy: RoutingRule.Policy = .proxy,
+    outbound: String? = nil
+  ) throws -> [RoutingRule] {
+    let reply = try client.command([
+      "operation": "subscription_rules",
+      "yaml": yaml,
+      "policy": policy.rawValue,
+      "outbound": outbound as Any? ?? NSNull(),
+    ])
+    guard let rules = reply.subscriptionRules else { throw NativeClientError.boundary }
+    return rules
+  }
+
+  /// 大订阅仅返回数量，避免把全部规则再次复制到 Swift 内存。
+  public func validateRules(
+    yaml: String,
+    policy: RoutingRule.Policy = .proxy,
+    outbound: String? = nil
+  ) throws -> Int {
+    let reply = try client.command([
+      "operation": "subscription_rules",
+      "yaml": yaml,
+      "policy": policy.rawValue,
+      "outbound": outbound as Any? ?? NSNull(),
+      "validate_only": true,
+    ])
+    guard let count = reply.subscriptionRulesCount else { throw NativeClientError.boundary }
+    return count
+  }
+
   public func evaluate(
     updateTime: String?, now: UInt64, lastSuccess: UInt64? = nil,
     lastAttempt: UInt64? = nil, enabled: Bool = true, manual: Bool = false

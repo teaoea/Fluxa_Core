@@ -27,14 +27,14 @@ routing:
   fallback: reject
   outbound: node-default
 rules:
-  - type: domain
+  - type: DOMAIN
     value: api.example.com
     policy: reject
-  - type: domain-suffix
+  - type: DOMAIN-SUFFIX
     value: example.com
     policy: proxy
     outbound: node-specific
-  - type: ip-cidr
+  - type: IP-CIDR
     value: 192.168.0.0/16
     policy: direct
   - type: destination-port

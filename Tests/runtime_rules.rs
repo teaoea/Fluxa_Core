@@ -370,7 +370,7 @@ fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
         1
     );
     let retained = store.snapshot().unwrap();
-    let before = std::fs::read(path.join("runtime-rules.yaml")).unwrap();
+    let before = std::fs::read(path.join("runtime-rules.sqlite")).unwrap();
     assert!(
         store
             .update(
@@ -384,7 +384,7 @@ fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
             .is_err()
     );
     assert_eq!(
-        std::fs::read(path.join("runtime-rules.yaml")).unwrap(),
+        std::fs::read(path.join("runtime-rules.sqlite")).unwrap(),
         before
     );
     assert_eq!(store.snapshot().unwrap().document().version, 1);
@@ -687,4 +687,130 @@ fn domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject() {
         };
         assert_eq!(snapshot.evaluate(&numeric).unwrap().policy, Policy::Reject);
     }
+}
+
+#[test]
+fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
+    use libfluxa_core::subscription::parse_rules;
+    let input = "payload:\n - DOMAIN,WWW.Example.COM.\n - DOMAIN-SUFFIX,example.com\n - DOMAIN-KEYWORD,Example\n - IP-CIDR,192.0.2.0/24\n - IP-CIDR,2001:0DB8:0000:0000:0000:0000:0000:0000/32\n";
+    let rows = parse_rules(input, Policy::Reject, None).unwrap();
+    assert_eq!(
+        rows.iter().map(|r| r.value.as_str()).collect::<Vec<_>>(),
+        [
+            "www.example.com",
+            "example.com",
+            "example",
+            "192.0.2.0/24",
+            "2001:db8::/32"
+        ]
+    );
+    assert!(rows.iter().all(|r| r.policy == Policy::Reject));
+    assert!(
+        parse_rules(input, Policy::Proxy, None)
+            .unwrap()
+            .iter()
+            .all(|r| r.outbound.is_none())
+    );
+    for invalid in [
+        "payload: [domain,example.com]",
+        "payload: ['domain-suffix,example.com']",
+        "payload: ['DOMAIN,example.com,REJECT']",
+        "payload: ['IP-CIDR,2001:db8::/129']",
+        "payload: ['IP-CIDR,192.0.2.1/33']",
+        "payload: ['IP-CIDR6,::/0']",
+        "payload: []\npayload: []",
+        "payload: []\nunknown: true",
+        "payload: ['DOMAIN,example.com']\n---\npayload: []",
+    ] {
+        assert!(
+            parse_rules(invalid, Policy::Direct, None).is_err(),
+            "{invalid}"
+        );
+    }
+    let document = build(
+        vec![rule(Match::Domain, "a.example.com", Policy::Direct)],
+        vec![],
+    )
+    .to_yaml()
+    .unwrap();
+    assert!(Snapshot::from_yaml(&document.replace("DOMAIN", "domain")).is_err());
+}
+
+#[test]
+fn sqlite_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
+    use libfluxa_core::routing::store::Store;
+    let path = std::env::temp_dir().join(format!("fluxa-sqlite-migration-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    let snapshot = build(
+        vec![rule(Match::Domain, "a.example.com", Policy::Reject)],
+        vec![],
+    );
+    let legacy = snapshot.to_yaml().unwrap().replace("DOMAIN", "domain");
+    std::fs::write(path.join("runtime-rules.yaml"), &legacy).unwrap();
+    let store = Store::open(&path).unwrap();
+    assert_eq!(store.snapshot().unwrap().document(), snapshot.document());
+    let bytes = std::fs::read(path.join("runtime-rules.sqlite")).unwrap();
+    assert!(bytes.starts_with(b"SQLite format 3\0"));
+    assert_eq!(
+        std::fs::read_to_string(path.join("runtime-rules.yaml")).unwrap(),
+        legacy
+    );
+    store.close().unwrap();
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(reopened.snapshot().unwrap().document(), snapshot.document());
+    reopened.close().unwrap();
+    let db = rusqlite::Connection::open(path.join("runtime-rules.sqlite")).unwrap();
+    db.execute_batch("PRAGMA user_version=2").unwrap();
+    drop(db);
+    // 已存在数据库损坏或版本未知时不能回退旧文件，伪装成最新方案。
+    assert!(Store::open(&path).is_err());
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn sqlite_rejects_tampered_rows_and_unknown_schema() {
+    use libfluxa_core::routing::store::Store;
+    for schema in [false, true] {
+        let path = std::env::temp_dir().join(format!(
+            "fluxa-sqlite-tamper-{}-{schema}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        let store = Store::open(&path).unwrap();
+        store
+            .update(
+                Config::default(),
+                vec![source(
+                    "local",
+                    Layer::Local,
+                    vec![rule(Match::Domain, "example.com", Policy::Reject)],
+                )],
+            )
+            .unwrap();
+        store.close().unwrap();
+        let db = rusqlite::Connection::open(path.join("runtime-rules.sqlite")).unwrap();
+        db.execute_batch(if schema {
+            "CREATE VIEW bad AS SELECT * FROM metadata"
+        } else {
+            "UPDATE effective_rules SET record='{}'"
+        })
+        .unwrap();
+        drop(db);
+        assert!(Store::open(&path).is_err());
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+fn generation_input_accepts_structured_and_clash_sources() {
+    use libfluxa_core::routing::runtime::GenerationInput;
+    let input = GenerationInput::from_yaml(
+        "format_version: 1\nsettings: {mode: rules, fallback: direct}\nsources:\n  - id: local\n    layer: local\n    rules:\n      - {type: DOMAIN-KEYWORD, value: example, policy: direct}\n  - id: remote\n    layer: remote\n    policy: reject\n    payload_yaml: |\n      payload:\n        - DOMAIN,ads.example.com\n",
+    );
+    assert!(
+        input.is_ok(),
+        "{}",
+        input.err().map(|e| e.to_string()).unwrap_or_default()
+    );
 }

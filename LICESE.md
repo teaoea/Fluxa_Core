@@ -224,3 +224,20 @@
 | zerovec | 0.11.8 | Unicode-3.0 |
 | zerovec-derive | 0.11.6 | Unicode-3.0 |
 | zmij | 1.0.23 | MIT |
+
+## SQLite 持久化新增依赖
+
+以下包含条件平台依赖，是否实际链接以目标构建为准；上游声明原文保存在 Notices/。SQLite 引擎为上游公共领域声明，rusqlite 为 MIT；此清单不等于完成所有传递组件分发审计。
+
+| 组件 | 固定版本 | 上游声明 |
+| --- | --- | --- |
+| fallible-iterator | 0.3.0 | MIT/Apache-2.0 |
+| fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 |
+| hashbrown | 0.16.1 | MIT OR Apache-2.0 |
+| hashbrown | 0.17.1 | MIT OR Apache-2.0 |
+| libsqlite3-sys | 0.38.2 | MIT |
+| pkg-config | 0.3.34 | MIT OR Apache-2.0 |
+| rsqlite-vfs | 0.1.1 | MIT |
+| rusqlite | 0.40.2 | MIT |
+| sqlite-wasm-rs | 0.5.5 | MIT |
+| vcpkg | 0.2.15 | MIT/Apache-2.0 |

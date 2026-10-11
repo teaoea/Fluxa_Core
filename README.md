@@ -39,3 +39,5 @@
 共用 TCP/UDP 出站支持数字地址、配置 DNS 的域名及带代次的 Fake-IP 连接，提供双向数据、半关闭、超时、取消和实际路由执行；HTTP/HTTPS/MITM 共用同一连接管线。详见 [Outbound.md](Outbound.md) 和 [Routing.md](Routing.md)。
 
 共用连接提供有界会话状态、流量统计、自动空闲回收和原子网络配置；旧连接及在途请求保留原快照，新请求使用新配置。详情见 Outbound.md。
+
+规则订阅采用 Clash classical `payload`，类型严格使用 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、IP-CIDR（统一支持 IPv4/IPv6）；动作由订阅 policy/outbound 指定。合并后的规则保存至 SQLite，匹配使用内存索引。订阅示例见 [rules.yaml](rules.yaml)。

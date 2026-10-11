@@ -162,7 +162,7 @@ fn main() {
                     },
                     sources(input.clone()),
                 )
-                .expect("第一次 YAML 提交必须实际成功");
+                .expect("第一次 SQLite 提交必须实际成功");
             print_update(1, &first);
             let second = store
                 .update(

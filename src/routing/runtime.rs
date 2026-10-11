@@ -16,14 +16,14 @@ use std::{
 mod index;
 use index::{Candidates, Index};
 #[path = "yaml.rs"]
-mod yaml;
+pub(crate) mod yaml;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenerationInput {
     pub format_version: u32,
     pub settings: Config,
-    pub sources: Vec<Source>,
+    pub sources: Vec<SourceInput>,
 }
 impl GenerationInput {
     pub fn from_yaml(input: &str) -> Result<Self> {
@@ -37,7 +37,14 @@ impl GenerationInput {
             return Err(Error::InvalidInput);
         }
         validate_settings(&value.settings)?;
-        charge(&value.sources)?;
+        if value.sources.iter().try_fold(0usize, |total, source| {
+            total
+                .checked_add(source.input_bytes()?)
+                .ok_or(Error::ResourceLimit)
+        })? > 128 * 1024 * 1024
+        {
+            return Err(Error::ResourceLimit);
+        }
         Ok(value)
     }
 }
@@ -60,6 +67,53 @@ pub struct Source {
     #[serde(default = "enabled")]
     pub enabled: bool,
     pub rules: Vec<Rule>,
+}
+/// 原始 Clash payload 在工作线程中解析，Swift/CLI 只传递来源及订阅动作。
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum SourceInput {
+    Rules(Source),
+    Clash(ClashSource),
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClashSource {
+    pub id: String,
+    pub layer: Layer,
+    #[serde(default = "enabled")]
+    pub enabled: bool,
+    pub payload_yaml: String,
+    pub policy: Policy,
+    pub outbound: Option<String>,
+}
+impl SourceInput {
+    pub(crate) fn input_bytes(&self) -> Result<usize> {
+        match self {
+            Self::Rules(source) => charge(std::slice::from_ref(source)),
+            Self::Clash(source) => {
+                identifier(&source.id)?;
+                if source.payload_yaml.len() > 8 * 1024 * 1024 {
+                    return Err(Error::ResourceLimit);
+                }
+                Ok(4096 + source.payload_yaml.len() * 8)
+            }
+        }
+    }
+    pub(crate) fn into_source(self) -> Result<Source> {
+        match self {
+            Self::Rules(source) => Ok(source),
+            Self::Clash(source) => Ok(Source {
+                id: source.id,
+                layer: source.layer,
+                enabled: source.enabled,
+                rules: crate::subscription::parse_rules(
+                    &source.payload_yaml,
+                    source.policy,
+                    source.outbound,
+                )?,
+            }),
+        }
+    }
 }
 fn enabled() -> bool {
     true
@@ -148,7 +202,7 @@ pub struct Snapshot {
     index: Index,
     _memory: ByteLease,
 }
-fn normalized(rule: &Rule, default: &Option<String>) -> Result<Rule> {
+pub(crate) fn normalize_condition(rule: &Rule) -> Result<String> {
     let value = match matcher(rule.r#type, &rule.value)? {
         Matcher::Domain(value, _) | Matcher::Keyword(value) => value,
         Matcher::Network(network) => network.canonical(),
@@ -161,6 +215,10 @@ fn normalized(rule: &Rule, default: &Option<String>) -> Result<Rule> {
         }
         Matcher::Transport(_) => rule.value.clone(),
     };
+    Ok(value)
+}
+pub(crate) fn normalize_rule(rule: &Rule, default: &Option<String>) -> Result<Rule> {
+    let value = normalize_condition(rule)?;
     Ok(Rule {
         r#type: rule.r#type,
         value,
@@ -266,7 +324,7 @@ impl Snapshot {
                         source: source_id as u16,
                         sequence: sequence as u32,
                     };
-                    let rule = normalized(input, &document.settings.outbound)?;
+                    let rule = normalize_rule(input, &document.settings.outbound)?;
                     let (kind, value) = key(&rule);
                     let action = match rule.policy {
                         Policy::Direct => 0,
@@ -378,6 +436,7 @@ impl Snapshot {
         Ok(writer.finish())
     }
     /// 生成文件重新严格解析并比较全部值；复用已经编译的索引，不再创建第二份索引。
+    #[cfg(test)]
     pub(super) fn verify_yaml(&self, input: &str) -> Result<()> {
         let _temporary =
             MEMORY.reserve(input.len().checked_mul(8).ok_or(Error::ResourceLimit)? + 4096)?;
@@ -396,6 +455,38 @@ impl Snapshot {
         let temporary =
             MEMORY.reserve(input.len().checked_mul(8).ok_or(Error::ResourceLimit)? + 4096)?;
         let document: Document = yaml::decode(input)?;
+        let result = Self::from_document(document);
+        drop(temporary);
+        result
+    }
+    /// SQLite 与 YAML 导入共用同一严格校验和索引编译，不复制匹配流程。
+    /// 仅迁移旧内部生成文件；用户配置入口仍拒绝小写规则类型。
+    pub(crate) fn migrate_yaml(input: &str) -> Result<Self> {
+        let mut value: serde_json::Value = yaml::decode(input)?;
+        let rules = value
+            .get_mut("rules")
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or(Error::InvalidInput)?;
+        if rules.len() > MAX_RULES {
+            return Err(Error::ResourceLimit);
+        }
+        for row in rules {
+            if let Some(kind) = row.get_mut("rule").and_then(|rule| rule.get_mut("type"))
+                && let Some(name) = kind.as_str()
+            {
+                let renamed = match name {
+                    "domain" => "DOMAIN",
+                    "domain-suffix" => "DOMAIN-SUFFIX",
+                    "domain-keyword" => "DOMAIN-KEYWORD",
+                    "ip-cidr" => "IP-CIDR",
+                    other => other,
+                };
+                *kind = renamed.into();
+            }
+        }
+        Self::from_document(serde_json::from_value(value).map_err(|_| Error::InvalidInput)?)
+    }
+    pub(crate) fn from_document(document: Document) -> Result<Self> {
         if document.format_version != 1
             || document.version == 0
             || document.sources.len() > MAX_SOURCES
@@ -457,7 +548,7 @@ impl Snapshot {
             if additional > MAX_RULES {
                 return Err(Error::ResourceLimit);
             }
-            let normalized = normalized(&effective.rule, &document.settings.outbound)?;
+            let normalized = normalize_rule(&effective.rule, &document.settings.outbound)?;
             if normalized.value != effective.rule.value
                 || normalized.outbound != effective.rule.outbound
             {
@@ -530,7 +621,6 @@ impl Snapshot {
         }
         let memory = MEMORY.reserve(charge(&sources)? + report.removals.len() * 128)?;
         let index = Index::compile(&entries)?;
-        drop(temporary);
         Ok(Self {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
@@ -807,7 +897,7 @@ impl Reference {
                 .filter(|(_, source)| source.enabled && source.layer == layer)
             {
                 for (sequence, input) in source.rules.iter().enumerate() {
-                    let rule = normalized(input, &document.settings.outbound)?;
+                    let rule = normalize_rule(input, &document.settings.outbound)?;
                     entries.push(Entry {
                         matcher: matcher(rule.r#type, &rule.value)?,
                         layer,

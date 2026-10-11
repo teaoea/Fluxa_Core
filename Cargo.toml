@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "1.5.0"
+version = "1.6.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.89"
@@ -12,7 +12,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/Subscriptions.md", "/LICESE.md", "/DEPENDENCIES.md", "/HTTPS.md", "/MITM.md", "/JS.md", "/MemorySafety.md", "/DebugProxy.md", "/TrafficProcessing.md", "/TUN.md", "/DNS.md", "/Routing.md", "/RuntimeRules.md", "/Outbound.md", "/Protocols.md", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/Subscriptions.md", "/LICESE.md", "/DEPENDENCIES.md", "/HTTPS.md", "/MITM.md", "/JS.md", "/MemorySafety.md", "/DebugProxy.md", "/TrafficProcessing.md", "/TUN.md", "/DNS.md", "/Routing.md", "/RuntimeRules.md", "/Outbound.md", "/Protocols.md", "/Notices/**"]
 
 [lib]
 name = "libfluxa_core"
@@ -31,6 +31,7 @@ unsafe_op_in_unsafe_fn = "deny"
 undocumented_unsafe_blocks = "deny"
 
 [dependencies]
+rusqlite = { version = "=0.40.2", features = ["bundled", "limits"] }
 ml-kem = { version = "=0.3.2", features = ["zeroize"] }
 ring = "=0.17.14"
 x25519-dalek = { version = "=2.0.1", features = ["static_secrets"] }

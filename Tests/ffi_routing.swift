@@ -51,7 +51,7 @@ struct RoutingFFICheck {
   ) throws {
     let bad = try JSONDecoder().decode(
       RoutingRule.self,
-      from: Data(#"{"type":"ip-cidr","value":"192.0.2.1/24","policy":"direct"}"#.utf8)
+      from: Data(#"{"type":"IP-CIDR","value":"192.0.2.1/24","policy":"direct"}"#.utf8)
     )
     try expectRejection { try client.configure(RoutingConfiguration(rules: [bad])) }
     let retained = try client.evaluate(RoutingTarget(domain: "api.example.com"))

@@ -121,7 +121,7 @@ pub async fn fetch(
                 return Err(Error::InvalidInput);
             }
             let response = client
-                .execute_limited(url.as_str(), 2 * 1024 * 1024)
+                .execute_limited(url.as_str(), 8 * 1024 * 1024)
                 .await?;
             if response.status == 200 {
                 std::str::from_utf8(&response.body).map_err(|_| Error::InvalidInput)?;
@@ -148,6 +148,58 @@ pub async fn fetch(
     .await
     .map_err(|_| Error::Network)?
 }
+/// Clash classical YAML：动作由订阅配置提供；不接受列表内第三列策略、no-resolve 或未知类型。
+pub fn parse_rules(
+    input: &str,
+    policy: crate::routing::Policy,
+    outbound: Option<String>,
+) -> Result<Vec<crate::routing::Rule>> {
+    if input.len() > 8 * 1024 * 1024 {
+        return Err(Error::ResourceLimit);
+    }
+    use crate::routing::{Match, Rule};
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Payload {
+        payload: Vec<String>,
+    }
+    let payload: Payload = crate::routing::runtime::yaml::decode(input)?;
+    if payload.payload.len() > crate::routing::runtime::MAX_RULES {
+        return Err(Error::ResourceLimit);
+    }
+    let mut rules = Vec::with_capacity(payload.payload.len());
+    for line in payload.payload {
+        let mut fields = line.split(',');
+        let kind = fields.next().ok_or(Error::InvalidInput)?;
+        let value = fields.next().ok_or(Error::InvalidInput)?;
+        if fields.next().is_some() || kind.trim() != kind || value.trim() != value {
+            return Err(Error::InvalidInput);
+        }
+        let kind = match kind {
+            "DOMAIN" => Match::Domain,
+            "DOMAIN-SUFFIX" => Match::DomainSuffix,
+            "DOMAIN-KEYWORD" => Match::DomainKeyword,
+            "IP-CIDR" => Match::IpCidr,
+            _ => return Err(Error::Unsupported),
+        };
+        // 与主配置、生成、索引使用同一规范化和匹配条件校验。
+        let mut rule = Rule {
+            r#type: kind,
+            value: value.into(),
+            policy,
+            outbound: outbound.clone(),
+        };
+        if policy == crate::routing::Policy::Proxy && outbound.is_none() {
+            // 默认出站直到合并主配置时才确定，不在下载时绑定当时选中的节点。
+            rule.value = crate::routing::runtime::normalize_condition(&rule)?;
+        } else {
+            rule = crate::routing::runtime::normalize_rule(&rule, &outbound)?;
+        }
+        rules.push(rule);
+    }
+    Ok(rules)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

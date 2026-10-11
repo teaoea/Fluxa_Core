@@ -30,10 +30,13 @@ pub enum Transport {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum Match {
+    #[serde(rename = "DOMAIN")]
     Domain,
+    #[serde(rename = "DOMAIN-SUFFIX")]
     DomainSuffix,
-    #[serde(alias = "key")]
+    #[serde(rename = "DOMAIN-KEYWORD")]
     DomainKeyword,
+    #[serde(rename = "IP-CIDR")]
     IpCidr,
     DestinationPort,
     Transport,
@@ -242,3 +245,6 @@ pub mod store;
 
 /// 有界后台生成任务；提交期间连接继续使用原子快照。
 pub mod background;
+
+#[path = "routing/database.rs"]
+mod database;

@@ -135,6 +135,13 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
     SubscriptionSchedule(crate::subscription::Check),
+    SubscriptionRules {
+        #[serde(default)]
+        validate_only: bool,
+        yaml: String,
+        policy: crate::routing::Policy,
+        outbound: Option<String>,
+    },
     SubscriptionFetch {
         url: String,
     },
@@ -187,7 +194,7 @@ enum Command {
     RuntimeRulesStatus,
     RuntimeRulesBegin {
         settings: crate::routing::Config,
-        sources: Vec<crate::routing::runtime::Source>,
+        sources: Vec<crate::routing::runtime::SourceInput>,
     },
     RuntimeRulesBeginFile {
         path: String,
@@ -303,6 +310,10 @@ impl RuntimeRulesSummary {
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     subscription_schedule: Option<crate::subscription::Decision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    subscription_rules: Option<Vec<crate::routing::Rule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    subscription_rules_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     network_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -478,6 +489,20 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     match command {
+        Command::SubscriptionRules {
+            yaml,
+            policy,
+            outbound,
+            validate_only,
+        } => {
+            let rules = crate::subscription::parse_rules(&yaml, policy, outbound)?;
+            Ok(Reply {
+                success: true,
+                subscription_rules_count: Some(rules.len()),
+                subscription_rules: if validate_only { None } else { Some(rules) },
+                ..Reply::default()
+            })
+        }
         Command::SubscriptionFetch { url } => Ok(Reply::from(
             runtime()?.block_on(crate::subscription::fetch(&engine.client()?, &url))?,
         )),
@@ -669,7 +694,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             let job = guard
                 .as_ref()
                 .ok_or(Error::InvalidState)?
-                .start(settings, sources)?;
+                .start_inputs(settings, sources)?;
             Ok(Reply {
                 success: true,
                 runtime_rules_job: Some(job),

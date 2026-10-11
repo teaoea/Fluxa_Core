@@ -20,12 +20,14 @@ struct Decoder<'a> {
     pending: Option<Event>,
     nodes: usize,
     depth: usize,
+    scalar_limit: usize,
 }
 impl Decoder<'_> {
     fn next(&mut self) -> Result<Event> {
         if let Some(event) = self.pending.take() {
             return Ok(event);
         }
+        let limit = std::mem::replace(&mut self.scalar_limit, 1024);
         let (event, _) = self.parser.next_token().map_err(|_| Error::InvalidInput)?;
         self.nodes += 1;
         if self.nodes > MAX_NODES {
@@ -36,7 +38,7 @@ impl Decoder<'_> {
                 if *anchor != 0 || tag.is_some() {
                     return Err(Error::InvalidInput);
                 }
-                if value.len() > 1024 {
+                if value.len() > limit {
                     return Err(Error::ResourceLimit);
                 }
             }
@@ -57,7 +59,7 @@ impl Decoder<'_> {
         self.pending.as_ref().ok_or(Error::Internal)
     }
 }
-pub(super) fn decode<T: DeserializeOwned>(input: &str) -> Result<T> {
+pub(crate) fn decode<T: DeserializeOwned>(input: &str) -> Result<T> {
     if input.len() > MAX_BYTES {
         return Err(Error::ResourceLimit);
     }
@@ -66,6 +68,7 @@ pub(super) fn decode<T: DeserializeOwned>(input: &str) -> Result<T> {
         pending: None,
         nodes: 0,
         depth: 0,
+        scalar_limit: 1024,
     };
     if decoder.next()? != Event::StreamStart || decoder.next()? != Event::DocumentStart {
         return Err(Error::InvalidInput);
@@ -119,6 +122,9 @@ impl<'de> MapAccess<'de> for Mapping<'_, '_> {
             return Err(Error::InvalidInput);
         }
         self.pending_value = true;
+        if key == "payload_yaml" {
+            self.decoder.scalar_limit = 8 * 1024 * 1024;
+        }
         seed.deserialize(de::value::StringDeserializer::<Error>::new(key))
             .map(Some)
     }

@@ -1,0 +1,9 @@
+# Clash classical 规则订阅示例。作者：可莉唯一的狗。
+# 动作与出站在主配置的订阅 policy/outbound 字段指定；列表严格只有两列。
+# IP-CIDR 同时支持 IPv4 和 IPv6；类型必须大写，不接受 IP-CIDR6 或 no-resolve。
+payload:
+  - DOMAIN,api.example.com
+  - DOMAIN-SUFFIX,example.com
+  - DOMAIN-KEYWORD,tracker
+  - IP-CIDR,192.0.2.0/24
+  - IP-CIDR,2001:db8::/32

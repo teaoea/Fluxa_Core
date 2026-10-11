@@ -42,10 +42,10 @@ struct RuntimeRulesFFICheck {
       precondition(decision.policy == .reject)
     }
     try checkSharedSnapshot(client)
-    let before = try Data(contentsOf: directory.appendingPathComponent("runtime-rules.yaml"))
+    let before = try Data(contentsOf: directory.appendingPathComponent("runtime-rules.sqlite"))
     let invalid = try JSONDecoder().decode(
       RoutingRule.self,
-      from: Data(#"{"type":"ip-cidr","value":"bad","policy":"direct"}"#.utf8)
+      from: Data(#"{"type":"IP-CIDR","value":"bad","policy":"direct"}"#.utf8)
     )
     do {
       _ = try await client.update(
@@ -54,7 +54,7 @@ struct RuntimeRulesFFICheck {
       )
       preconditionFailure("无效更新必须拒绝")
     } catch NativeClientError.rejected {}
-    let after = try Data(contentsOf: directory.appendingPathComponent("runtime-rules.yaml"))
+    let after = try Data(contentsOf: directory.appendingPathComponent("runtime-rules.sqlite"))
     precondition(before == after)
     let retained = try client.status()
     precondition(retained.version == 3)
@@ -64,8 +64,37 @@ struct RuntimeRulesFFICheck {
     precondition(recovered.version == 3)
     try await checkYAMLInput(reopened, directory: directory)
     try await checkBackground(reopened, directory: directory)
+    try await checkClash(reopened, directory: directory)
     try reopened.close()
     print("运行时规则真实 Swift FFI：来源、裁剪、IP/域名拦截、模式、失败保留、关闭及恢复通过。")
+  }
+
+  static func checkClash(_ client: NativeRuntimeRulesClient, directory: URL) async throws {
+    let yaml = """
+    payload:
+      - DOMAIN,Ads.Example.com.
+      - IP-CIDR,2001:db8::/32
+    """
+    let old = try NativeRuleSnapshot(summary: client.status(), settings: RoutingSettings(fallback: .direct))
+    let subscription = try NativeSubscriptionClient()
+    let count = try subscription.validateRules(yaml: yaml, policy: .reject)
+    precondition(count == 2)
+    _ = try await client.update(settings: RoutingSettings(), sources: [
+      NativeRuleSource(id: "clash", payloadYaml: yaml, policy: .reject),
+    ])
+    let retained = try NativeRoutingClient()
+    try retained.configure(old.routing)
+    let oldDecision = try retained.evaluate(RoutingTarget(domain: "ads.example.com"))
+    precondition(oldDecision.ruleVersion == old.summary.version)
+    try retained.close()
+    let decision = try client.evaluate(RoutingTarget(domain: "ads.example.com"))
+    precondition(decision.policy == .reject)
+    let bytes = try Data(contentsOf: directory.appendingPathComponent("runtime-rules.sqlite"))
+    precondition(bytes.prefix(16) == Data("SQLite format 3\0".utf8))
+    do {
+      _ = try subscription.validateRules(yaml: "payload: [domain,example.com]", policy: .direct)
+      preconditionFailure("小写类型必须拒绝")
+    } catch NativeClientError.rejected {}
   }
 
   static func checkSharedSnapshot(_ client: NativeRuntimeRulesClient) throws {
@@ -94,13 +123,13 @@ struct RuntimeRulesFFICheck {
       - id: local
         layer: local
         rules:
-          - type: key
+          - type: DOMAIN-KEYWORD
             value: example
             policy: direct
       - id: remote
         layer: remote
         rules:
-          - type: ip-cidr
+          - type: IP-CIDR
             value: 192.0.2.0/24
             policy: reject
     """

@@ -4,8 +4,8 @@ import Network
 /// 来源和类型优先级由 Rust 执行；域名精确匹配与子域匹配必须显式区分。
 public struct RoutingRule: Codable, Equatable, Sendable {
   public enum Match: String, Codable,
-    Sendable { case domain, domainSuffix = "domain-suffix", ipCIDR = "ip-cidr"
-    case destinationPort = "destination-port", transport, domainKeyword = "domain-keyword"
+    Sendable { case domain = "DOMAIN", domainSuffix = "DOMAIN-SUFFIX", ipCIDR = "IP-CIDR"
+    case destinationPort = "destination-port", transport, domainKeyword = "DOMAIN-KEYWORD"
   }
 
   public enum Policy: String, Codable, Sendable { case proxy, direct, reject }
