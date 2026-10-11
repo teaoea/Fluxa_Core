@@ -15,10 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: dev
+          ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: 记录构建源码
-        run: echo "FLUXA_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: 固定发布源码
+        run: |
+          # 补发二进制时与已经发布的 crate 保持同一源码；新功能版本不继承旧覆盖值。
+          python3 - <<'PYCODE'
+          import json, re, subprocess
+          from pathlib import Path
+          version = Path('Release.version').read_text().strip()
+          path = Path('Release.source.json')
+          if path.exists():
+              record = json.loads(path.read_text())
+              if set(record) != {'version', 'sourceCommit'}: raise SystemExit('发布源码记录字段无效')
+              if record['version'] == version:
+                  source = record['sourceCommit']
+                  if not re.fullmatch(r'[0-9a-f]{40}', source): raise SystemExit('发布源码提交无效')
+                  subprocess.run(['git', 'checkout', '--detach', source], check=True)
+          if Path('Release.version').read_text().strip() != version: raise SystemExit('确定源码的发布版本不一致')
+          PYCODE
+          echo "FLUXA_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: 安装 Rust 工具链
         run: |
           rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
@@ -67,6 +83,9 @@ jobs:
           git add Package.swift
           version="$(cat Release.version)"
           git commit -m "发布 $version 内核二进制并固定下载校验值"
+          # 发布期间允许其他已验证文档推进 dev；校验值提交重放到最新 dev，不强推。
+          git fetch origin dev
+          git rebase origin/dev
           git push origin HEAD:dev
           git tag "v$version"
           git push origin "v$version"
