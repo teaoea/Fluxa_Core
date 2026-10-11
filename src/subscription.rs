@@ -157,6 +157,12 @@ pub fn parse_rules(
     if input.len() > 8 * 1024 * 1024 {
         return Err(Error::ResourceLimit);
     }
+    if let Some(id) = &outbound {
+        crate::routing::identifier(id)?;
+        if policy != crate::routing::Policy::Proxy {
+            return Err(Error::InvalidInput);
+        }
+    }
     use crate::routing::{Match, Rule};
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]

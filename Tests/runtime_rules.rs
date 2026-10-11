@@ -814,3 +814,18 @@ fn generation_input_accepts_structured_and_clash_sources() {
         input.err().map(|e| e.to_string()).unwrap_or_default()
     );
 }
+
+#[test]
+fn empty_clash_payload_still_validates_outbound_metadata() {
+    for (policy, id) in [
+        (Policy::Reject, "node"),
+        (Policy::Direct, "node"),
+        (Policy::Proxy, ""),
+        (Policy::Proxy, "invalid id"),
+    ] {
+        assert!(
+            libfluxa_core::subscription::parse_rules("payload: []", policy, Some(id.into()))
+                .is_err()
+        );
+    }
+}

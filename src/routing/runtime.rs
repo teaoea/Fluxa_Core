@@ -92,6 +92,12 @@ impl SourceInput {
             Self::Rules(source) => charge(std::slice::from_ref(source)),
             Self::Clash(source) => {
                 identifier(&source.id)?;
+                if let Some(id) = &source.outbound {
+                    identifier(id)?;
+                    if source.policy != Policy::Proxy {
+                        return Err(Error::InvalidInput);
+                    }
+                }
                 if source.payload_yaml.len() > 8 * 1024 * 1024 {
                     return Err(Error::ResourceLimit);
                 }

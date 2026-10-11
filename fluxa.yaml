@@ -24,7 +24,7 @@ subscriptions:
     url: https://example.com/fluxa/rules.yaml
     kind: rules
     policy: proxy # 订阅条目不写动作；由此字段统一指定 direct、proxy 或 reject。
-    # outbound: my-node # 可选；省略时在生成规则快照时继承主配置出站。
+    # outbound: my-node # 仅 proxy 可指定；省略时在生成规则快照时继承主配置出站。
     enabled: false # 示例地址为占位符；换成自己的真实地址后启用。
     # 每天 UTC 12:00；必须使用带引号的 HH:mm，不使用设备本地时区。
     # 休眠、退出或断网错过时，恢复后仅补最近到期的一次，不逐天补跑。
@@ -35,7 +35,7 @@ subscriptions:
     url: https://example.com/fluxa/manual-rules.yaml
     kind: rules
     policy: proxy # 订阅条目不写动作；由此字段统一指定 direct、proxy 或 reject。
-    # outbound: my-node # 可选；省略时在生成规则快照时继承主配置出站。
+    # outbound: my-node # 仅 proxy 可指定；省略时在生成规则快照时继承主配置出站。
     enabled: false
     # 不设置 update-time 就不自动更新。单项更新及更新全部均为手动操作。
     # 旧 update-interval-hours 已移除；不要再填写该字段。
