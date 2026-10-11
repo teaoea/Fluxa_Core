@@ -17,6 +17,8 @@ jobs:
         with:
           ref: dev
           fetch-depth: 0
+      - name: 记录构建源码
+        run: echo "FLUXA_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: 安装 Rust 工具链
         run: |
           rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
@@ -29,6 +31,7 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
           bash check-ffi.sh all
+          bash check-protocol.sh
       - name: 构建静态框架并打包
         run: |
           bash build-macos.sh
@@ -72,6 +75,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(cat Release.version)"
-          gh release create "v$version" Release/FluxaEngine.xcframework.zip Release/checksum.txt Release/fluxa-test-fixture-macos-arm64.zip Release/fixture-checksum.txt --verify-tag --title "libfluxa_core v$version" --notes 'macOS ARM64 静态内核；Rust 与实际 Swift FFI 已通过。Swift 包固定二进制下载 URL 与 SHA-256，不包含 iOS/tvOS 切片。'
+          python3 - <<'PYCODE'
+          import json, os, subprocess
+          from pathlib import Path
+          version = Path('Release.version').read_text().strip()
+          record = {'version': version, 'source_commit': os.environ['FLUXA_SOURCE_SHA'], 'tag': 'v'+version, 'tag_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'framework_sha256': Path('Release/checksum.txt').read_text().strip(), 'fixture_sha256': Path('Release/fixture-checksum.txt').read_text().split()[0]}
+          Path('Release/provenance.json').write_text(json.dumps(record, indent=2)+'\n')
+          Path('Release/release-notes.md').write_text('macOS ARM64 静态内核；Rust、实际 Swift FFI 及固定独立服务端指纹互通通过。\n\n构建源码：'+record['source_commit']+'\n版本标签：'+record['tag']+'\n框架 SHA-256：'+record['framework_sha256']+'\n\n固定远程二进制，不包含 iOS/tvOS 切片；目标平台与未测范围见 Protocols.md。\n')
+          PYCODE
+          gh release create "v$version" Release/FluxaEngine.xcframework.zip Release/checksum.txt Release/fluxa-test-fixture-macos-arm64.zip Release/fixture-checksum.txt Release/provenance.json --verify-tag --title "libfluxa_core v$version" --notes-file Release/release-notes.md
       - name: 验证远程二进制下载和 Swift 门面
         run: swift test --disable-sandbox
