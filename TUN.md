@@ -20,6 +20,12 @@ TCP、分片、IPv4 选项、IPv6 扩展头、ICMP、超 MTU 报文明确拒绝�
 
 App、CLI 与未来网关可使用同一个 Session；不创建系统接口或改变系统网络。`tun_start`、`fluxa_engine_start` 和 App PacketTunnelProvider 仍明确拒绝系统隧道启动。后续顺序为 TUN DNS 衔接、TCP 流处理、macOS Network Extension，之后网关与其他入口。
 
+## v1.9.0 发布记录
+
+确定源码提交 52c35f601b5c419705977c54d9f41ef156b4171f；最终标签 v1.9.0 为 a20cf85e6fdc376a563aa92a3520ddbd8a897052，仅下载校验值不同，Rust/C ABI/Swift 源码相同。crates.io 实际源码包的 .cargo_vcs_info.json 已核对，包含 UDP 实现，无 Swift 源码或原生二进制。框架 SHA-256：750883eee458d53c80a28ef1f7274648bf30d4259ff5f77cccd350fa1952d582；独立测试服务 SHA-256：1173e2efa1468ba63a4a37fd49b2de30cfb5af64adfe5427f1b1960c0646771e。
+
+GitHub Actions 38196503205 第二次全部通过，包含远程二进制下载与 Swift 门面验证。第一次已有 DNS 服务 FFI 报“网络连接或读写失败”；本机独立复测及同源码远程重跑通过，原因尚未确认，保留首次失败记录。调试 FFI 的 CI 链接有既有部署版本警告；交付框架按 macOS 14 部署目标构建，不将其视作最低系统运行验收。
+
 ## v1.9.0 验证范围
 
 本机 Rust 全量 155 项、严格 Clippy、真实 Swift FFI 全部 13 组与独立协议互通通过。新增 Swift 文件与修改门面通过 SwiftFormat/严格 SwiftLint。

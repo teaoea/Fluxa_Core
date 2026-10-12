@@ -29,6 +29,6 @@
 
 每项功能完成本轮流程后才推进下一项。目标平台、协议互通或真机条件不可用时记录未测，不伪造通过；发布不能代替功能验收，禁止未经授权合并 main。
 
-- 当前只交付 TUN 数据包检查基础；必须先补齐 DNS → 路由 → 共用出站基础，再继续 TUN UDP/TCP 转发、返回包和 macOS Network Extension 接入，之后网关、SOCKS/HTTP。每阶段分别验证及交付，不将数据包解析当成 VPN 已可用。
+- 当前交付 TUN 数据包检查与有界 UDP 转发；DNS、路由和共用出站基础已完成。后续依次接入 TUN DNS、TCP 流和返回包、macOS Network Extension，之后网关、SOCKS/HTTP；UDP 回环测试不能代表系统隧道可用。每阶段分别验证及交付，不将数据包解析当成 VPN 已可用。
 
 - 网络内核配置新增、修改或删除字段时，同步修改根目录完整示例 fluxa.yaml 与 fluxa_english.yaml，并执行解析验证；示例注释使用中文，README_ENGLISH.md 同步说明实际能力与边界。
