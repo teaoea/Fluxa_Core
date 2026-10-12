@@ -18,7 +18,7 @@
 
 - DNS：UDP/TCP、DoT/DoH、手动上游、正负缓存、DNSSEC、Fake-IP 双向映射及有访问控制的局域网 UDP/TCP 服务；详见 [DNS.md](DNS.md)。
 - 路由：来源感知的运行时规则生成、规范化、去重、完全覆盖裁剪与索引匹配，支持域名、IPv4/IPv6 CIDR、关键词、端口与 TCP/UDP；域名命中后跳过 IP 规则，同类型本地优先，详见 [RuntimeRules.md](RuntimeRules.md)。缺失或不支持的代理出站明确拒绝。
-- TUN 基础：IPv4/IPv6、TCP/UDP 数据包检查、校验和验证与有界会话；尚不支持数据包转发。
+- TUN 基础：IPv4/IPv6、TCP/UDP 数据包检查、校验和验证与有界会话；新增有界 UDP/IP 双向转发；TCP 与系统隧道尚未完成。
 
 通过所有权和 RAII 管理资源，为连接、缓冲区、日志和脚本运行时设置上限。
 
@@ -46,3 +46,6 @@
 
 
 默认 DNS 最近解析统计：Rust Resolver::last_query 与 C ABI dns_last_query 提供同配置存活解析器共享的只读结果；Swift 可读取 durationMilliseconds、fromCache、successful。不主动探测；缓存命中显示 0 ms，Fake-IP 合成不更新；记录默认首服务器的实际尝试（包括失败），回退服务器不冒充默认服务器。不同配置隔离，最后一个解析器释放后统计消失，最多 16 项，每个键最多 8192 字节。不记录域名和响应；进程外解析不计入。
+
+
+TUN UDP v1.9.0：Rust 负责有界流表、共用路由/出站、返回包生成和取消回收；二进制 C ABI 不使用 Base64。没有新增主配置字段；TCP、系统隧道与 DNS 截获仍不支持。详见 TUN.md。

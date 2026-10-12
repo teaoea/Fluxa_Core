@@ -43,3 +43,6 @@ Offline GeoIP uses bounded MMDB loading and IPv4/IPv6 lookup, with fixed free pu
 
 
 默认 DNS 最近解析统计：Rust Resolver::last_query 与 C ABI dns_last_query 提供同配置存活解析器共享的只读结果；Swift 可读取 durationMilliseconds、fromCache、successful。不主动探测；缓存命中显示 0 ms，Fake-IP 合成不更新；记录默认首服务器的实际尝试（包括失败），回退服务器不冒充默认服务器。不同配置隔离，最后一个解析器释放后统计消失，最多 16 项，每个键最多 8192 字节。不记录域名和响应；进程外解析不计入。
+
+
+TUN UDP v1.9.0 adds bounded IPv4/IPv6 UDP packet forwarding through the shared routing/outbound manager, return packet generation, cancellation and binary C ABI. No main configuration fields are added. TCP forwarding, system tunnels and DNS interception remain unsupported. See TUN.md.

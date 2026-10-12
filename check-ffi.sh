@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 case "${1:-all}" in
-  lifecycle|https|mitm|script|tun|dns|dns_service|routing|outbound|runtime_rules|subscription|geoip) client_tests=("$1") ;;
-  all) client_tests=(lifecycle https mitm script tun dns dns_service routing outbound runtime_rules subscription geoip) ;;
-  *) echo '支持 lifecycle、https、mitm、script、tun、dns、dns_service、routing、outbound、runtime_rules、subscription、geoip 或 all'; exit 1 ;;
+  lifecycle|https|mitm|script|tun|tun_udp|dns|dns_service|routing|outbound|runtime_rules|subscription|geoip) client_tests=("$1") ;;
+  all) client_tests=(lifecycle https mitm script tun tun_udp dns dns_service routing outbound runtime_rules subscription geoip) ;;
+  *) echo '支持 lifecycle、https、mitm、script、tun、tun_udp、dns、dns_service、routing、outbound、runtime_rules、subscription、geoip 或 all'; exit 1 ;;
 esac
 check_directory="$(mktemp -d /tmp/fluxa-ffi-check.XXXXXX)"
 fixture_pid=''
@@ -17,7 +17,7 @@ trap cleanup EXIT
 build_targets=(--lib --example geoip_fixture)
 needs_fixture=false
 for client_test in "${client_tests[@]}"; do
-  if [[ "$client_test" == https || "$client_test" == mitm || "$client_test" == dns || "$client_test" == dns_service || "$client_test" == outbound || "$client_test" == subscription ]]; then needs_fixture=true; fi
+  if [[ "$client_test" == https || "$client_test" == mitm || "$client_test" == dns || "$client_test" == dns_service || "$client_test" == tun_udp || "$client_test" == outbound || "$client_test" == subscription ]]; then needs_fixture=true; fi
 done
 if $needs_fixture; then build_targets+=(--example https_fixture); fi
 cargo build --locked --offline --target-dir "$check_directory/rust" "${build_targets[@]}"

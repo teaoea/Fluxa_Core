@@ -23,6 +23,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 18 代表严格 UTC 每日订阅计划；未设置时仅允许手动更新。
 // 位 19 代表 VLESS TCP REALITY Vision 出站（含固定浏览器指纹模板），不代表 TUN 或系统代理已实现。
 // 位 20 代表有界 MMDB 离线 GeoIP 查询与固定免费公网 IP 回显，不代表系统 TUN 可用。
+// 位 21 代表有界 UDP/IP 转发与返回包，不代表 TCP、系统隧道或 DNS 劫持已实现。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);
@@ -35,6 +36,14 @@ uint64_t fluxa_engine_command(uint64_t handle, const uint8_t *input, size_t leng
 size_t fluxa_engine_buffer_length(uint64_t handle);
 /* 目标须在调用期可写，不能与 Rust 内存重叠；容量不足不写，返回所需长度。 */
 size_t fluxa_engine_buffer_copy(uint64_t handle, uint8_t *output, size_t capacity);
+/* UDP 数据面：输入为一个完整 IP 包，最大 9000 字节；仅同步借用。
+   generation=0 表示无 Fake-IP 代次，合成地址不能作为真实目标放行。
+   状态码：0 成功，1 无效句柄，2 不支持，3 内部错误，4 输入错误，5 配额，
+   6 无效状态，7 取消，8 网络/DNS 错误，9 规则拒绝，10 超时，11 接收队列为空。
+   receive 的 output 须可写、对齐、无并发访问；成功句柄用 destroy 释放。
+   错误或队列为空时 output 为零。 */
+int32_t fluxa_engine_tun_submit(uint64_t handle, const uint8_t *input, size_t length, uint64_t generation);
+int32_t fluxa_engine_tun_receive(uint64_t handle, uint64_t *output);
 #ifdef __cplusplus
 }
 #endif

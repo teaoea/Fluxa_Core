@@ -127,6 +127,64 @@ final class NativeCommandClient: Sendable {
     return revision
   }
 
+  /// 数据面只传二进制，借用限于同步调用，不经过 JSON 或 Base64。
+  func submitTunPacket(_ packet: Data, mappingGeneration: UInt64?) throws {
+    #if canImport(libfluxa_core)
+    guard !packet.isEmpty, packet.count <= 9000 else { throw NativeClientError.boundary }
+    let status = packet.withUnsafeBytes {
+      fluxa_engine_tun_submit(
+        handle,
+        $0.bindMemory(to: UInt8.self).baseAddress,
+        $0.count,
+        mappingGeneration ?? 0
+      )
+    }
+    try checkTunStatus(status)
+    #else
+    throw NativeClientError.unavailable
+    #endif
+  }
+
+  func receiveTunPacket() throws -> Data? {
+    #if canImport(libfluxa_core)
+    var buffer: UInt64 = 0
+    let status = fluxa_engine_tun_receive(handle, &buffer)
+    if status == 11 {
+      return nil
+    }
+    try checkTunStatus(status)
+    guard buffer != 0 else { throw NativeClientError.boundary }
+    defer { _ = fluxa_engine_destroy(buffer) }
+    let length = fluxa_engine_buffer_length(buffer)
+    guard length > 0, length <= 9000 else { throw NativeClientError.boundary }
+    var packet = Data(count: length)
+    let copied = packet.withUnsafeMutableBytes {
+      fluxa_engine_buffer_copy(buffer, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
+    }
+    guard copied == length else { throw NativeClientError.boundary }
+    return packet
+    #else
+    throw NativeClientError.unavailable
+    #endif
+  }
+
+  private func checkTunStatus(_ status: Int32) throws {
+    guard status != 0 else { return }
+    let message = switch status {
+    case 1: "TUN 引擎句柄无效。"
+    case 2: "TUN 请求的协议或出站尚未支持。"
+    case 4: "TUN 数据包不合法。"
+    case 5: "TUN 超过资源或并发上限。"
+    case 6: "TUN 会话未打开或已关闭。"
+    case 7: "TUN 操作已取消。"
+    case 8: "TUN 网络或 DNS 处理失败。"
+    case 9: "TUN 请求被规则拒绝。"
+    case 10: "TUN 网络操作超时。"
+    default: "TUN 内部资源错误。"
+    }
+    throw NativeClientError.rejected(message)
+  }
+
   func command(_ command: [String: Any]) throws -> NativeCommandReply {
     #if canImport(libfluxa_core)
     let request = try JSONSerialization.data(withJSONObject: command)

@@ -39,6 +39,7 @@ struct Engine {
     outbound: Arc<crate::outbound::Manager>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
+    tun_udp: Mutex<Option<Arc<crate::tun::udp::Session>>>,
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
     captures: Arc<CaptureStore>,
@@ -246,6 +247,8 @@ enum Command {
     },
     PacketClose,
     TunStart,
+    TunUdpOpen(crate::tun::udp::Options),
+    TunUdpClose,
     Script {
         source: String,
         input: serde_json::Value,
@@ -465,11 +468,51 @@ fn probe_latency(engine: &Engine, host: &str, port: u16, timeout_ms: u64) -> Res
         ..Reply::default()
     })
 }
+// 外部宿主工作线程的栈可能很小；网络 future 由已有、有界的 Rust 运行时执行。
+// 普通 FFI 请求配额仍限制为八个，不为每个数据包创建任务。
+#[inline(never)]
+fn execute_request(engine: &Engine, input: RequestInput, https_only: bool) -> Result<Reply, Error> {
+    if https_only && !input.url.starts_with("https://") {
+        return Err(Error::InvalidInput);
+    }
+    let body = Zeroizing::new(
+        STANDARD
+            .decode(input.body)
+            .map_err(|_| Error::InvalidInput)?,
+    );
+    if body.len() > MAX_BODY {
+        return Err(Error::ResourceLimit);
+    }
+    let client = engine.client()?;
+    let response = runtime()?
+        .block_on(runtime()?.spawn(async move {
+            client
+                .execute_request(
+                    &input.method,
+                    &input.url,
+                    &input.headers,
+                    &body,
+                    input.proxy_port,
+                )
+                .await
+        }))
+        .map_err(|_| Error::Internal)??;
+    Ok(Reply::from(response))
+}
 fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let engine = engine(handle)?;
     // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
     if bytes.len() <= 256 {
         match serde_json::from_slice::<Command>(bytes) {
+            Ok(Command::TunUdpClose) => {
+                if let Some(session) = engine.tun_udp.lock().map_err(|_| Error::Internal)?.take() {
+                    session.close()?;
+                }
+                return Ok(Reply {
+                    success: true,
+                    ..Reply::default()
+                });
+            }
             Ok(Command::OutboundClose { id }) => {
                 engine.outbound.close(id)?;
                 return Ok(Reply {
@@ -1003,6 +1046,29 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::TunStart => Err(Error::Unsupported),
+        Command::TunUdpOpen(options) => {
+            let mut session = engine.tun_udp.lock().map_err(|_| Error::Internal)?;
+            if session.is_some() {
+                return Err(Error::InvalidState);
+            }
+            *session = Some(Arc::new(crate::tun::udp::Session::new(
+                Arc::clone(&engine.outbound),
+                options,
+            )?));
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::TunUdpClose => {
+            if let Some(session) = engine.tun_udp.lock().map_err(|_| Error::Internal)?.take() {
+                session.close()?;
+            }
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::PacketOpen { mtu } => {
             let mut session = engine.packet_session.lock().map_err(|_| Error::Internal)?;
             if session.is_some() {
@@ -1164,25 +1230,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             let (Command::Https(input) | Command::Request(input)) = command else {
                 unreachable!()
             };
-            if https_only && !input.url.starts_with("https://") {
-                return Err(Error::InvalidInput);
-            }
-            let body = Zeroizing::new(
-                STANDARD
-                    .decode(input.body)
-                    .map_err(|_| Error::InvalidInput)?,
-            );
-            if body.len() > MAX_BODY {
-                return Err(Error::ResourceLimit);
-            }
-            let response = runtime()?.block_on(engine.client()?.execute_request(
-                &input.method,
-                &input.url,
-                &input.headers,
-                &body,
-                input.proxy_port,
-            ))?;
-            Ok(Reply::from(response))
+            execute_request(&engine, input, https_only)
         }
     }
 }
@@ -1194,7 +1242,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    2097151
+    4194303
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1219,6 +1267,11 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
         };
         if resource.is_some() {
             if let Some(Resource::Engine(engine)) = &resource {
+                if let Ok(mut session) = engine.tun_udp.lock()
+                    && let Some(session) = session.take()
+                {
+                    let _ = session.close();
+                }
                 let _ = engine.outbound.stop();
             }
             drop(resource);
@@ -1286,6 +1339,94 @@ pub unsafe extern "C" fn fluxa_engine_buffer_copy(
     }))
     .unwrap_or(0)
 }
+/// TUN 二进制接口专用状态码；不包含节点凭据或流量正文。
+fn tun_status(error: Error) -> i32 {
+    match error {
+        Error::Unsupported => 2,
+        Error::Internal => 3,
+        Error::InvalidInput => 4,
+        Error::ResourceLimit => 5,
+        Error::InvalidState => 6,
+        Error::Cancelled => 7,
+        Error::Rejected => 9,
+        Error::NetworkTimeout | Error::DnsTimeout => 10,
+        _ => 8,
+    }
+}
+fn udp_session(handle: u64) -> Result<Arc<crate::tun::udp::Session>, i32> {
+    engine(handle)
+        .map_err(|_| 1)?
+        .tun_udp
+        .lock()
+        .map_err(|_| 3)?
+        .as_ref()
+        .map(Arc::clone)
+        .ok_or(6)
+}
+/// 同步提交一个完整 UDP/IP 包；generation=0 表示不提供 Fake-IP 代次。
+/// # Safety
+/// input 必须在调用期间指向 length 个可读且无并发写入的字节；不会保留该借用。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fluxa_engine_tun_submit(
+    handle: u64,
+    input: *const u8,
+    length: usize,
+    generation: u64,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if input.is_null() || length == 0 || length > crate::tun::MAX_MTU {
+            return 4;
+        }
+        let session = match udp_session(handle) {
+            Ok(session) => session,
+            Err(code) => return code,
+        };
+        // SAFETY: 已检查空指针与最大长度；调用方保证实际可读性和调用期内独占写入。
+        let bytes = unsafe { std::slice::from_raw_parts(input, length) };
+        match runtime().and_then(|runtime| {
+            runtime.block_on(session.submit(bytes, (generation != 0).then_some(generation)))
+        }) {
+            Ok(()) => 0,
+            Err(error) => tun_status(error),
+        }
+    }))
+    .unwrap_or(3)
+}
+/// 非阻塞获取返回包，11 表示暂无数据；成功返回的缓冲区句柄必须 destroy。
+/// # Safety
+/// output 必须指向一个调用期间有效、对齐、可写且无并发访问的 u64；不保存其地址。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fluxa_engine_tun_receive(handle: u64, output: *mut u64) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if output.is_null() {
+            return 4;
+        }
+        // SAFETY: 调用方保证 output 可写且对齐，先清零避免错误时复用旧资源句柄。
+        unsafe {
+            *output = 0;
+        }
+        let session = match udp_session(handle) {
+            Ok(session) => session,
+            Err(code) => return code,
+        };
+        match session.receive() {
+            Ok(Some(packet)) => match store(packet.bytes.to_vec()) {
+                Some(handle) => {
+                    // SAFETY: output 的借用覆盖本次同步调用；只写值，不转移指针所有权。
+                    unsafe {
+                        *output = handle;
+                    }
+                    0
+                }
+                None => 5,
+            },
+            Ok(None) => 11,
+            Err(error) => tun_status(error),
+        }
+    }))
+    .unwrap_or(3)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1297,7 +1438,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 2097151);
+        assert_eq!(fluxa_engine_capabilities(), 4194303);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {

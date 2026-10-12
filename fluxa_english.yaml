@@ -118,3 +118,6 @@ mitm:
 # 主配置仅展示改写列表；插件专属 ui、browser-scripts 需使用 kind: plugin。
 # 示例不包含任意远程 JS、节点凭据或 CA 私钥。
 rewrites: []
+
+# TUN UDP 第一阶段通过宿主二进制接口测试，不创建系统隧道；本配置不新增启用开关。
+# TCP、DNS 截获、分片和 VLESS UDP 尚未完成，不支持的流量明确拒绝。

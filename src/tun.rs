@@ -1,5 +1,6 @@
-//! TUN 数据包基础层：只检查数据包，不建立系统隧道或转发连接。
-//! 无数据包队列，不持有调用方内存；分片和扩展头必须明确拒绝。
+//! TUN 数据包基础与有界 UDP 转发；不建立系统隧道。
+//! 不持有调用方内存；分片和扩展头必须明确拒绝。
+pub mod udp;
 use crate::error::{Error, Result};
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};

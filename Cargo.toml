@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "1.8.0"
+version = "1.9.0"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.89"
@@ -122,3 +122,7 @@ path = "Tests/protocol.rs"
 [[test]]
 name = "geoip"
 path = "Tests/geoip.rs"
+
+[[test]]
+name = "tun_udp"
+path = "Tests/tun_udp.rs"
