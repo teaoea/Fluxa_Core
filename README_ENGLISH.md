@@ -33,7 +33,7 @@ Configuration fields and both complete examples are updated together. See [Subsc
 
 ## Roadmap and license
 
-TUN forwarding, gateway operation, and additional proxy protocols remain in development. VLESS + TCP + REALITY + Vision is implemented for TCP outbounds; UDP/XUDP/Mux and TUN forwarding remain unsupported.
+TUN forwarding, gateway operation, and additional proxy protocols remain in development. VLESS + TCP + REALITY + Vision is implemented for TCP outbounds; Single-target XUDP datagrams are supported over the same transport. General Mux, TCP TUN forwarding and system tunnels remain unsupported.
 
 Original code is licensed under MIT; see [LICESE.md](LICESE.md). Third-party dependencies retain their upstream licenses.
 

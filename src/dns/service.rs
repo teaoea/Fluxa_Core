@@ -161,9 +161,9 @@ impl Service {
     pub async fn start(config: Config, resolver: Arc<Resolver>) -> Result<Self> {
         let (address, allowed) = config.build()?;
         let permit = SERVICES.try_acquire().map_err(|_| Error::ResourceLimit)?;
-        let tcp = TcpListener::bind(address).await?;
+        let (tcp, udp) = bind_listeners(address).await?;
         let address = tcp.local_addr()?;
-        let udp = Arc::new(UdpSocket::bind(address).await?);
+        let udp = Arc::new(udp);
         let stats = Arc::new(Stats::default());
         stats.running.store(true, Ordering::Release);
         let access = Arc::new(Access {
@@ -238,6 +238,21 @@ impl Drop for Service {
         let _ = self.cancel.send(true);
     }
 }
+/// TCP 分配的临时端口可能被独立 UDP socket 占用；只在自动端口下有界重选。
+async fn bind_listeners(address: SocketAddr) -> Result<(TcpListener, UdpSocket)> {
+    for _ in 0..8 {
+        let tcp = TcpListener::bind(address).await?;
+        match UdpSocket::bind(tcp.local_addr()?).await {
+            Ok(udp) => return Ok((tcp, udp)),
+            Err(error) if address.port() == 0 && error.kind() == std::io::ErrorKind::AddrInUse => {
+                drop(tcp);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(Error::Network)
+}
+
 async fn tcp_session(
     mut socket: TcpStream,
     peer: SocketAddr,
@@ -272,4 +287,21 @@ async fn tcp_session(
     })
     .await
     .map_err(|_| Error::DnsTimeout)?
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    #[tokio::test]
+    async fn fixed_conflict_is_not_silently_moved_and_ephemeral_pair_agrees() {
+        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let address = occupied.local_addr().unwrap();
+        assert!(bind_listeners(address).await.is_err());
+        for _ in 0..100 {
+            let (tcp, udp) = bind_listeners("127.0.0.1:0".parse().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(tcp.local_addr().unwrap(), udp.local_addr().unwrap());
+        }
+    }
 }

@@ -10,3 +10,11 @@ pub mod fingerprint;
 mod inner_tls;
 
 mod hybrid;
+
+mod datagram;
+pub use datagram::{Datagram, connect_udp};
+
+/// 当前固定服务端互通的 XUDP 单报文上限。
+pub fn datagram_limit() -> usize {
+    datagram::MAX_PAYLOAD
+}

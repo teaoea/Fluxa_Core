@@ -53,6 +53,9 @@ enum Socket {
         reader: tokio::sync::Mutex<tokio::io::ReadHalf<BoxStream>>,
         writer: tokio::sync::Mutex<tokio::io::WriteHalf<BoxStream>>,
     },
+    ProxyUdp {
+        socket: crate::protocol::Datagram,
+    },
     Udp {
         socket: UdpSocket,
         reader: tokio::sync::Mutex<()>,
@@ -197,7 +200,7 @@ impl Manager {
         }
         let transport = match &socket {
             Socket::Tcp { .. } => Transport::Tcp,
-            Socket::Udp { .. } => Transport::Udp,
+            Socket::Udp { .. } | Socket::ProxyUdp { .. } => Transport::Udp,
             Socket::Detached => return Err(Error::Internal),
         };
         let (cancel, _) = watch::channel(false);
@@ -234,6 +237,7 @@ impl Manager {
         }
         let connection = self.connection(id)?;
         let tcp = matches!(&connection.socket, Socket::Tcp { .. });
+        let framed = matches!(&connection.socket, Socket::ProxyUdp { .. });
         let result = connection
             .run(milliseconds, async {
                 match &connection.socket {
@@ -242,6 +246,7 @@ impl Manager {
                         Ok(bytes.len())
                     }
                     Socket::Detached => Err(Error::Unsupported),
+                    Socket::ProxyUdp { socket } => socket.send(bytes).await,
                     Socket::Udp { socket, .. } => {
                         if bytes.len() > MAX_DATAGRAM {
                             return Err(Error::ResourceLimit);
@@ -256,12 +261,15 @@ impl Manager {
             })
             .await;
         // TCP 部分写入后无法安全重试；超时/网络错误使连接失效，绝不重复发送。
-        if tcp
+        if (tcp || framed)
             && matches!(
                 result,
                 Err(Error::Network | Error::NetworkTimeout | Error::Cancelled)
             )
         {
+            connection.close();
+        }
+        if matches!(&connection.socket, Socket::ProxyUdp {socket} if socket.failed()) {
             connection.close();
         }
         if let Ok(length) = result {
@@ -274,15 +282,19 @@ impl Manager {
             return Err(Error::InvalidInput);
         }
         let connection = self.connection(id)?;
-        connection
+        let result = connection
             .run(milliseconds, async {
-                let udp = matches!(&connection.socket, Socket::Udp { .. });
+                let udp = matches!(
+                    &connection.socket,
+                    Socket::Udp { .. } | Socket::ProxyUdp { .. }
+                );
                 let capacity = if udp { MAX_BUFFER } else { maximum };
                 let lease = BUFFERS.reserve(capacity)?;
                 let mut bytes = Zeroizing::new(vec![0; capacity]);
                 let length = match &connection.socket {
                     Socket::Tcp { reader, .. } => reader.lock().await.read(&mut bytes).await?,
                     Socket::Detached => return Err(Error::Unsupported),
+                    Socket::ProxyUdp { socket } => socket.receive(&mut bytes).await?,
                     Socket::Udp { socket, reader } => {
                         let _read = reader.lock().await;
                         socket.recv(&mut bytes).await?
@@ -300,7 +312,11 @@ impl Manager {
                     _lease: lease,
                 })
             })
-            .await
+            .await;
+        if matches!(&connection.socket, Socket::ProxyUdp {socket} if socket.failed()) {
+            connection.close();
+        }
+        result
     }
     pub async fn shutdown_write(&self, id: u64, milliseconds: u64) -> Result<()> {
         let connection = self.connection(id)?;
@@ -311,7 +327,9 @@ impl Manager {
                         writer.lock().await.shutdown().await?;
                         Ok(())
                     }
-                    Socket::Udp { .. } | Socket::Detached => Err(Error::Unsupported),
+                    Socket::Udp { .. } | Socket::ProxyUdp { .. } | Socket::Detached => {
+                        Err(Error::Unsupported)
+                    }
                 }
             })
             .await

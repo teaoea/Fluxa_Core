@@ -226,14 +226,23 @@ impl Manager {
                     socket.set_nodelay(true)?;
                     // 已检查的真实候选作为 VLESS 目标，不让远端重新解析后切换到未经检查的地址。
                     // 协议 future 独立置于有界连接预算内，避免放大 Swift 宿主线程的调用栈。
-                    let stream = Box::pin(crate::protocol::connect(
-                        socket,
-                        node,
-                        &first.0.ip().to_string(),
-                        metadata.port,
-                    ))
-                    .await?;
-                    (super::tcp_socket(Box::new(stream)), lease, first.0)
+                    let outbound = match metadata.transport {
+                        Transport::Tcp => {
+                            let stream = Box::pin(crate::protocol::connect(
+                                socket,
+                                node,
+                                &first.0.ip().to_string(),
+                                metadata.port,
+                            ))
+                            .await?;
+                            super::tcp_socket(Box::new(stream))
+                        }
+                        Transport::Udp => super::Socket::ProxyUdp {
+                            socket: Box::pin(crate::protocol::connect_udp(socket, node, first.0))
+                                .await?,
+                        },
+                    };
+                    (outbound, lease, first.0)
                 } else {
                     let approved = plans
                         .iter()
@@ -270,15 +279,12 @@ impl Manager {
 fn check(
     snapshot: &super::NetworkSnapshot,
     decision: &Decision,
-    transport: Transport,
+    _transport: Transport,
 ) -> Result<()> {
     match decision.policy {
         Policy::Reject => Err(Error::Rejected),
         Policy::Direct => Ok(()),
         Policy::Proxy => {
-            if transport != Transport::Tcp {
-                return Err(Error::Unsupported);
-            }
             let id = decision.outbound.as_deref().ok_or(Error::InvalidInput)?;
             if snapshot.outbounds.contains_key(id) {
                 Ok(())

@@ -49,3 +49,5 @@
 
 
 TUN UDP v1.9.0：Rust 负责有界流表、共用路由/出站、返回包生成和取消回收；二进制 C ABI 不使用 Base64。没有新增主配置字段；TCP、系统隧道与 DNS 截获仍不支持。详见 TUN.md。
+
+XUDP v2.0.0：单目标 UDP 代理复用 REALITY/Vision、路由与取消机制，TUN UDP 使用同一出站。报文上限 7526 字节，空包明确拒绝；任意 Mux 与系统 TUN 未实现。详见 Protocols.md。

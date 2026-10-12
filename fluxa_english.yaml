@@ -14,7 +14,7 @@ name: My Fluxa
 # nodes 保留现有 name/uri 格式；客户端传递给内核的是稳定 id 与完整 uri。
 # 配置命令 network_configure 新增 outbounds: [{id: <稳定标识>, uri: <完整VLESS链接>}]
 # outbounds 默认 []，最多 128 条；routing.outbound 必须引用对应 id。重复 id 和不支持的组合拒绝整次更新。
-# 出站仅支持 TCP；UDP、Mux、XUDP 和不支持的传输明确拒绝，不回退直连。
+# 出站支持 TCP 与单目标 XUDP；XUDP 空报文和超过 7526 字节的报文明拒，任意 Mux 未实现，不回退直连。
 nodes: []
 
 # 订阅原始内容分别保留。enabled 仅控制自动更新及规则是否参与。
@@ -120,4 +120,4 @@ mitm:
 rewrites: []
 
 # TUN UDP 第一阶段通过宿主二进制接口测试，不创建系统隧道；本配置不新增启用开关。
-# TCP、DNS 截获、分片和 VLESS UDP 尚未完成，不支持的流量明确拒绝。
+# TCP 转发、DNS 截获和分片尚未完成，不支持的流量明确拒绝。

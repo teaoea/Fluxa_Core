@@ -46,12 +46,24 @@ VLESS TCP 没有目标连接确认帧。因此自动地址族的代理出站优�
 
 macOS 27.2 / Apple M4 ARM64 / Rust 1.98.1。`check-protocol.sh` 使用固定官方 Xray v26.3.27 **独立测试进程**，仅作为协议对端，不链接或交付该二进制。下载 SHA-256 为 `2e93a67e8aa1936ecefb307e120830fcbd4c643ab9b1c46a2d0838d5f8409eaf`。
 
-各模板分别验证三种 TLS 1.3 密码套件（原生模板仅自己的 AES-128），1 MiB Rust 往返、真实内层 TLS 1.3 双向 Vision 裸流、错误公钥/Short ID/SNI/UUID 拒绝。实际 Swift FFI 覆盖 64 KiB 往返、HTTPS、重复配置回滚、UDP 明确拒绝、关闭和阻塞读取取消。模板单元测试核对套件及扩展顺序、ECH 长度、GREASE、随机排列和输入边界。
+各模板分别验证三种 TLS 1.3 密码套件（原生模板仅自己的 AES-128），1 MiB Rust 往返、真实内层 TLS 1.3 双向 Vision 裸流、错误公钥/Short ID/SNI/UUID 拒绝。实际 Swift FFI 覆盖 64 KiB 往返、HTTPS、重复配置回滚、XUDP 报文往返、读超时恢复、超小接收整包拒绝与继续读取、TUN UDP 经代理返回、关闭和阻塞读取取消。模板单元测试核对套件及扩展顺序、ECH 长度、GREASE、随机排列和输入边界。
 
 本轮全量 Rust 回归 139 项通过、0 失败，独立协议测试通过专用脚本执行（常规 cargo test 中 1 项有条件忽略）；原有 11 组真实 FFI 全部通过，Swift SDK 值类型测试 13 项通过。严格 Clippy 与 SwiftLint 通过。
 
 用户授权节点使用 `chrome`（Chrome 133）分别完成 Rust 共用 HTTPS 客户端与真实 Swift FFI 请求 `https://www.apple.com/`，返回 200，正文 253998 字节；凭据只保存在权限受限临时文件，不进入源码、文档或发布附件。
 
-尚未实现：UDP/XUDP/Mux、其他传输、普通 VLESS TLS、TLS 1.2 外层 REALITY、HelloRetryRequest、会话恢复、实际 ECH、ML-DSA 附加认证、下载证书压缩帧解码、要求回发的 KeyUpdate。浏览器模板可以声明旧套件和压缩算法，但当前 REALITY 仅接受支持的 TLS 1.3 握手；不支持的服务端行为明确失败。旧浏览器模板可能被新 REALITY 服务端的握手形状限制拒绝，不静默更换用户指定模板。
+尚未实现：任意 Mux、其他传输、普通 VLESS TLS、TLS 1.2 外层 REALITY、HelloRetryRequest、会话恢复、实际 ECH、ML-DSA 附加认证、下载证书压缩帧解码、要求回发的 KeyUpdate。浏览器模板可以声明旧套件和压缩算法，但当前 REALITY 仅接受支持的 TLS 1.3 握手；不支持的服务端行为明确失败。旧浏览器模板可能被新 REALITY 服务端的握手形状限制拒绝，不静默更换用户指定模板。
 
 TUN、系统 VPN、网关和 SOCKS/HTTP 入口不是此协议出站的验收结果。最低 macOS 14、Intel、iOS/iPadOS/tvOS 运行、实际系统隧道和 App Store 审核尚未验收。
+
+## XUDP v2.0.0
+
+复用 REALITY/Vision 字节流实现单目标 XUDP，独立 Rust 入口为 protocol::connect_udp，既有共用出站、C ABI、NativeOutboundClient 与 NativeTunUDPClient 自动使用同一实现。没有新增配置字段或另一套节点格式。只发送已检查的真实数字地址；不远端重解析、不隐式直连。
+
+每个会话只包含一个目标与会话编号，首帧携带地址，后续帧保留报文边界；不提供任意 TCP 多路复用或全锥 UDP。入站携带地址时必须与批准目标一致。发送上限 7526 字节，空报文明确返回 Unsupported，超限返回 ResourceLimit；直接 UDP 的空报文能力保持不变。接收超出调用者容量时丢弃整包并报错，不返回截断内容。
+
+XUDP 全局额外缓冲预算 4 MiB，每连接预留 32 KiB；原有 16 MiB 协议与连接预算继续适用。读取取消保留分帧缓存，写超时使连接失效，避免部分帧重发。协议错误和关闭取消读写并回收任务、缓存与预算。无新增业务 unsafe。
+
+macOS ARM64 独立固定服务端真实互通覆盖所有已支持指纹及三种 TLS 套件（原生模板限 AES-128），Rust 验证 3、1472、7526 字节报文；真实 Swift FFI 验证往返、超限/空包/半关闭拒绝、超时恢复和 TUN UDP 经代理返回。完整 Rust 回归 158 项通过、常规套件 1 项独立服务端测试通过专用脚本执行；严格 Clippy 与完整 FFI 回归 13 组通过。此版本不限制目标 UDP 端口；本机低端口绑定权限限制，UDP/443 与真实 QUIC 应用尚未运行验收，不能用普通 UDP 回环代替 QUIC 验收。用户私有节点本轮未进行 UDP 实测。最低 macOS 14 运行、Intel、其他平台和系统 VPN 未测。
+
+同轮回归发现 DNS 服务自动端口的历史竞争：TCP 分配的临时端口可能已被 UDP 占用，真实重复 FFI 第 44 轮捕获系统 AddrInUse。修复为仅在端口 0 且 UDP 地址占用时最多重选 8 次；固定端口冲突仍报错，其他错误不重试。新增固定冲突与双监听同端口测试，临时定位输出已移除。

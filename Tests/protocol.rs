@@ -76,6 +76,30 @@ async fn independent_peer_data_authentication_and_tls13() {
             assert_eq!(received, expected);
         };
         tokio::join!(sender, receiver);
+        let udp_port = fixture["outbound_udp_port"].as_u64().unwrap() as u16;
+        let socket = tokio::net::TcpStream::connect(peer).await.unwrap();
+        let udp = protocol::connect_udp(
+            socket,
+            &node,
+            std::net::SocketAddr::from(([127, 0, 0, 1], udp_port)),
+        )
+        .await
+        .unwrap();
+        for payload in [
+            vec![0, 255, 1],
+            vec![7; 1472],
+            vec![9; protocol::datagram_limit()],
+        ] {
+            assert_eq!(udp.send(&payload).await.unwrap(), payload.len());
+            let mut response = vec![0; 8192];
+            let length = udp.receive(&mut response).await.unwrap();
+            assert_eq!(&response[..length], &payload);
+        }
+        assert_eq!(udp.send(&[]).await, Err(Error::Unsupported));
+        assert_eq!(
+            udp.send(&vec![0; protocol::datagram_limit() + 1]).await,
+            Err(Error::ResourceLimit)
+        );
         for mutation in [0, 1, 2, 3] {
             let mut bad = profile.validate().unwrap();
             match mutation {

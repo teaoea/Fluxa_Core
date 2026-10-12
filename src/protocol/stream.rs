@@ -88,11 +88,16 @@ fn failed(failure: &Arc<Mutex<Option<Error>>>, result: Result<()>) {
     }
 }
 /// 调用者承担 DNS、拨号期限和连接生命周期；协议不会自行回退其他出站。
-pub async fn connect(mut socket: TcpStream, node: &Node, host: &str, port: u16) -> Result<Stream> {
+pub async fn connect(socket: TcpStream, node: &Node, host: &str, port: u16) -> Result<Stream> {
+    connect_request(socket, node, vless::request(&node.uuid, host, port)?).await
+}
+pub(super) async fn connect_mux(socket: TcpStream, node: &Node) -> Result<Stream> {
+    connect_request(socket, node, vless::mux_request(&node.uuid)).await
+}
+async fn connect_request(mut socket: TcpStream, node: &Node, request: Vec<u8>) -> Result<Stream> {
     let lease = Arc::new(MEMORY.reserve(RESERVATION)?);
-    let request = vless::request(&node.uuid, host, port)?;
     let (mut rx, mut tx) = Box::pin(reality::handshake(&mut socket, node)).await?;
-    let mut initial = request;
+    let mut initial = Zeroizing::new(request);
     initial.extend(vision::frame(Some(&node.uuid), &[], 0)?);
     socket.write_all(&tx.seal(23, &initial)?).await?;
     let (pipe, pump) = tokio::io::duplex(16384);

@@ -484,19 +484,23 @@ fn execute_request(engine: &Engine, input: RequestInput, https_only: bool) -> Re
         return Err(Error::ResourceLimit);
     }
     let client = engine.client()?;
-    let response = runtime()?
-        .block_on(runtime()?.spawn(async move {
-            client
-                .execute_request(
-                    &input.method,
-                    &input.url,
-                    &input.headers,
-                    &body,
-                    input.proxy_port,
-                )
-                .await
-        }))
-        .map_err(|_| Error::Internal)??;
+    let executor = runtime()?;
+    let response = executor.block_on(async move {
+        executor
+            .spawn(async move {
+                client
+                    .execute_request(
+                        &input.method,
+                        &input.url,
+                        &input.headers,
+                        &body,
+                        input.proxy_port,
+                    )
+                    .await
+            })
+            .await
+            .map_err(|_| Error::Internal)?
+    })?;
     Ok(Reply::from(response))
 }
 fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
@@ -1242,7 +1246,7 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
-    4194303
+    8388607
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1438,7 +1442,7 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_capabilities(), 4194303);
+        assert_eq!(fluxa_engine_capabilities(), 8388607);
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {
@@ -1466,5 +1470,35 @@ mod tests {
         assert!(store(vec![0; MAX_OUTPUT + 1]).is_none());
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_buffer_length(handle), 0);
+    }
+    #[tokio::test]
+    async fn nested_runtime_does_not_detach_failed_http_calls() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let handle = fluxa_engine_create();
+        engine(handle)
+            .unwrap()
+            .outbound
+            .configure_network(
+                None,
+                Some(Arc::new(
+                    crate::routing::Router::compile(crate::routing::Config {
+                        mode: crate::routing::Mode::Direct,
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )),
+                crate::outbound::Limits::default(),
+            )
+            .unwrap();
+        let request=serde_json::to_vec(&serde_json::json!({"operation":"request","method":"GET","url":format!("http://{}/",listener.local_addr().unwrap())})).unwrap();
+        // SAFETY: JSON 输入在整个同步调用期间存活、只读，不保留任何跨语言借用。
+        let response = unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) };
+        assert_eq!(response, 0);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+        assert_eq!(fluxa_engine_destroy(handle), 0);
     }
 }
