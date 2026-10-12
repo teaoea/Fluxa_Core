@@ -1,6 +1,7 @@
 import Foundation
+
 #if canImport(FluxaCore)
-import FluxaCore
+  import FluxaCore
 #endif
 
 /// 原始规则来源值；Swift 不执行合并、裁剪或索引匹配。
@@ -13,7 +14,8 @@ public struct NativeRuleSource: Encodable, Sendable {
   public var payloadYaml: String?
   public var policy: RoutingRule.Policy?
   public var outbound: String?
-  enum CodingKeys: String, CodingKey { case id, layer, enabled, rules, policy, outbound
+  enum CodingKeys: String, CodingKey {
+    case id, layer, enabled, rules, policy, outbound
     case payloadYaml = "payload_yaml"
   }
 
@@ -44,7 +46,14 @@ public struct NativeRuleSource: Encodable, Sendable {
   }
 }
 
+/// 裁剪报告的信任程度；旧版本没有该字段时不能默认视为已验证。
+public enum NativeReportVerification: String, Decodable, Sendable {
+  case verifiedFromSources = "verified-from-sources"
+  case structuralOnly = "structural-only"
+}
+
 public struct NativeRuntimeRulesSummary: Decodable, Sendable {
+  public let reportVerification: NativeReportVerification?
   public let snapshotHandle: UInt64
   public let version: UInt64
   public let original: Int
@@ -55,6 +64,7 @@ public struct NativeRuntimeRulesSummary: Decodable, Sendable {
   public let directorySynced: Bool?
   enum CodingKeys: String, CodingKey {
     case snapshotHandle = "snapshot_handle"
+    case reportVerification = "report_verification"
     case version, original, duplicates, conflicts, pruned, effective
     case directorySynced = "directory_synced"
   }
@@ -111,7 +121,8 @@ public final class NativeRuntimeRulesClient: Sendable {
   }
 
   public func jobStatus(id: UInt64) throws -> NativeRuntimeRulesJob {
-    guard let job = try client.command(["operation": "runtime_rules_job", "id": id]).runtimeRulesJob
+    guard
+      let job = try client.command(["operation": "runtime_rules_job", "id": id]).runtimeRulesJob
     else { throw NativeClientError.boundary }
     return job
   }
@@ -132,7 +143,8 @@ public final class NativeRuntimeRulesClient: Sendable {
   }
 
   public func update(inputFile: URL) async throws -> NativeRuntimeRulesSummary {
-    let job = try await Task
+    let job =
+      try await Task
       .detached(priority: .utility) { try self.beginUpdate(inputFile: inputFile) }.value
     return try await waitForJob(id: job.id)
   }
@@ -169,9 +181,11 @@ public final class NativeRuntimeRulesClient: Sendable {
 
   /// 纯决策检查；域名没有真实地址时不能把结果当作连接已经获准。
   public func evaluate(_ target: RoutingTarget) throws -> NativeRouteDecision {
-    guard var command = try JSONSerialization.jsonObject(
-      with: JSONEncoder().encode(target)
-    ) as? [String: Any] else { throw NativeClientError.boundary }
+    guard
+      var command = try JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(target)
+      ) as? [String: Any]
+    else { throw NativeClientError.boundary }
     command["operation"] = "route_evaluate"
     guard let decision = try client.command(command).routeDecision
     else { throw NativeClientError.boundary }

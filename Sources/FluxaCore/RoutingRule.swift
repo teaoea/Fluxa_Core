@@ -31,7 +31,8 @@ public struct RoutingRule: Codable, Equatable, Sendable {
             let last = UInt16(parts.last ?? ""), last >= first
       else { throw CoreError.invalidRequest("目标端口规则无效") }
     } else if type == .transport {
-      guard ["tcp", "udp"].contains(value) else { throw CoreError.invalidRequest("传输类型规则无效") }
+      guard ["tcp", "udp", "quic"].contains(value),
+            policy == .reject else { throw CoreError.invalidRequest("传输类型规则无效") }
     } else if type == .domainKeyword {
       guard value.utf8.allSatisfy({ byte in
         (48 ... 57).contains(byte) || (65 ... 90).contains(byte)

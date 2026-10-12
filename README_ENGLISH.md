@@ -37,7 +37,7 @@ TUN forwarding, gateway operation, and additional proxy protocols remain in deve
 
 Original code is licensed under MIT; see [LICESE.md](LICESE.md). Third-party dependencies retain their upstream licenses.
 
-Rule subscriptions use Clash classical `payload` with uppercase DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD and IP-CIDR (IPv4/IPv6). Subscription policy/outbound selects the action. Effective merged rules are persisted in SQLite; matching uses immutable memory indexes. See [rules.yaml](rules.yaml).
+Rule subscriptions use Clash classical `payload` with uppercase DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD and IP-CIDR (IPv4/IPv6). Subscription policy/outbound selects the action. 合并规则使用 runtime-rules.bin 二进制平铺缓存，加载不重建匹配索引；见 BinaryRuleCache.md。 See [rules.yaml](rules.yaml).
 
 Offline GeoIP uses bounded MMDB loading and IPv4/IPv6 lookup, with fixed free public-IP echo endpoints and TCP connection timing. Databases are supplied separately by the host. Failures are explicit; these features do not imply system TUN support. See GeoIP.md for resource limits, privacy and licensing.
 
@@ -46,3 +46,10 @@ Offline GeoIP uses bounded MMDB loading and IPv4/IPv6 lookup, with fixed free pu
 
 
 TUN UDP v1.9.0 adds bounded IPv4/IPv6 UDP packet forwarding through the shared routing/outbound manager, return packet generation, cancellation and binary C ABI. No main configuration fields are added. TCP forwarding, system tunnels and DNS interception remain unsupported. See TUN.md.
+
+
+## 本地规则审查修订（未发布）
+
+规则类别编号仅作为索引槽位，优先级独立表达。普通端口/传输规则不能覆盖域名/IP 普通规则，全域传输直连/代理被拒绝。API 专用临时调试 Overlay 可覆盖正式拦截；每条必须提供 1–3600 秒生命周期，内部存过期时间，到期失效并丢弃。配置和订阅不允许声明调试规则。原始来源可用时重新验证诊断；没有原始来源的生成文档仅标记结构验证。可运行示例为 cargo run --example runtime_rules_audit。C ABI/Swift 调试接入、控制接口认证及 App 集成尚未交付，本地修改暂缓提交与发布。
+
+Protocol blocking accepts transport tcp/udp/quic with reject only. QUIC v1/v2 identification uses packet structure and connection-local association, not UDP/443. Unknown standalone short headers, migration and unrecognized versions remain identification boundaries. Shared outbounds and TUN UDP enforce the same immutable connection policy. See ProtocolBlocking.md.

@@ -154,9 +154,8 @@ pub fn parse_rules(
     policy: crate::routing::Policy,
     outbound: Option<String>,
 ) -> Result<Vec<crate::routing::Rule>> {
-    if input.len() > 8 * 1024 * 1024 {
-        return Err(Error::ResourceLimit);
-    }
+    let _temporary =
+        crate::routing::runtime::reserve_parse(input, crate::routing::runtime::MAX_PAYLOAD_BYTES)?;
     if let Some(id) = &outbound {
         crate::routing::identifier(id)?;
         if policy != crate::routing::Policy::Proxy {

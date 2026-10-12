@@ -15,24 +15,39 @@ use std::{
 #[path = "index.rs"]
 mod index;
 use index::{Candidates, Index};
+#[path = "flat.rs"]
+mod flat;
+use flat::FlatIndex;
 #[path = "yaml.rs"]
 pub(crate) mod yaml;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+/// 仅有界解析入口可构造，避免直接 Deserialize 绕过驻留预算。
 pub struct GenerationInput {
     pub format_version: u32,
     pub settings: Config,
     pub sources: Vec<SourceInput>,
+    _memory: Option<ByteLease>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawGenerationInput {
+    format_version: u32,
+    settings: Config,
+    sources: Vec<SourceInput>,
 }
 impl GenerationInput {
     pub fn from_yaml(input: &str) -> Result<Self> {
         if input.len() > yaml::MAX_BYTES {
             return Err(Error::ResourceLimit);
         }
-        let _temporary =
-            MEMORY.reserve(input.len().checked_mul(8).ok_or(Error::ResourceLimit)? + 4096)?;
-        let value: Self = yaml::decode(input)?;
+        let _temporary = reserve_parse(input, yaml::MAX_BYTES)?;
+        let raw: RawGenerationInput = yaml::decode(input)?;
+        let mut value = Self {
+            format_version: raw.format_version,
+            settings: raw.settings,
+            sources: raw.sources,
+            _memory: None,
+        };
         if value.format_version != 1 || value.sources.len() > MAX_SOURCES {
             return Err(Error::InvalidInput);
         }
@@ -41,10 +56,12 @@ impl GenerationInput {
             total
                 .checked_add(source.input_bytes()?)
                 .ok_or(Error::ResourceLimit)
-        })? > 128 * 1024 * 1024
+        })? > MAX_INPUT_MEMORY
         {
             return Err(Error::ResourceLimit);
         }
+        // 输入对象返回宿主后仍占内存，预算随对象持有，不在解析成功时提前归还。
+        value._memory = Some(_temporary);
         Ok(value)
     }
 }
@@ -52,7 +69,43 @@ pub const MAX_RULES: usize = 100_000;
 pub const MAX_SOURCES: usize = 64;
 // 全局预算同时约束存量快照、新快照与编译临时对象。每次生成先预留最坏估算，
 // 不把数量上限当作内存上限；高标签数输入可能在达到规则数量前被拒绝。
-static MEMORY: ByteBudget = ByteBudget::new(512 * 1024 * 1024);
+const MAX_MEMORY: usize = 512 * 1024 * 1024;
+const MAX_INPUT_MEMORY: usize = 128 * 1024 * 1024;
+pub(crate) const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
+const PARSE_FACTOR: usize = 8;
+const PARSE_BASE: usize = 4096;
+const SNAPSHOT_BASE: usize = 6 * 1024 * 1024;
+const RULE_BYTES: usize = 1024;
+const ORIGIN_BYTES: usize = 128;
+// 2026-10-12 唯一多标签后缀压力测量显示旧系数低估构建峰值，
+// 每标签预留 512 字节，包含节点、子表、临时覆盖索引与分配容量。
+const LABEL_BYTES: usize = 512;
+const KEYWORD_FACTOR: usize = 64;
+const STRING_COPY_FACTOR: usize = 4;
+const MAX_HANDLES: usize = 128;
+static MEMORY: ByteBudget = ByteBudget::new(MAX_MEMORY);
+
+/// 所有解析入口先做字节检查和预算准入；配额由 RAII 在失败及返回时归还。
+pub(crate) fn reserve_parse(input: &str, limit: usize) -> Result<ByteLease> {
+    if input.len() > limit {
+        return Err(Error::ResourceLimit);
+    }
+    MEMORY.reserve(scaled(input.len(), PARSE_FACTOR, PARSE_BASE)?)
+}
+fn scaled(count: usize, factor: usize, base: usize) -> Result<usize> {
+    count
+        .checked_mul(factor)
+        .and_then(|v| v.checked_add(base))
+        .ok_or(Error::ResourceLimit)
+}
+
+/// 无原始来源的生成文档只能验证结构，不能证明被删规则的覆盖或冲突理由。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReportVerification {
+    VerifiedFromSources,
+    StructuralOnly,
+}
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Layer {
@@ -98,10 +151,10 @@ impl SourceInput {
                         return Err(Error::InvalidInput);
                     }
                 }
-                if source.payload_yaml.len() > 8 * 1024 * 1024 {
+                if source.payload_yaml.len() > MAX_PAYLOAD_BYTES {
                     return Err(Error::ResourceLimit);
                 }
-                Ok(4096 + source.payload_yaml.len() * 8)
+                scaled(source.payload_yaml.len(), PARSE_FACTOR, PARSE_BASE)
             }
         }
     }
@@ -164,11 +217,13 @@ pub struct Report {
     pub duplicates: usize,
     pub conflicts: usize,
     pub pruned: usize,
+    /// 编译后保留条目数，不是每条都可达的证明；拦截覆盖裁剪保持保守。
     pub effective: usize,
     pub removals: Vec<Removal>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+/// 内部生成产物，不包含被删除规则原文；加载后报告默认仅结构验证。
 pub struct Document {
     pub format_version: u32,
     pub version: u64,
@@ -177,36 +232,95 @@ pub struct Document {
     pub rules: Vec<EffectiveRule>,
     pub report: Report,
 }
+/// 仅提供阶段及来源序号，不包含域名、出站正文、凭据或配置内容。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidationDiagnostic {
+    pub error: Error,
+    pub stage: &'static str,
+    pub source: Option<u16>,
+    pub sequence: Option<u32>,
+}
+impl ValidationDiagnostic {
+    fn new(stage: &'static str) -> Self {
+        Self {
+            error: Error::InvalidInput,
+            stage,
+            source: None,
+            sequence: None,
+        }
+    }
+}
+/// 名称只描述索引存储槽位，不能用枚举数值代替规则合并裁剪，网络流量规则执行顺序。
+#[repr(usize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RuleClass {
+    Reject = 0,
+    LocalIp = 1,
+    LocalDomain = 2,
+    LocalDomainSuffix = 3,
+    LocalPortTransport = 4,
+    RemoteIp = 5,
+    RemoteDomain = 6,
+    RemoteDomainSuffix = 7,
+    RemotePortTransport = 8,
+    LocalKeyword = 9,
+    RemoteKeyword = 10,
+}
+impl RuleClass {
+    pub(super) const COUNT: usize = Self::RemoteKeyword as usize + 1;
+    fn local_equivalent(self) -> Self {
+        match self {
+            Self::RemoteIp => Self::LocalIp,
+            Self::RemoteDomain => Self::LocalDomain,
+            Self::RemoteDomainSuffix => Self::LocalDomainSuffix,
+            Self::RemotePortTransport => Self::LocalPortTransport,
+            Self::RemoteKeyword => Self::LocalKeyword,
+            other => other,
+        }
+    }
+}
 pub(super) struct Entry {
     pub(super) matcher: Matcher,
     layer: Layer,
     policy: Policy,
-    outbound: Option<String>,
 }
 impl Entry {
     // 索引槽位按来源存放；选择顺序另按类型优先，本地只在同类型内优先。
-    pub(super) fn class(&self) -> usize {
+    pub(super) fn class(&self) -> RuleClass {
         if self.policy == Policy::Reject {
-            return 0;
+            return RuleClass::Reject;
         }
-        if matches!(self.matcher, Matcher::Keyword(_)) {
-            return if self.layer == Layer::Local { 9 } else { 10 };
-        }
-        let base = if self.layer == Layer::Local { 1 } else { 5 };
-        base + match self.matcher {
-            Matcher::Network(_) => 0,
-            Matcher::Domain(_, false) => 1,
-            Matcher::Domain(_, true) => 2,
-            _ => 3,
+        match (&self.matcher, self.layer) {
+            (Matcher::Network(_), Layer::Local) => RuleClass::LocalIp,
+            (Matcher::Network(_), Layer::Remote) => RuleClass::RemoteIp,
+            (Matcher::Domain(_, false), Layer::Local) => RuleClass::LocalDomain,
+            (Matcher::Domain(_, false), Layer::Remote) => RuleClass::RemoteDomain,
+            (Matcher::Domain(_, true), Layer::Local) => RuleClass::LocalDomainSuffix,
+            (Matcher::Domain(_, true), Layer::Remote) => RuleClass::RemoteDomainSuffix,
+            (Matcher::Keyword(_), Layer::Local) => RuleClass::LocalKeyword,
+            (Matcher::Keyword(_), Layer::Remote) => RuleClass::RemoteKeyword,
+            (_, Layer::Local) => RuleClass::LocalPortTransport,
+            (_, Layer::Remote) => RuleClass::RemotePortTransport,
         }
     }
+}
+/// 只读执行索引与资源所有者；报告信任程度不参与策略匹配。
+// QUIC 属于 UDP 数据面识别，不扩充正式候选槽位；编译和缓存恢复共用此准入判断。
+fn quic_guard(entries: &[Entry]) -> bool {
+    entries
+        .iter()
+        .any(|entry| matches!(entry.matcher, Matcher::Quic) && entry.policy == Policy::Reject)
 }
 pub struct Snapshot {
     instance: u64,
     document: Document,
     entries: Vec<Entry>,
     index: Index,
+    flat: Option<FlatIndex>,
+    _flat_memory: Option<ByteLease>,
     _memory: ByteLease,
+    quic_blocked: bool,
+    report_verification: ReportVerification,
 }
 pub(crate) fn normalize_condition(rule: &Rule) -> Result<String> {
     let value = match matcher(rule.r#type, &rule.value)? {
@@ -219,11 +333,19 @@ pub(crate) fn normalize_condition(rule: &Rule) -> Result<String> {
                 format!("{first}-{last}")
             }
         }
-        Matcher::Transport(_) => rule.value.clone(),
+        Matcher::Transport(_) | Matcher::Quic => rule.value.clone(),
     };
     Ok(value)
 }
+fn validate_rule_action(rule: &Rule) -> Result<()> {
+    // 即使来源暂时禁用，全域传输直连/代理仍是非法规则，不能留到启用时才发现。
+    if rule.r#type == Match::Transport && rule.policy != Policy::Reject {
+        return Err(Error::InvalidInput);
+    }
+    Ok(())
+}
 pub(crate) fn normalize_rule(rule: &Rule, default: &Option<String>) -> Result<Rule> {
+    validate_rule_action(rule)?;
     let value = normalize_condition(rule)?;
     Ok(Rule {
         r#type: rule.r#type,
@@ -235,10 +357,35 @@ pub(crate) fn normalize_rule(rule: &Rule, default: &Option<String>) -> Result<Ru
 fn key(rule: &Rule) -> (Match, String) {
     (rule.r#type, rule.value.clone())
 }
+// 按输入扫描估算，不为估算复制规则；估算是准入策略，不是分配器硬上限。
+fn rule_charge(rule: &Rule) -> Result<usize> {
+    validate_rule_action(rule)?;
+    if rule.value.len() > 253 || rule.outbound.as_ref().is_some_and(|id| id.len() > 64) {
+        return Err(Error::InvalidInput);
+    }
+    let labels = if rule.r#type == Match::DomainSuffix {
+        rule.value.split('.').count()
+    } else {
+        0
+    };
+    let factor = if rule.r#type == Match::DomainKeyword {
+        KEYWORD_FACTOR
+    } else {
+        STRING_COPY_FACTOR
+    };
+    scaled(rule.value.len(), factor, RULE_BYTES)?
+        .checked_add(
+            labels
+                .checked_mul(LABEL_BYTES)
+                .ok_or(Error::ResourceLimit)?,
+        )
+        .ok_or(Error::ResourceLimit)
+}
 fn charge(sources: &[Source]) -> Result<usize> {
     let mut count = 0usize;
-    let mut bytes = 6 * 1024 * 1024usize;
+    let mut bytes = SNAPSHOT_BASE;
     for source in sources {
+        identifier(&source.id)?;
         count = count
             .checked_add(source.rules.len())
             .ok_or(Error::ResourceLimit)?;
@@ -246,30 +393,48 @@ fn charge(sources: &[Source]) -> Result<usize> {
             return Err(Error::ResourceLimit);
         }
         for rule in &source.rules {
-            if rule.value.len() > 253 || rule.outbound.as_ref().is_some_and(|id| id.len() > 64) {
-                return Err(Error::InvalidInput);
-            }
-            // 计入输入和输出字符串、哈希容量、来源、诊断、双树节点、排序事件和活动集合。
-            // 标签最坏情况单独核算，防止大量单字符标签隐性放大 Trie。
-            let labels = if matches!(rule.r#type, Match::DomainSuffix) {
-                rule.value.split('.').count()
-            } else {
-                0
-            };
             bytes = bytes
-                .checked_add(
-                    1024 + rule.value.len()
-                        * if rule.r#type == Match::DomainKeyword {
-                            64
-                        } else {
-                            4
-                        }
-                        + labels * 256,
-                )
+                .checked_add(rule_charge(rule)?)
                 .ok_or(Error::ResourceLimit)?;
         }
     }
     Ok(bytes)
+}
+/// 文档及中间哈希集合、来源引用和最终索引在额外分配前统一准入。
+fn document_charge(document: &Document) -> Result<usize> {
+    let mut bytes = SNAPSHOT_BASE;
+    let mut origins = document.rules.len();
+    for source in &document.sources {
+        identifier(&source.id)?;
+    }
+    for row in &document.rules {
+        origins = origins
+            .checked_add(row.additional_origins.len())
+            .ok_or(Error::ResourceLimit)?;
+        if origins > MAX_RULES {
+            return Err(Error::ResourceLimit);
+        }
+        bytes = bytes
+            .checked_add(rule_charge(&row.rule)?)
+            .ok_or(Error::ResourceLimit)?;
+    }
+    origins = origins
+        .checked_add(document.report.removals.len())
+        .ok_or(Error::ResourceLimit)?;
+    // 重复来源既在 additional_origins 也在 removals 中，因此最多两倍原始数量。
+    if origins > MAX_RULES * 2 {
+        return Err(Error::ResourceLimit);
+    }
+    scaled(origins, ORIGIN_BYTES, bytes)
+}
+/// 调试规则只含有限条目，不建立全套订阅索引；同样计入全局资源预算。
+pub(super) fn reserve_debug<'a>(mut rules: impl Iterator<Item = &'a Rule>) -> Result<ByteLease> {
+    let bytes = rules.try_fold(PARSE_BASE, |bytes, rule| {
+        bytes
+            .checked_add(rule_charge(rule)?)
+            .ok_or(Error::ResourceLimit)
+    })?;
+    MEMORY.reserve(bytes)
 }
 fn validate_settings(settings: &Config) -> Result<()> {
     if !settings.rules.is_empty() || settings.runtime_handle.is_some() {
@@ -354,7 +519,6 @@ impl Snapshot {
                         matcher: matcher(kind, &value)?,
                         layer,
                         policy: rule.policy,
-                        outbound: rule.outbound.clone(),
                     };
                     if rule.policy != Policy::Reject {
                         let level = u8::from(layer == Layer::Remote);
@@ -364,9 +528,9 @@ impl Snapshot {
                         let winner = same.or_else(|| {
                             // 只裁剪同类包含关系；绝不由 DNS 的偶然结果裁剪跨 IP/域名规则。
                             let class = entry.class();
-                            covered.get(class).or_else(|| {
+                            covered.get(class as usize).or_else(|| {
                                 if layer == Layer::Remote {
-                                    covered.get(if class == 10 { 9 } else { class - 4 })
+                                    covered.get(class.local_equivalent() as usize)
                                 } else {
                                     None
                                 }
@@ -409,17 +573,26 @@ impl Snapshot {
         drop(coverage);
         document.report.effective = entries.len();
         let index = Index::compile(&entries)?;
+        let quic_blocked = quic_guard(&entries);
         Ok(Self {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
             entries,
             index,
+            flat: None,
+            _flat_memory: None,
+            quic_blocked,
             _memory: memory,
+            report_verification: ReportVerification::VerifiedFromSources,
         })
     }
     /// 标准 YAML 生成产物；不是允许用户直接编辑的原始配置。
     pub fn to_yaml(&self) -> Result<String> {
-        let _temporary = MEMORY.reserve(self.document.report.original * 1024 + 4096)?;
+        let _temporary = MEMORY.reserve(scaled(
+            self.document.report.original,
+            RULE_BYTES,
+            PARSE_BASE,
+        )?)?;
         let document = &self.document;
         let mut writer = yaml::Writer::new();
         writer.field("format_version", &document.format_version, 0)?;
@@ -444,8 +617,7 @@ impl Snapshot {
     /// 生成文件重新严格解析并比较全部值；复用已经编译的索引，不再创建第二份索引。
     #[cfg(test)]
     pub(super) fn verify_yaml(&self, input: &str) -> Result<()> {
-        let _temporary =
-            MEMORY.reserve(input.len().checked_mul(8).ok_or(Error::ResourceLimit)? + 4096)?;
+        let _temporary = reserve_parse(input, yaml::MAX_BYTES)?;
         let document: Document = yaml::decode(input)?;
         // 直接比较完整类型值，包括来源与诊断，避免两份整文件 JSON 缓冲区。
         if self.document != document {
@@ -458,16 +630,31 @@ impl Snapshot {
         if input.len() > yaml::MAX_BYTES {
             return Err(Error::ResourceLimit);
         }
-        let temporary =
-            MEMORY.reserve(input.len().checked_mul(8).ok_or(Error::ResourceLimit)? + 4096)?;
+        let temporary = reserve_parse(input, yaml::MAX_BYTES)?;
         let document: Document = yaml::decode(input)?;
         let result = Self::from_document(document);
         drop(temporary);
         result
     }
-    /// SQLite 与 YAML 导入共用同一严格校验和索引编译，不复制匹配流程。
+    /// Rust 诊断入口返回低敏感位置；常规入口与 C ABI 仍保留稳定错误类别。
+    pub fn from_yaml_diagnosed(input: &str) -> std::result::Result<Self, ValidationDiagnostic> {
+        let mut diagnostic = ValidationDiagnostic::new("parse");
+        let parse = || -> Result<Document> { yaml::decode(input) };
+        // 临时解析预算必须覆盖文档校验阶段，因此在该入口外层保留守卫。
+        let _temporary = reserve_parse(input, yaml::MAX_BYTES).map_err(|error| {
+            diagnostic.error = error;
+            diagnostic.clone()
+        })?;
+        let document = parse().map_err(|error| {
+            diagnostic.error = error;
+            diagnostic
+        })?;
+        Self::from_document_diagnosed(document)
+    }
+    /// 二进制缓存与 YAML 导入共用严格文档校验，缓存直接使用平铺索引。
     /// 仅迁移旧内部生成文件；用户配置入口仍拒绝小写规则类型。
     pub(crate) fn migrate_yaml(input: &str) -> Result<Self> {
+        let _temporary = reserve_parse(input, yaml::MAX_BYTES)?;
         let mut value: serde_json::Value = yaml::decode(input)?;
         let rules = value
             .get_mut("rules")
@@ -493,9 +680,26 @@ impl Snapshot {
         Self::from_document(serde_json::from_value(value).map_err(|_| Error::InvalidInput)?)
     }
     pub(crate) fn from_document(document: Document) -> Result<Self> {
-        if document.format_version != 1
-            || document.version == 0
-            || document.sources.len() > MAX_SOURCES
+        Self::from_document_diagnosed(document).map_err(|d| d.error)
+    }
+    fn from_document_diagnosed(
+        document: Document,
+    ) -> std::result::Result<Self, ValidationDiagnostic> {
+        let mut diagnostic = ValidationDiagnostic::new("header");
+        Self::validate_document(document, &mut diagnostic, true).map_err(|error| {
+            diagnostic.error = error;
+            diagnostic
+        })
+    }
+    fn validate_document(
+        document: Document,
+        diagnostic: &mut ValidationDiagnostic,
+        compile_index: bool,
+    ) -> Result<Self> {
+        if document.format_version != 1 || document.version == 0 {
+            return Err(Error::InvalidInput);
+        }
+        if document.sources.len() > MAX_SOURCES
             || document.rules.len() > MAX_RULES
             || document.report.original > MAX_RULES
             || document.report.removals.len() > MAX_RULES
@@ -503,21 +707,15 @@ impl Snapshot {
             || document.report.conflicts > MAX_RULES
             || document.report.pruned > MAX_RULES
         {
-            return Err(Error::InvalidInput);
+            return Err(Error::ResourceLimit);
         }
         validate_settings(&document.settings)?;
-        let mut sources: Vec<Source> = document
-            .sources
-            .iter()
-            .map(|s| Source {
-                id: s.id.clone(),
-                layer: s.layer,
-                enabled: true,
-                rules: Vec::new(),
-            })
-            .collect();
+        diagnostic.stage = "budget";
+        let memory = MEMORY.reserve(document_charge(&document)?)?;
+        diagnostic.stage = "sources";
+        let sources = document.sources.as_slice();
         let mut ids = HashSet::new();
-        for source in &sources {
+        for source in sources {
             identifier(&source.id)?;
             if !ids.insert(&source.id) {
                 return Err(Error::InvalidInput);
@@ -528,8 +726,11 @@ impl Snapshot {
         let mut entries = Vec::with_capacity(document.rules.len());
         let mut additional = 0usize;
         for effective in &document.rules {
+            diagnostic.stage = "rules";
+            diagnostic.source = Some(effective.origin.source);
+            diagnostic.sequence = Some(effective.origin.sequence);
             let source = sources
-                .get_mut(usize::from(effective.origin.source))
+                .get(usize::from(effective.origin.source))
                 .ok_or(Error::InvalidInput)?;
             let order = (
                 u8::from(source.layer == Layer::Remote),
@@ -541,6 +742,20 @@ impl Snapshot {
             }
             previous = Some(order);
             for origin in std::iter::once(&effective.origin).chain(&effective.additional_origins) {
+                if origin != &effective.origin {
+                    let layer = sources
+                        .get(usize::from(origin.source))
+                        .ok_or(Error::InvalidInput)?
+                        .layer;
+                    let duplicate_order = (
+                        u8::from(layer == Layer::Remote),
+                        origin.source,
+                        origin.sequence,
+                    );
+                    if duplicate_order <= order {
+                        return Err(Error::InvalidInput);
+                    }
+                }
                 if usize::from(origin.source) >= sources.len()
                     || origin.sequence as usize >= MAX_RULES
                     || !origins.insert((origin.source, origin.sequence))
@@ -560,15 +775,16 @@ impl Snapshot {
             {
                 return Err(Error::InvalidInput);
             }
-            let source = &mut sources[usize::from(effective.origin.source)];
+            let source = &sources[usize::from(effective.origin.source)];
             entries.push(Entry {
                 matcher: matcher(normalized.r#type, &normalized.value)?,
                 layer: source.layer,
                 policy: normalized.policy,
-                outbound: normalized.outbound.clone(),
             });
-            source.rules.push(normalized);
         }
+        diagnostic.stage = "report";
+        diagnostic.source = None;
+        diagnostic.sequence = None;
         let report = &document.report;
         if report.effective != entries.len()
             || report.duplicates != additional
@@ -582,15 +798,24 @@ impl Snapshot {
             .iter()
             .map(|row| (row.origin.source, row.origin.sequence))
             .collect();
-        let duplicates: HashSet<_> = document
+        let duplicates: HashMap<_, _> = document
             .rules
             .iter()
-            .flat_map(|row| row.additional_origins.iter())
-            .map(|origin| (origin.source, origin.sequence))
+            .flat_map(|row| {
+                row.additional_origins.iter().map(move |origin| {
+                    (
+                        (origin.source, origin.sequence),
+                        (row.origin.source, row.origin.sequence),
+                    )
+                })
+            })
             .collect();
         let mut removed = HashSet::new();
         let mut counts = [0usize; 3];
         for removal in &report.removals {
+            diagnostic.stage = "removals";
+            diagnostic.source = Some(removal.origin.source);
+            diagnostic.sequence = Some(removal.origin.sequence);
             let origin = (removal.origin.source, removal.origin.sequence);
             if usize::from(removal.origin.source) >= sources.len()
                 || removal.origin.sequence as usize >= MAX_RULES
@@ -601,7 +826,9 @@ impl Snapshot {
             }
             match removal.reason {
                 RemovalReason::Duplicate => {
-                    if !duplicates.contains(&origin) {
+                    if duplicates.get(&origin)
+                        != Some(&(removal.covered_by.source, removal.covered_by.sequence))
+                    {
                         return Err(Error::InvalidInput);
                     }
                     counts[0] += 1;
@@ -625,20 +852,108 @@ impl Snapshot {
         {
             return Err(Error::InvalidInput);
         }
-        let memory = MEMORY.reserve(charge(&sources)? + report.removals.len() * 128)?;
-        let index = Index::compile(&entries)?;
+        // 每个启用来源的原始序号必须连续；引用数量一致不能接受伪造的序号空洞。
+        let mut source_counts = [0usize; MAX_SOURCES];
+        for &(source, _) in &origins {
+            source_counts[usize::from(source)] += 1;
+        }
+        if origins
+            .iter()
+            .any(|&(source, sequence)| sequence as usize >= source_counts[usize::from(source)])
+        {
+            return Err(Error::InvalidInput);
+        }
+        let index = if compile_index {
+            Index::compile(&entries)?
+        } else {
+            Index::default()
+        };
+        let quic_blocked = quic_guard(&entries);
         Ok(Self {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
             entries,
             index,
+            flat: None,
+            _flat_memory: None,
+            quic_blocked,
             _memory: memory,
+            report_verification: ReportVerification::StructuralOnly,
         })
+    }
+    /// 缓存加载只验证规则结构，直接采用已编译的平铺索引，不重建 Trie/自动机。
+    pub(crate) fn from_flat_document(document: Document, bytes: Vec<u8>) -> Result<Self> {
+        let mut diagnostic = ValidationDiagnostic::new("binary-cache");
+        let mut snapshot = Self::validate_document(document, &mut diagnostic, false)?;
+        snapshot._flat_memory = Some(MEMORY.reserve(bytes.len())?);
+        snapshot.flat = Some(FlatIndex::parse(bytes, &snapshot.entries)?);
+        // 平铺查询只需规则文档提供决策来源；校验用 Matcher/出口副本不再驻留。
+        snapshot.entries.clear();
+        snapshot.entries.shrink_to_fit();
+        Ok(snapshot)
+    }
+    /// 更新时在锁外平铺一次；旧连接继续使用旧 Arc，提交后无需编译。
+    pub(crate) fn into_flat(mut self) -> Result<Self> {
+        let flat = self.index.flatten(&self.entries)?;
+        self._flat_memory = Some(MEMORY.reserve(flat.bytes().len())?);
+        self.flat = Some(flat);
+        self.index = Index::default();
+        self.entries.clear();
+        self.entries.shrink_to_fit();
+        Ok(self)
+    }
+    pub(crate) fn flat_bytes(&self) -> Result<&[u8]> {
+        self.flat
+            .as_ref()
+            .map(FlatIndex::bytes)
+            .ok_or(Error::InvalidState)
+    }
+    fn query(
+        &self,
+        name: Option<&str>,
+        ip: Option<IpAddr>,
+        port: u16,
+        transport: super::Transport,
+    ) -> Candidates {
+        match &self.flat {
+            Some(index) => index.query(name, ip, port, transport),
+            None => self.index.query(name, ip, port, transport),
+        }
+    }
+    fn domain_candidates(&self, name: &str) -> Candidates {
+        match &self.flat {
+            Some(index) => index.domain_candidates(name),
+            None => self.index.domain_candidates(name),
+        }
+    }
+    pub fn blocks_transport(&self, transport: super::Transport) -> bool {
+        self.query(None, None, 0, transport)
+            .get(RuleClass::Reject as usize)
+            .is_some()
+    }
+    pub fn blocks_quic(&self) -> bool {
+        self.quic_blocked
     }
     pub fn document(&self) -> &Document {
         &self.document
     }
-    fn metadata(target: &Target) -> Result<(Option<String>, Option<IpAddr>)> {
+    pub fn report_verification(&self) -> ReportVerification {
+        self.report_verification
+    }
+    /// 宿主仍持有原始来源时重新生成并比较全部字段，证明裁剪报告和来源一致。
+    /// 验证不会把不可信文档就地升级或影响正在使用的快照。
+    pub fn verify_against_sources(&self, sources: Vec<Source>) -> Result<()> {
+        let expected = Self::generate(
+            self.document.settings.clone(),
+            sources,
+            self.document.version,
+        )?;
+        if expected.document != self.document {
+            return Err(Error::InvalidInput);
+        }
+        Ok(())
+    }
+    pub(super) fn metadata(target: &Target) -> Result<(Option<String>, Option<IpAddr>)> {
         if target.port == 0 || (target.domain.is_none() && target.address.is_none()) {
             return Err(Error::InvalidInput);
         }
@@ -656,40 +971,33 @@ impl Snapshot {
         Ok((name, address))
     }
     fn selected(values: Candidates) -> Option<usize> {
-        if let Some(reject) = values.get(0) {
+        if let Some(reject) = values.get(RuleClass::Reject as usize) {
             return Some(reject);
         }
-        // 索引已在域名命中时跳过 IP；各分支内部类型先于来源。
-        let primary = [1, 5, 2, 6, 3, 7]
-            .into_iter()
-            .find_map(|class| values.get(class));
-        // 保留端口/传输规则的来源和原序号语义，关键词仍在所有普通规则之后。
-        let secondary = values.get(4).or_else(|| values.get(8));
-        let winner = match (primary, secondary) {
-            (Some(a), Some(b)) => {
-                let a_local = [1, 2, 3]
-                    .into_iter()
-                    .any(|class| values.get(class) == Some(a));
-                let b_local = values.get(4) == Some(b);
-                Some(if a_local == b_local {
-                    a.min(b)
-                } else if b_local {
-                    b
-                } else {
-                    a
-                })
-            }
-            (a, b) => a.or(b),
-        };
-        winner.or_else(|| values.get(9)).or_else(|| values.get(10))
+        // 域名命中时索引已跳过 IP。普通域名/IP 候选先于端口/全域传输候选，
+        // 本地只在同类型内优先；关键词也是域名规则，不能被本地端口越级覆盖。
+        [
+            RuleClass::LocalIp,
+            RuleClass::RemoteIp,
+            RuleClass::LocalDomain,
+            RuleClass::RemoteDomain,
+            RuleClass::LocalDomainSuffix,
+            RuleClass::RemoteDomainSuffix,
+            RuleClass::LocalKeyword,
+            RuleClass::RemoteKeyword,
+            RuleClass::LocalPortTransport,
+            RuleClass::RemotePortTransport,
+        ]
+        .into_iter()
+        .find_map(|class| values.get(class as usize))
     }
 
     fn decide(&self, winner: Option<usize>) -> Decision {
         let settings = &self.document.settings;
-        if let Some(id) = winner
-            .filter(|id| self.entries[*id].policy == Policy::Reject || settings.mode == Mode::Rules)
-        {
-            let entry = &self.entries[id];
+        if let Some(id) = winner.filter(|id| {
+            self.document.rules[*id].rule.policy == Policy::Reject || settings.mode == Mode::Rules
+        }) {
+            let entry = &self.document.rules[id].rule;
             return Decision {
                 policy: entry.policy,
                 outbound: entry.outbound.clone(),
@@ -720,7 +1028,7 @@ impl Snapshot {
     /// 纯索引查询；域名命中跳过 IP，域名未命中的连接须解析并检查全部候选。
     pub fn evaluate(&self, target: &Target) -> Result<Decision> {
         let (name, address) = Self::metadata(target)?;
-        Ok(self.decide(Self::selected(self.index.query(
+        Ok(self.decide(Self::selected(self.query(
             name.as_deref(),
             address,
             target.port,
@@ -730,15 +1038,13 @@ impl Snapshot {
     /// 域名命中直接决定动作；未命中时等待真实 DNS 后查询 IP。
     pub fn evaluate_before_dns(&self, target: &Target) -> Result<Option<Decision>> {
         let (name, address) = Self::metadata(target)?;
-        let values = self
-            .index
-            .query(name.as_deref(), address, target.port, target.transport);
-        if let Some(id) = values.get(0) {
+        let values = self.query(name.as_deref(), address, target.port, target.transport);
+        if let Some(id) = values.get(RuleClass::Reject as usize) {
             return Ok(Some(self.decide(Some(id))));
         }
         if name
             .as_deref()
-            .is_some_and(|name| self.index.domain_candidates(name).any())
+            .is_some_and(|name| self.domain_candidates(name).any())
         {
             return Ok(Some(self.decide(Self::selected(values))));
         }
@@ -750,8 +1056,33 @@ impl Snapshot {
     /// 新语义的线性参考匹配器，仅用于验证和基准对照，不接入高频连接路径。
     pub fn evaluate_reference(&self, target: &Target) -> Result<Decision> {
         let (name, address) = Self::metadata(target)?;
+        // 平铺快照不常驻 Matcher 副本；参考实现仅在显式验证时临时恢复，绝不接入查询路径。
+        // 并发显式参考验证也预留独立预算，不能用验证入口绕过临时对象配额。
+        let _reference_memory = if self.flat.is_some() {
+            Some(MEMORY.reserve(document_charge(&self.document)?)?)
+        } else {
+            None
+        };
+        let reconstructed;
+        let entries = if self.flat.is_some() {
+            reconstructed = self
+                .document
+                .rules
+                .iter()
+                .map(|effective| {
+                    Ok(Entry {
+                        matcher: matcher(effective.rule.r#type, &effective.rule.value)?,
+                        layer: self.document.sources[usize::from(effective.origin.source)].layer,
+                        policy: effective.rule.policy,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            &reconstructed
+        } else {
+            &self.entries
+        };
         // 独立线性预扫描确定域名是否命中；命中时不评估任何 IP 规则。
-        let domain_hit = self.entries.iter().any(|entry| match &entry.matcher {
+        let domain_hit = entries.iter().any(|entry| match &entry.matcher {
             Matcher::Domain(value, suffix) => name.as_ref().is_some_and(|name| {
                 name == value
                     || (*suffix
@@ -763,8 +1094,8 @@ impl Snapshot {
             _ => false,
         });
         let mut reject = None;
-        let mut classes: [Option<usize>; 10] = [None; 10];
-        for (id, entry) in self.entries.iter().enumerate() {
+        let mut classes = [None; RuleClass::COUNT];
+        for (id, entry) in entries.iter().enumerate() {
             let matches = match &entry.matcher {
                 Matcher::Domain(value, suffix) => name.as_ref().is_some_and(|name| {
                     name == value
@@ -779,6 +1110,7 @@ impl Snapshot {
                 }
                 Matcher::Port(first, last) => (*first..=*last).contains(&target.port),
                 Matcher::Transport(value) => *value == target.transport,
+                Matcher::Quic => false,
             };
             if !matches {
                 continue;
@@ -788,50 +1120,48 @@ impl Snapshot {
                 continue;
             }
             if matches!(entry.matcher, Matcher::Keyword(_)) {
-                classes[if entry.layer == Layer::Local { 8 } else { 9 }].get_or_insert(id);
+                classes[if entry.layer == Layer::Local {
+                    RuleClass::LocalKeyword
+                } else {
+                    RuleClass::RemoteKeyword
+                } as usize]
+                    .get_or_insert(id);
                 continue;
             }
-            let source = if entry.layer == Layer::Local { 0 } else { 4 };
-            let kind = match entry.matcher {
-                Matcher::Network(_) => 0,
-                Matcher::Domain(_, false) => 1,
-                Matcher::Domain(_, true) => 2,
-                _ => 3,
+            let class = match (&entry.matcher, entry.layer) {
+                (Matcher::Network(_), Layer::Local) => RuleClass::LocalIp,
+                (Matcher::Network(_), Layer::Remote) => RuleClass::RemoteIp,
+                (Matcher::Domain(_, false), Layer::Local) => RuleClass::LocalDomain,
+                (Matcher::Domain(_, false), Layer::Remote) => RuleClass::RemoteDomain,
+                (Matcher::Domain(_, true), Layer::Local) => RuleClass::LocalDomainSuffix,
+                (Matcher::Domain(_, true), Layer::Remote) => RuleClass::RemoteDomainSuffix,
+                (_, Layer::Local) => RuleClass::LocalPortTransport,
+                (_, Layer::Remote) => RuleClass::RemotePortTransport,
             };
-            classes[source + kind].get_or_insert(id);
+            classes[class as usize].get_or_insert(id);
         }
         if let Some(reject) = reject {
             return Ok(self.decide(Some(reject)));
         }
         // 独立参考实现显式遍历类型及来源，不复用索引选择函数。
-        let mut primary = None;
-        for kind in 0..3 {
-            for source in [0, 4] {
-                if let Some(id) = classes[source + kind] {
-                    primary = Some(id);
-                    break;
+        // 逐层显式检查，不借用索引的候选合并逻辑。
+        for pair in [
+            [RuleClass::LocalIp, RuleClass::RemoteIp],
+            [RuleClass::LocalDomain, RuleClass::RemoteDomain],
+            [RuleClass::LocalDomainSuffix, RuleClass::RemoteDomainSuffix],
+            [RuleClass::LocalKeyword, RuleClass::RemoteKeyword],
+            [
+                RuleClass::LocalPortTransport,
+                RuleClass::RemotePortTransport,
+            ],
+        ] {
+            for class in pair {
+                if let Some(id) = classes[class as usize] {
+                    return Ok(self.decide(Some(id)));
                 }
             }
-            if primary.is_some() {
-                break;
-            }
         }
-        let secondary = classes[3].or(classes[7]);
-        let picked = match (primary, secondary) {
-            (Some(a), Some(b)) => Some(if self.entries[a].layer == self.entries[b].layer {
-                if a < b { a } else { b }
-            } else if self.entries[b].layer == Layer::Local {
-                b
-            } else {
-                a
-            }),
-            (a, b) => a.or(b),
-        };
-        if picked.is_some() {
-            return Ok(self.decide(picked));
-        }
-
-        Ok(self.decide(classes[8].or(classes[9])))
+        Ok(self.decide(None))
     }
 }
 
@@ -845,7 +1175,7 @@ fn snapshots() -> &'static std::sync::Mutex<HashMap<u64, std::sync::Weak<Snapsho
 pub(crate) fn register(snapshot: &std::sync::Arc<Snapshot>) -> Result<()> {
     let mut values = snapshots().lock().map_err(|_| Error::Internal)?;
     values.retain(|_, value| value.strong_count() > 0);
-    if values.len() >= 128 && !values.contains_key(&snapshot.instance) {
+    if values.len() >= MAX_HANDLES && !values.contains_key(&snapshot.instance) {
         return Err(Error::ResourceLimit);
     }
     values.insert(snapshot.instance, std::sync::Arc::downgrade(snapshot));
@@ -908,7 +1238,6 @@ impl Reference {
                         matcher: matcher(rule.r#type, &rule.value)?,
                         layer,
                         policy: rule.policy,
-                        outbound: rule.outbound.clone(),
                     });
                     document.rules.push(EffectiveRule {
                         origin: Origin {
@@ -923,12 +1252,17 @@ impl Reference {
         }
         document.report.original = entries.len();
         document.report.effective = entries.len();
+        let quic_blocked = quic_guard(&entries);
         Ok(Self(Snapshot {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
             entries,
             index: Index::default(),
+            flat: None,
+            _flat_memory: None,
+            quic_blocked,
             _memory: memory,
+            report_verification: ReportVerification::VerifiedFromSources,
         }))
     }
     pub fn evaluate(&self, target: &Target) -> Result<Decision> {
@@ -959,15 +1293,81 @@ mod validation_tests {
         .unwrap();
         let valid = snapshot.to_yaml().unwrap();
         snapshot.verify_yaml(&valid).unwrap();
-        for invalid in [
-            valid.replace("example.com", "different.com"),
-            valid.replace("\"version\": 7", "\"version\": 8"),
-            valid.replace("\"sequence\": 0", "\"sequence\": 1"),
-            valid.replace("\"effective\": 1", "\"effective\": 0"),
-            valid.replace("\"local\"", "\"other\""),
-        ] {
-            assert_ne!(invalid, valid);
+        for field in 0..5 {
+            let mut document = snapshot.document().clone();
+            match field {
+                0 => document.rules[0].rule.value = "different.com".into(),
+                1 => document.version += 1,
+                2 => document.rules[0].origin.sequence += 1,
+                3 => document.report.effective = 0,
+                _ => document.sources[0].id = "other".into(),
+            }
+            let invalid = serde_json::to_string(&document).unwrap();
             assert!(snapshot.verify_yaml(&invalid).is_err());
         }
+    }
+    #[test]
+    fn audit_migration_and_input_leases_are_bounded() {
+        assert!(matches!(
+            Snapshot::migrate_yaml(&"x".repeat(yaml::MAX_BYTES + 1)),
+            Err(Error::ResourceLimit)
+        ));
+        assert!(matches!(
+            scaled(usize::MAX, 8, PARSE_BASE),
+            Err(Error::ResourceLimit)
+        ));
+        let input =
+            GenerationInput::from_yaml(r#"{"format_version":1,"settings":{},"sources":[]}"#)
+                .unwrap();
+        assert!(input._memory.is_some());
+        drop(input);
+        assert!(GenerationInput::from_yaml("unknown: true").is_err());
+        assert!(
+            GenerationInput::from_yaml(r#"{"format_version":1,"settings":{},"sources":[]}"#)
+                .is_ok()
+        );
+    }
+    #[test]
+    fn audit_registry_uses_weak_owners_and_releases_handles() {
+        for _ in 0..256 {
+            let snapshot =
+                std::sync::Arc::new(Snapshot::generate(Config::default(), vec![], 1).unwrap());
+            let handle = snapshot.instance_handle();
+            register(&snapshot).unwrap();
+            let retained = lookup(handle).unwrap();
+            drop(snapshot);
+            assert!(lookup(handle).is_ok());
+            drop(retained);
+            assert!(matches!(lookup(handle), Err(Error::InvalidState)));
+        }
+    }
+    #[test]
+    fn rule_class_slots_never_define_decision_priority() {
+        let classes = [
+            RuleClass::Reject,
+            RuleClass::LocalIp,
+            RuleClass::LocalDomain,
+            RuleClass::LocalDomainSuffix,
+            RuleClass::LocalPortTransport,
+            RuleClass::RemoteIp,
+            RuleClass::RemoteDomain,
+            RuleClass::RemoteDomainSuffix,
+            RuleClass::RemotePortTransport,
+            RuleClass::LocalKeyword,
+            RuleClass::RemoteKeyword,
+        ];
+        for (slot, class) in classes.into_iter().enumerate() {
+            assert_eq!(slot, class as usize);
+        }
+        let mut values = Candidates::default();
+        values.add(RuleClass::LocalDomain as usize, 10);
+        values.add(RuleClass::RemoteIp as usize, 11);
+        assert_eq!(
+            Snapshot::selected(values),
+            Some(11),
+            "槽位2不能因为数值更小而覆盖槽位5的IP候选"
+        );
+        values.add(RuleClass::LocalPortTransport as usize, 1);
+        assert_eq!(Snapshot::selected(values), Some(11), "端口规则不得越级");
     }
 }

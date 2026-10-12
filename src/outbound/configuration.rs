@@ -138,3 +138,13 @@ impl Manager {
         Ok(revision)
     }
 }
+
+impl NetworkSnapshot {
+    /// 共用出站在解析和拨号前执行协议保护，不从直连 API 绕过有效拦截。
+    pub(super) fn check_transport(&self, transport: crate::routing::Transport) -> Result<()> {
+        if let Some(router) = &self.router {
+            router.check_transport(transport)?;
+        }
+        Ok(())
+    }
+}

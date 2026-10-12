@@ -1,5 +1,5 @@
 # Fluxa 完整主配置示例。作者：可莉唯一的狗。
-# 用户编辑本文件；Rust 合并后写入 runtime-rules.sqlite，内存索引执行匹配。
+# 用户编辑本文件；Rust 合并后写入 runtime-rules.bin，直接查询已编译的二进制平铺索引。
 # 四类规则类型仅接受大写；远程规则使用 Clash classical 的 payload 列表。
 # 已实现 VLESS TCP REALITY Vision 出站；TUN 转发、网关和其他协议仍明确拒绝。
 schema-version: 1
@@ -45,6 +45,11 @@ subscriptions:
 # 域名阶段：拦截最先，然后 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD。
 # IP 阶段：拦截最先，然后普通 IP-CIDR。相同类别本地优先于远程。
 # 同来源同类型保留原始顺序；只有证明完全无效的非拦截规则可裁剪。
+# 普通端口/传输规则仅在域名/IP 普通规则未命中时参与；有效拦截仍优先。
+# 全域 transport 规则只允许 reject，direct/proxy 是非法配置；UDP 不等同 QUIC；quic 按 v1/v2 报文与连接内关联识别，独立短头和迁移有识别边界。
+# 临时调试规则禁止在本文件声明，只通过本地 API 操作；每条有效期 1–3600 秒。
+# 如需拦截 QUIC，添加：{type: transport, value: quic, policy: reject}
+# tcp/udp 使用相同形式；udp 拦截包含 QUIC，quic 不拦截普通 UDP。
 rules:
   - type: DOMAIN
     value: ads.example.com
@@ -68,8 +73,8 @@ rules:
     value: "25" # 端口及端口范围仍保留既有顺序语义。
     policy: reject
   - type: transport
-    value: udp
-    policy: direct
+    value: quic # 可替换为 tcp 或 udp；udp 拦截包含 QUIC。
+    policy: reject
 
 # 默认策略在没有适用规则时生效；缺失或无效代理出站明确失败，不回退直连。
 routing:

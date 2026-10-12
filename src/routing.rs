@@ -77,6 +77,8 @@ pub struct Target {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Reason {
+    #[serde(rename = "debug-rule")]
+    DebugRule,
     Mode,
     Rule,
     Fallback,
@@ -114,9 +116,16 @@ enum Matcher {
     Network(Network),
     Port(u16, u16),
     Transport(Transport),
+    Quic,
 }
 pub struct Router {
     runtime: std::sync::Arc<runtime::Snapshot>,
+    debug: Option<debug::View>,
+}
+pub(super) enum DebugPreDecision {
+    Continue,
+    WaitForDns,
+    Decided(Decision),
 }
 pub(crate) fn identifier(value: &str) -> Result<()> {
     if value.is_empty()
@@ -171,6 +180,7 @@ fn matcher(kind: Match, value: &str) -> Result<Matcher> {
             Matcher::Keyword(value.to_ascii_lowercase())
         }
         Match::IpCidr => Matcher::Network(Network::parse(value)?),
+        Match::Transport if value == "quic" => Matcher::Quic,
         Match::Transport => Matcher::Transport(match value {
             "tcp" => Transport::Tcp,
             "udp" => Transport::Udp,
@@ -193,6 +203,17 @@ fn matcher(kind: Match, value: &str) -> Result<Matcher> {
     })
 }
 impl Router {
+    pub fn check_transport(&self, transport: Transport) -> Result<()> {
+        if self.runtime.blocks_transport(transport) {
+            Err(Error::Rejected)
+        } else {
+            Ok(())
+        }
+    }
+    pub fn blocks_quic(&self) -> bool {
+        self.runtime.blocks_quic()
+    }
+
     /// 单来源配置也使用统一新语义，不保留可绕过拦截的旧匹配路径。
     pub fn compile(mut config: Config) -> Result<Self> {
         if let Some(handle) = config.runtime_handle {
@@ -222,20 +243,43 @@ impl Router {
         )?;
         Ok(Self {
             runtime: std::sync::Arc::new(snapshot),
+            debug: None,
         })
     }
     pub fn from_runtime(snapshot: std::sync::Arc<runtime::Snapshot>) -> Result<Self> {
         runtime::register(&snapshot)?;
-        Ok(Self { runtime: snapshot })
+        Ok(Self {
+            runtime: snapshot,
+            debug: None,
+        })
+    }
+    /// 只通过显式 API 为后续决策绑定当前调试视图；不存在配置字段或隐式入口。
+    pub fn with_debug(mut self, session: &debug::Session) -> Result<Self> {
+        self.debug = Some(session.view()?);
+        Ok(self)
     }
     pub fn evaluate(&self, target: Target) -> Result<Decision> {
+        if let Some(debug) = &self.debug
+            && let Some(decision) = debug.evaluate(&target)?
+        {
+            return Ok(decision);
+        }
         self.runtime.evaluate(&target)
     }
     /// 域名命中直接决定动作，未命中才进入真实 IP 规则阶段。
     pub fn evaluate_before_dns(&self, target: Target) -> Result<Option<Decision>> {
+        if let Some(debug) = &self.debug {
+            match debug.before_dns(&target)? {
+                DebugPreDecision::Decided(decision) => return Ok(Some(decision)),
+                DebugPreDecision::WaitForDns => return Ok(None),
+                DebugPreDecision::Continue => (),
+            }
+        }
         self.runtime.evaluate_before_dns(&target)
     }
 }
+/// API 专用本地临时调试会话，不从 YAML 创建或持久化。
+pub mod debug;
 
 /// 运行时规则生成及来源感知索引；所有宿主复用此模块。
 pub mod runtime;
@@ -246,5 +290,5 @@ pub mod store;
 /// 有界后台生成任务；提交期间连接继续使用原子快照。
 pub mod background;
 
-#[path = "routing/database.rs"]
-mod database;
+#[path = "routing/cache.rs"]
+mod cache;

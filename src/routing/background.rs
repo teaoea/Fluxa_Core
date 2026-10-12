@@ -345,7 +345,7 @@ mod tests {
             b"x"
         );
         manager.close(opened.connection.id).unwrap();
-        let before = std::fs::read(directory.join("runtime-rules.sqlite")).unwrap();
+        let before = std::fs::read(directory.join("runtime-rules.bin")).unwrap();
         let mut invalid = sources(Policy::Direct);
         invalid[0].rules[0].value = "invalid".into();
         let failed = service.start(Config::default(), invalid).unwrap();
@@ -372,7 +372,7 @@ mod tests {
             Phase::Cancelled
         );
         assert_eq!(
-            std::fs::read(directory.join("runtime-rules.sqlite")).unwrap(),
+            std::fs::read(directory.join("runtime-rules.bin")).unwrap(),
             before
         );
         let (send, receive) = mpsc::channel();

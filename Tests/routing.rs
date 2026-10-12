@@ -114,7 +114,7 @@ fn ipv4_ipv6_prefix_boundaries_and_absent_metadata() {
 fn port_range_transport_and_priority() {
     let router = compile(vec![
         rule(Match::DestinationPort, "80-443", Policy::Direct),
-        rule(Match::Transport, "udp", Policy::Proxy),
+        rule(Match::Transport, "udp", Policy::Reject),
     ]);
     for port in [80, 443] {
         assert_eq!(
@@ -122,7 +122,7 @@ fn port_range_transport_and_priority() {
                 .evaluate(target(Some("example.com"), None, port, Transport::Udp))
                 .unwrap()
                 .policy,
-            Policy::Direct
+            Policy::Reject
         );
     }
     assert_eq!(
@@ -130,7 +130,7 @@ fn port_range_transport_and_priority() {
             .evaluate(target(None, Some("192.0.2.1"), 53, Transport::Udp))
             .unwrap()
             .policy,
-        Policy::Proxy
+        Policy::Reject
     );
     assert_eq!(
         router
@@ -212,7 +212,7 @@ fn malformed_rules_targets_and_unknown_fields_rejected() {
         (Match::DestinationPort, "65536"),
         (Match::DestinationPort, "+80"),
         (Match::DestinationPort, "80-90-100"),
-        (Match::Transport, "quic"),
+        (Match::Transport, "icmp"),
     ] {
         assert!(
             Router::compile(Config {

@@ -1,13 +1,13 @@
 //! 不可变索引返回各优先级最早候选，不采用最长前缀或最具体后缀替代原始顺序。
 use super::super::{Matcher, Transport};
-use super::Entry;
+use super::{Entry, RuleClass};
 use crate::error::{Error, Result};
 use aho_corasick::{AhoCorasick, AhoCorasickKind};
 use std::collections::{BTreeSet, HashMap};
 use std::net::IpAddr;
 
-pub(super) const CLASSES: usize = 11;
-const NONE: u32 = u32::MAX;
+pub(super) const CLASSES: usize = RuleClass::COUNT;
+pub(super) const NONE: u32 = u32::MAX;
 #[derive(Clone, Copy)]
 pub(super) struct Candidates(pub [u32; CLASSES]);
 impl Default for Candidates {
@@ -32,13 +32,13 @@ impl Candidates {
     }
 }
 #[derive(Default)]
-struct DomainNode {
-    children: HashMap<String, u32>,
-    values: Candidates,
+pub(super) struct DomainNode {
+    pub(super) children: HashMap<String, u32>,
+    pub(super) values: Candidates,
 }
 #[derive(Default)]
-struct Domains {
-    nodes: Vec<DomainNode>,
+pub(super) struct Domains {
+    pub(super) nodes: Vec<DomainNode>,
 }
 impl Domains {
     fn insert(&mut self, name: &str, class: usize, id: u32) {
@@ -76,16 +76,16 @@ impl Domains {
         result
     }
 }
-struct PrefixNode {
-    key: u128,
-    length: u8,
-    values: Candidates,
-    children: [u32; 2],
+pub(super) struct PrefixNode {
+    pub(super) key: u128,
+    pub(super) length: u8,
+    pub(super) values: Candidates,
+    pub(super) children: [u32; 2],
 }
-struct Prefixes {
-    nodes: Vec<PrefixNode>,
-    root: u32,
-    width: u8,
+pub(super) struct Prefixes {
+    pub(super) nodes: Vec<PrefixNode>,
+    pub(super) root: u32,
+    pub(super) width: u8,
 }
 fn mask(length: u8, width: u8) -> u128 {
     if length == 0 {
@@ -174,20 +174,26 @@ impl Prefixes {
     }
 }
 #[derive(Default)]
-struct Ports {
-    starts: Vec<u32>,
-    values: Vec<Candidates>,
+pub(super) struct Ports {
+    pub(super) starts: Vec<u32>,
+    pub(super) values: Vec<Candidates>,
 }
 impl Ports {
     fn compile(entries: &[Entry]) -> Self {
         let mut events = Vec::new();
         for (id, entry) in entries.iter().enumerate() {
             if let Matcher::Port(first, last) = entry.matcher {
-                events.push((u32::from(first), true, entry.class(), id as u32));
-                events.push((u32::from(last) + 1, false, entry.class(), id as u32));
+                events.push((u32::from(first), true, entry.class() as usize, id as u32));
+                events.push((
+                    u32::from(last) + 1,
+                    false,
+                    entry.class() as usize,
+                    id as u32,
+                ));
             }
         }
-        events.sort_unstable();
+        // 仅按端口边界排序；类别编号只是集合槽位，不参与优先级比较。
+        events.sort_unstable_by_key(|event| event.0);
         let mut active: [BTreeSet<u32>; CLASSES] = std::array::from_fn(|_| BTreeSet::new());
         let mut result = Self::default();
         let mut offset = 0;
@@ -264,12 +270,12 @@ pub(super) struct Index {
     keyword_exact: HashMap<String, Candidates>,
     keywords: Option<(AhoCorasick, Vec<Candidates>)>,
     port_coverage: Option<PortCoverage>,
-    exact: HashMap<String, Candidates>,
-    suffix: Domains,
-    v4: Prefixes,
-    v6: Prefixes,
-    ports: Ports,
-    transports: [Candidates; 2],
+    pub(super) exact: HashMap<String, Candidates>,
+    pub(super) suffix: Domains,
+    pub(super) v4: Prefixes,
+    pub(super) v6: Prefixes,
+    pub(super) ports: Ports,
+    pub(super) transports: [Candidates; 2],
 }
 impl Default for Index {
     fn default() -> Self {
@@ -288,8 +294,9 @@ impl Default for Index {
 }
 impl Index {
     pub fn insert(&mut self, entry: &Entry, id: u32) {
-        let class = entry.class();
+        let class = entry.class() as usize;
         match &entry.matcher {
+            Matcher::Quic => {}
             Matcher::Keyword(value) => self
                 .keyword_exact
                 .entry(value.clone())
@@ -342,6 +349,7 @@ impl Index {
     /// 覆盖查询只接受整个条件被包含；后缀条件不能由精确域名覆盖。
     pub fn coverage(&self, matcher: &Matcher) -> Candidates {
         match matcher {
+            Matcher::Quic => Candidates::default(),
             Matcher::Keyword(value) => self.keyword_exact.get(value).copied().unwrap_or_default(),
             Matcher::Domain(value, suffix) => {
                 let mut values = self.suffix.query(value);
@@ -400,5 +408,12 @@ impl Index {
             });
         }
         values
+    }
+}
+
+// 二进制索引编码留在索引模块，私有树节点不向业务调用者暴露。
+impl Index {
+    pub(super) fn flatten(&self, entries: &[Entry]) -> Result<super::flat::FlatIndex> {
+        super::flat::Builder::compile(self, entries)
     }
 }

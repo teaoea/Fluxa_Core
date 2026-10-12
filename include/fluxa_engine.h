@@ -25,6 +25,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 20 代表有界 MMDB 离线 GeoIP 查询与固定免费公网 IP 回显，不代表系统 TUN 可用。
 // 位 21 代表有界 UDP/IP 转发与返回包，不代表 TCP、系统隧道或 DNS 劫持已实现。
 // 位 22 代表单目标 XUDP 代理报文；不代表任意 Mux、空报文或系统 TUN。
+// 位 23 代表 TCP/UDP 规则及 QUIC 报文/连接关联拦截，不代表所有短头或迁移均可识别。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);

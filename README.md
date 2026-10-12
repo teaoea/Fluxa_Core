@@ -40,7 +40,7 @@
 
 共用连接提供有界会话状态、流量统计、自动空闲回收和原子网络配置；旧连接及在途请求保留原快照，新请求使用新配置。详情见 Outbound.md。
 
-规则订阅采用 Clash classical `payload`，类型严格使用 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、IP-CIDR（统一支持 IPv4/IPv6）；动作由订阅 policy/outbound 指定。合并后的规则保存至 SQLite，匹配使用内存索引。订阅示例见 [rules.yaml](rules.yaml)。
+规则订阅采用 Clash classical `payload`，类型严格使用 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、IP-CIDR（统一支持 IPv4/IPv6）；动作由订阅 policy/outbound 指定。合并后的规则保存至 runtime-rules.bin，匹配直接使用二进制平铺索引；格式与范围见 [BinaryRuleCache.md](BinaryRuleCache.md)。订阅示例见 [rules.yaml](rules.yaml)。
 
 离线 GeoIP：有界读取 MMDB 并查询 IPv4/IPv6，提供免费公网 IP 回显与 TCP 建连测量。数据库与网络结果均不可信，失败返回明确错误。详见 [GeoIP.md](GeoIP.md)。
 
@@ -51,3 +51,5 @@
 TUN UDP v1.9.0：Rust 负责有界流表、共用路由/出站、返回包生成和取消回收；二进制 C ABI 不使用 Base64。没有新增主配置字段；TCP、系统隧道与 DNS 截获仍不支持。详见 TUN.md。
 
 XUDP v2.0.0：单目标 UDP 代理复用 REALITY/Vision、路由与取消机制，TUN UDP 使用同一出站。报文上限 7526 字节，空包明确拒绝；任意 Mux 与系统 TUN 未实现。详见 Protocols.md。
+
+协议拦截支持 transport 的 tcp、udp、quic，仅允许 reject。QUIC 按 v1/v2 报文及连接内关联识别，不按 UDP/443 推断；详见 ProtocolBlocking.md。

@@ -18,3 +18,5 @@ pub use datagram::{Datagram, connect_udp};
 pub fn datagram_limit() -> usize {
     datagram::MAX_PAYLOAD
 }
+
+pub mod quic;

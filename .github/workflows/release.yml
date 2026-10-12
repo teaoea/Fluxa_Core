@@ -46,7 +46,10 @@ jobs:
           cargo package --list --locked > /tmp/fluxa-package-files.txt
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
-          bash check-ffi.sh all
+          python3 -m venv /tmp/fluxa-quic-peer
+          /tmp/fluxa-quic-peer/bin/python -m pip install aioquic==1.2.0
+          /tmp/fluxa-quic-peer/bin/python Tests/make_quic_initial.py /tmp/fluxa-quic-initial.bin
+          FLUXA_QUIC_PACKET_BIN=/tmp/fluxa-quic-initial.bin bash check-ffi.sh all
           bash check-protocol.sh
       - name: 构建静态框架并打包
         run: |

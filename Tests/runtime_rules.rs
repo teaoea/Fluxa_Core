@@ -279,7 +279,6 @@ fn indexes_equal_reference_for_mixed_inputs_and_overlapping_ranges() {
         rule(Match::IpCidr, "2001:db8:1::/48", Policy::Proxy),
         rule(Match::DestinationPort, "400-500", Policy::Proxy),
         rule(Match::DestinationPort, "450-600", Policy::Reject),
-        rule(Match::Transport, "udp", Policy::Proxy),
     ];
     let mut remote = vec![];
     for i in 0..1000 {
@@ -370,7 +369,7 @@ fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
         1
     );
     let retained = store.snapshot().unwrap();
-    let before = std::fs::read(path.join("runtime-rules.sqlite")).unwrap();
+    let before = std::fs::read(path.join("runtime-rules.bin")).unwrap();
     assert!(
         store
             .update(
@@ -384,7 +383,7 @@ fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
             .is_err()
     );
     assert_eq!(
-        std::fs::read(path.join("runtime-rules.sqlite")).unwrap(),
+        std::fs::read(path.join("runtime-rules.bin")).unwrap(),
         before
     );
     assert_eq!(store.snapshot().unwrap().document().version, 1);
@@ -737,9 +736,9 @@ fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
 }
 
 #[test]
-fn sqlite_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
+fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
     use libfluxa_core::routing::store::Store;
-    let path = std::env::temp_dir().join(format!("fluxa-sqlite-migration-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("fluxa-binary-migration-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     let snapshot = build(
@@ -750,8 +749,8 @@ fn sqlite_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
     std::fs::write(path.join("runtime-rules.yaml"), &legacy).unwrap();
     let store = Store::open(&path).unwrap();
     assert_eq!(store.snapshot().unwrap().document(), snapshot.document());
-    let bytes = std::fs::read(path.join("runtime-rules.sqlite")).unwrap();
-    assert!(bytes.starts_with(b"SQLite format 3\0"));
+    let bytes = std::fs::read(path.join("runtime-rules.bin")).unwrap();
+    assert!(bytes.starts_with(b"FLXARULE"));
     assert_eq!(
         std::fs::read_to_string(path.join("runtime-rules.yaml")).unwrap(),
         legacy
@@ -760,22 +759,20 @@ fn sqlite_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
     let reopened = Store::open(&path).unwrap();
     assert_eq!(reopened.snapshot().unwrap().document(), snapshot.document());
     reopened.close().unwrap();
-    let db = rusqlite::Connection::open(path.join("runtime-rules.sqlite")).unwrap();
-    db.execute_batch("PRAGMA user_version=2").unwrap();
-    drop(db);
-    // 已存在数据库损坏或版本未知时不能回退旧文件，伪装成最新方案。
+    let mut bytes = std::fs::read(path.join("runtime-rules.bin")).unwrap();
+    bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
+    std::fs::write(path.join("runtime-rules.bin"), bytes).unwrap();
+    // 已存在二进制缓存损坏或版本未知时不能回退旧文件，伪装成最新方案。
     assert!(Store::open(&path).is_err());
     std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
-fn sqlite_rejects_tampered_rows_and_unknown_schema() {
+fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
     use libfluxa_core::routing::store::Store;
-    for schema in [false, true] {
-        let path = std::env::temp_dir().join(format!(
-            "fluxa-sqlite-tamper-{}-{schema}",
-            std::process::id()
-        ));
+    for mode in 0..6 {
+        let path =
+            std::env::temp_dir().join(format!("fluxa-binary-tamper-{}-{mode}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         let store = Store::open(&path).unwrap();
         store
@@ -789,17 +786,104 @@ fn sqlite_rejects_tampered_rows_and_unknown_schema() {
             )
             .unwrap();
         store.close().unwrap();
-        let db = rusqlite::Connection::open(path.join("runtime-rules.sqlite")).unwrap();
-        db.execute_batch(if schema {
-            "CREATE VIEW bad AS SELECT * FROM metadata"
-        } else {
-            "UPDATE effective_rules SET record='{}'"
-        })
-        .unwrap();
-        drop(db);
+        let file = path.join("runtime-rules.bin");
+        let mut bytes = std::fs::read(&file).unwrap();
+        match mode {
+            0 => {
+                let last = bytes.len() - 1;
+                bytes[last] ^= 1;
+            }
+            1 => bytes[8..12].copy_from_slice(&2u32.to_le_bytes()),
+            2 => {
+                bytes.truncate(bytes.len() - 1);
+            }
+            3 => bytes.extend_from_slice(&[0]),
+            4 => bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes()),
+            _ => {
+                // 重新计算校验和后仍须拒绝越界区段，校验和不能替代结构验证。
+                let doc_size = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+                let index = 56 + doc_size;
+                bytes[index..index + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+                let digest = ring::digest::digest(&ring::digest::SHA256, &bytes[56..]);
+                bytes[24..56].copy_from_slice(digest.as_ref());
+            }
+        }
+        std::fs::write(file, bytes).unwrap();
         assert!(Store::open(&path).is_err());
         std::fs::remove_dir_all(path).unwrap();
     }
+}
+
+#[test]
+fn binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback() {
+    use libfluxa_core::routing::store::Store;
+    let path = std::env::temp_dir().join(format!("fluxa-legacy-sqlite-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::write(path.join("runtime-rules.sqlite"), b"SQLite format 3\0").unwrap();
+    assert!(matches!(
+        Store::open(&path),
+        Err(libfluxa_core::error::Error::Unsupported)
+    ));
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
+    use libfluxa_core::routing::store::Store;
+    let path = std::env::temp_dir().join(format!("fluxa-flat-differential-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let inputs = vec![source(
+        "local",
+        Layer::Local,
+        vec![
+            rule(Match::Domain, "exact.example", Policy::Direct),
+            rule(Match::DomainSuffix, "suffix.example", Policy::Proxy),
+            rule(Match::DomainKeyword, "abcd", Policy::Proxy),
+            rule(Match::DomainKeyword, "bc", Policy::Reject),
+            rule(Match::IpCidr, "192.0.2.0/24", Policy::Proxy),
+            rule(Match::IpCidr, "2001:db8::/32", Policy::Direct),
+            rule(Match::DestinationPort, "8000-9000", Policy::Proxy),
+            rule(Match::Transport, "udp", Policy::Reject),
+        ],
+    )];
+    let reference = Snapshot::generate(Config::default(), inputs.clone(), 1).unwrap();
+    let store = Store::open(&path).unwrap();
+    store.update(Config::default(), inputs).unwrap();
+    let flat = store.snapshot().unwrap();
+    store.close().unwrap();
+    let store = Store::open(&path).unwrap();
+    let reopened = store.snapshot().unwrap();
+    for domain in [
+        "exact.example",
+        "suffix.example",
+        "a.suffix.example",
+        "xabcdx.test",
+        "xbcy.test",
+        "miss.example",
+    ] {
+        for address in ["192.0.2.7", "198.51.100.2", "2001:db8::7"] {
+            for port in [443, 7999, 8000, 8999, 9000, 9001] {
+                for transport in [Transport::Tcp, Transport::Udp] {
+                    let target = Target {
+                        domain: Some(domain.into()),
+                        address: Some(address.into()),
+                        port,
+                        transport,
+                    };
+                    let expected = reference.evaluate_reference(&target).unwrap();
+                    assert_eq!(flat.evaluate(&target).unwrap(), expected);
+                    assert_eq!(reopened.evaluate(&target).unwrap(), expected);
+                    assert_eq!(
+                        reopened.evaluate_before_dns(&target).unwrap(),
+                        Some(expected)
+                    );
+                }
+            }
+        }
+    }
+    store.close().unwrap();
+    std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
@@ -828,4 +912,639 @@ fn empty_clash_payload_still_validates_outbound_metadata() {
                 .is_err()
         );
     }
+}
+
+// 审查回归：直接断言产品规范，再比较独立未裁剪实现，避免只有差分自洽。
+#[test]
+fn audit_primary_domain_and_ip_precede_local_port() {
+    for (kind, value, name) in [
+        (Match::Domain, "a.example.com", "a.example.com"),
+        (Match::DomainSuffix, "example.com", "a.example.com"),
+        (Match::DomainKeyword, "example", "a.example.com"),
+        (Match::IpCidr, "192.0.2.0/24", "unmatched.test"),
+        (Match::IpCidr, "2001:db8::/32", "unmatched.test"),
+    ] {
+        for local in [true, false] {
+            let sources = vec![
+                source(
+                    "port",
+                    if local { Layer::Local } else { Layer::Remote },
+                    vec![rule(Match::DestinationPort, "443", Policy::Direct)],
+                ),
+                source(
+                    "primary",
+                    Layer::Remote,
+                    vec![rule(kind, value, Policy::Proxy)],
+                ),
+            ];
+            let reference = libfluxa_core::routing::runtime::Reference::compile(
+                Config::default(),
+                sources.clone(),
+                1,
+            )
+            .unwrap();
+            let snapshot = Snapshot::generate(Config::default(), sources, 1).unwrap();
+            let request = target(
+                name,
+                if value.contains(':') {
+                    "2001:db8::1"
+                } else {
+                    "192.0.2.1"
+                },
+            );
+            let actual = snapshot.evaluate(&request).unwrap();
+            assert_eq!(actual.policy, Policy::Proxy, "普通主规则不能被端口规则覆盖");
+            assert_eq!(actual.origin, reference.evaluate(&request).unwrap().origin);
+        }
+    }
+    let fallback = build(
+        vec![rule(Match::DestinationPort, "443", Policy::Direct)],
+        vec![],
+    );
+    assert_eq!(
+        fallback
+            .evaluate(&target("miss.test", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Direct
+    );
+}
+
+#[test]
+fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
+    for protocol in ["tcp", "udp"] {
+        for action in [Policy::Direct, Policy::Proxy] {
+            let mut disabled = source(
+                "disabled",
+                Layer::Local,
+                vec![rule(Match::Transport, protocol, action)],
+            );
+            disabled.enabled = false;
+            assert!(matches!(
+                Snapshot::generate(Config::default(), vec![disabled], 1),
+                Err(libfluxa_core::error::Error::InvalidInput)
+            ));
+
+            assert!(matches!(
+                Snapshot::generate(
+                    Config::default(),
+                    vec![source(
+                        "local",
+                        Layer::Local,
+                        vec![rule(Match::Transport, protocol, action)]
+                    )],
+                    1
+                ),
+                Err(libfluxa_core::error::Error::InvalidInput)
+            ));
+        }
+        let snapshot = build(
+            vec![rule(Match::Transport, protocol, Policy::Reject)],
+            vec![],
+        );
+        let mut request = target("example.com", "192.0.2.1");
+        request.transport = if protocol == "udp" {
+            Transport::Udp
+        } else {
+            Transport::Tcp
+        };
+        assert_eq!(snapshot.evaluate(&request).unwrap().policy, Policy::Reject);
+    }
+    let snapshot = build(vec![rule(Match::Transport, "quic", Policy::Reject)], vec![]);
+    assert!(snapshot.blocks_quic());
+    let mut request = target("example.com", "192.0.2.1");
+    request.transport = Transport::Udp;
+    assert_eq!(snapshot.evaluate(&request).unwrap().policy, Policy::Direct);
+}
+
+#[test]
+fn audit_document_trust_requires_original_sources() {
+    use libfluxa_core::routing::runtime::{RemovalReason, ReportVerification};
+    let sources = vec![source(
+        "local",
+        Layer::Local,
+        vec![
+            rule(Match::DomainSuffix, "example.com", Policy::Direct),
+            rule(Match::DomainSuffix, "a.example.com", Policy::Proxy),
+        ],
+    )];
+    let snapshot = Snapshot::generate(Config::default(), sources.clone(), 1).unwrap();
+    assert_eq!(
+        snapshot.report_verification(),
+        ReportVerification::VerifiedFromSources
+    );
+    let restored = Snapshot::from_yaml(&snapshot.to_yaml().unwrap()).unwrap();
+    assert_eq!(
+        restored.report_verification(),
+        ReportVerification::StructuralOnly
+    );
+    restored.verify_against_sources(sources.clone()).unwrap();
+    let mut fake = snapshot.document().clone();
+    fake.report.removals[0].reason = RemovalReason::Conflict;
+    fake.report.pruned -= 1;
+    fake.report.conflicts += 1;
+    // 数量仍一致并不证明删除理由；明确保持不可信，再由原始来源重算发现伪造。
+    let loaded = Snapshot::from_yaml(&serde_json::to_string(&fake).unwrap()).unwrap();
+    assert_eq!(
+        loaded.report_verification(),
+        ReportVerification::StructuralOnly
+    );
+    assert!(loaded.verify_against_sources(sources).is_err());
+}
+
+#[test]
+fn audit_invalid_documents_are_rejected_with_low_sensitive_locations() {
+    let snapshot = build(
+        vec![
+            rule(Match::Domain, "a.example.com", Policy::Direct),
+            rule(Match::Domain, "b.example.com", Policy::Reject),
+        ],
+        vec![],
+    );
+    for mutation in 0..10 {
+        let mut doc = snapshot.document().clone();
+        match mutation {
+            0 => doc.format_version = 999,
+            1 => doc.sources.push(doc.sources[0].clone()),
+            2 => doc.rules[0].origin.source = 63,
+            3 => doc.rules[1].origin = doc.rules[0].origin.clone(),
+            4 => doc.rules.swap(0, 1),
+            5 => doc.report.original += 1,
+            6 => doc.report.effective = 0,
+            7 => {
+                let origin = doc.rules[0].origin.clone();
+                doc.rules[0].additional_origins.push(origin);
+            }
+            8 => doc.rules[0].rule.value = "INVALID DOMAIN".into(),
+            _ => doc.rules[1].origin.sequence = 99,
+        }
+        let result = Snapshot::from_yaml_diagnosed(&serde_json::to_string(&doc).unwrap());
+        let diagnostic = match result {
+            Ok(_) => panic!("非法文档被接受：{mutation}"),
+            Err(d) => d,
+        };
+        assert!(matches!(
+            diagnostic.stage,
+            "header" | "sources" | "rules" | "report" | "budget" | "removals"
+        ));
+        assert!(!format!("{diagnostic:?}").contains("example.com"));
+    }
+    // 原始文本层的未知字段和重复键仍需独立保留。
+    assert!(Snapshot::from_yaml("version: 1\nversion: 2\n").is_err());
+}
+
+#[test]
+fn audit_dns_before_after_matrix() {
+    let snapshot = build(
+        vec![rule(Match::DestinationPort, "443", Policy::Direct)],
+        vec![
+            rule(Match::Domain, "hit.test", Policy::Proxy),
+            rule(Match::DomainKeyword, "blocked", Policy::Reject),
+            rule(Match::IpCidr, "192.0.2.0/24", Policy::Reject),
+            rule(Match::IpCidr, "2001:db8::/32", Policy::Proxy),
+        ],
+    );
+    for name in ["hit.test", "blocked.test", "miss.test"] {
+        let mut before = target(name, "192.0.2.1");
+        before.address = None;
+        let early = snapshot.evaluate_before_dns(&before).unwrap();
+        if name == "miss.test" {
+            assert!(early.is_none(), "端口直连不能在 DNS 前提前放行");
+        }
+        for ip in ["192.0.2.1", "2001:db8::1", "198.51.100.1"] {
+            let full = snapshot.evaluate(&target(name, ip)).unwrap();
+            if let Some(early) = &early {
+                assert_eq!(
+                    (early.policy, &early.outbound, &early.origin),
+                    (full.policy, &full.outbound, &full.origin)
+                );
+            }
+        }
+    }
+    assert_eq!(
+        snapshot
+            .evaluate(&target("miss.test", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Reject
+    );
+    assert_eq!(
+        snapshot
+            .evaluate(&target("miss.test", "2001:db8::1"))
+            .unwrap()
+            .policy,
+        Policy::Proxy
+    );
+}
+
+#[test]
+fn audit_resource_limits_reject_before_index_expansion() {
+    use libfluxa_core::error::Error;
+    let dense = (0..20_000)
+        .map(|_| {
+            rule(
+                Match::DomainSuffix,
+                &("a.".repeat(125) + "com"),
+                Policy::Direct,
+            )
+        })
+        .collect();
+    assert!(matches!(
+        Snapshot::generate(
+            Config::default(),
+            vec![source("dense", Layer::Local, dense)],
+            1
+        ),
+        Err(Error::ResourceLimit)
+    ));
+    let too_many = (0..100_001)
+        .map(|_| rule(Match::Domain, "example.com", Policy::Direct))
+        .collect();
+    assert!(matches!(
+        Snapshot::generate(
+            Config::default(),
+            vec![source("many", Layer::Local, too_many)],
+            1
+        ),
+        Err(Error::ResourceLimit)
+    ));
+    let payload = "payload:\n".to_owned() + &" - DOMAIN,example.com\n".repeat(100_001);
+    assert!(matches!(
+        libfluxa_core::subscription::parse_rules(&payload, Policy::Direct, None),
+        Err(Error::ResourceLimit)
+    ));
+    for invalid in [
+        format!("payload: ['DOMAIN,{}']", "a".repeat(2048)),
+        "x".repeat(8 * 1024 * 1024 + 1),
+    ] {
+        assert!(matches!(
+            libfluxa_core::subscription::parse_rules(&invalid, Policy::Direct, None),
+            Err(Error::ResourceLimit)
+        ));
+    }
+    // 超限失败之后仍可正常生成，不能泄漏配额。
+    assert_eq!(
+        build(
+            vec![rule(Match::Domain, "example.com", Policy::Reject)],
+            vec![]
+        )
+        .document()
+        .report
+        .effective,
+        1
+    );
+}
+
+#[test]
+fn audit_seeded_random_unpruned_differential_and_round_trip() {
+    use libfluxa_core::routing::runtime::Reference;
+    let mut seed = 0x12_2026_1012u64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for batch in 0..40 {
+        let mut sources = vec![];
+        for group in 0..4 {
+            let mut rules = vec![];
+            for _ in 0..80 {
+                let n = next();
+                let k = (n % 7) as usize;
+                let policy = [Policy::Direct, Policy::Proxy, Policy::Reject][(n / 7 % 3) as usize];
+                let value = match k {
+                    0 => format!("d{}.example.com", n / 21 % 16),
+                    1 => {
+                        if n % 2 == 0 {
+                            "example.com".into()
+                        } else {
+                            format!("d{}.example.com", n / 21 % 16)
+                        }
+                    }
+                    2 => format!("10.{}.0.0/16", n / 21 % 8),
+                    3 => format!("2001:db8:{:x}::/48", n / 21 % 8),
+                    4 => format!("{}-{}", 400 + n % 40, 450 + n % 40),
+                    5 => "tcp".into(),
+                    _ => ["example", "d1", "d", "test"][(n / 21 % 4) as usize].into(),
+                };
+                let kind = [
+                    Match::Domain,
+                    Match::DomainSuffix,
+                    Match::IpCidr,
+                    Match::IpCidr,
+                    Match::DestinationPort,
+                    Match::Transport,
+                    Match::DomainKeyword,
+                ][k];
+                rules.push(rule(
+                    kind,
+                    &value,
+                    if k == 5 { Policy::Reject } else { policy },
+                ));
+            }
+            sources.push(source(
+                &format!("source-{group}"),
+                if group % 2 == 0 {
+                    Layer::Remote
+                } else {
+                    Layer::Local
+                },
+                rules,
+            ));
+        }
+        let settings = Config {
+            fallback: Policy::Direct,
+            ..Config::default()
+        };
+        let reference = Reference::compile(settings.clone(), sources.clone(), batch + 1).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("fluxa-flat-random-{}-{batch}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        store.update(settings.clone(), sources.clone()).unwrap();
+        store.close().unwrap();
+        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        let binary = store.snapshot().unwrap();
+        let snapshot = Snapshot::generate(settings, sources, batch + 1).unwrap();
+        let loaded = Snapshot::from_yaml(&snapshot.to_yaml().unwrap()).unwrap();
+        for i in 0..150 {
+            let n = next();
+            let mut request = target(
+                &format!(
+                    "d{}.{}.com",
+                    n % 20,
+                    if i % 3 == 0 { "miss" } else { "example" }
+                ),
+                &if i % 2 == 0 {
+                    format!("10.{}.1.1", n % 10)
+                } else {
+                    format!("2001:db8:{:x}::1", n % 10)
+                },
+            );
+            if i % 5 == 0 {
+                request.domain = None;
+            }
+            request.port = (400 + n % 100) as u16;
+            request.transport = if i % 2 == 0 {
+                Transport::Udp
+            } else {
+                Transport::Tcp
+            };
+            let actual = snapshot.evaluate(&request).unwrap();
+            let expected = reference.evaluate(&request).unwrap();
+            assert_eq!(
+                (&actual.policy, &actual.outbound, &actual.origin),
+                (&expected.policy, &expected.outbound, &expected.origin),
+                "批次 {batch} 目标 {i}"
+            );
+            assert_eq!(actual, loaded.evaluate(&request).unwrap());
+            let cached = binary.evaluate(&request).unwrap();
+            assert_eq!(
+                (&cached.policy, &cached.outbound, &cached.origin),
+                (&expected.policy, &expected.outbound, &expected.origin)
+            );
+        }
+        store.close().unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[test]
+fn audit_debug_api_overrides_reject_and_clear_restores_formal_rules() {
+    use libfluxa_core::routing::{
+        Reason, Router,
+        debug::{DebugRule, Session},
+    };
+    let session = Session::new().unwrap();
+    let formal = || {
+        Router::compile(Config {
+            rules: vec![rule(Match::Domain, "example.com", Policy::Reject)],
+            ..Config::default()
+        })
+        .unwrap()
+    };
+    session
+        .replace(
+            vec![DebugRule {
+                rule: rule(Match::Domain, "example.com", Policy::Direct),
+                protocol: None,
+                lifetime_seconds: Some(60),
+            }],
+            None,
+        )
+        .unwrap();
+    let old = formal().with_debug(&session).unwrap();
+    let decision = old.evaluate(target("example.com", "192.0.2.1")).unwrap();
+    assert_eq!(
+        (decision.policy, decision.reason),
+        (Policy::Direct, Reason::DebugRule)
+    );
+    session.clear().unwrap();
+    assert!(!session.status().unwrap().active);
+    assert_eq!(
+        formal()
+            .with_debug(&session)
+            .unwrap()
+            .evaluate(target("example.com", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Reject
+    );
+    // 既有连接视图保留完整旧版本；新连接取清除后的状态。
+    assert_eq!(
+        old.evaluate(target("example.com", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Direct
+    );
+    session.close().unwrap();
+    assert!(session.replace(vec![], None).is_err());
+}
+
+#[test]
+fn audit_scoped_debug_protocol_is_not_global_and_precedes_generic_domain() {
+    use libfluxa_core::routing::{
+        Router,
+        debug::{DebugRule, Session},
+    };
+    let session = Session::new().unwrap();
+    session
+        .replace(
+            vec![
+                DebugRule {
+                    rule: rule(Match::DomainSuffix, "example.com", Policy::Direct),
+                    protocol: Some(Transport::Udp),
+                    lifetime_seconds: Some(60),
+                },
+                DebugRule {
+                    rule: rule(Match::Domain, "a.example.com", Policy::Proxy),
+                    protocol: None,
+                    lifetime_seconds: Some(60),
+                },
+            ],
+            None,
+        )
+        .unwrap();
+    let router = Router::compile(Config::default())
+        .unwrap()
+        .with_debug(&session)
+        .unwrap();
+    let mut request = target("a.example.com", "192.0.2.1");
+    request.transport = Transport::Udp;
+    assert_eq!(
+        router.evaluate(request.clone()).unwrap().policy,
+        Policy::Direct
+    );
+    request.transport = Transport::Tcp;
+    assert_eq!(router.evaluate(request).unwrap().policy, Policy::Proxy);
+    let mut other = target("other.test", "192.0.2.1");
+    other.transport = Transport::Udp;
+    assert_eq!(router.evaluate(other).unwrap().policy, Policy::Reject);
+    let before = session.status().unwrap();
+    assert!(
+        session
+            .replace(
+                vec![DebugRule {
+                    rule: rule(Match::Transport, "udp", Policy::Direct),
+                    protocol: None,
+                    lifetime_seconds: Some(60),
+                }],
+                None
+            )
+            .is_err()
+    );
+    assert_eq!(session.status().unwrap(), before);
+}
+
+#[test]
+fn audit_debug_ip_waits_for_dns_before_formal_reject() {
+    use libfluxa_core::routing::{
+        Router,
+        debug::{DebugRule, Session},
+    };
+    let session = Session::new().unwrap();
+    session
+        .replace(
+            vec![DebugRule {
+                rule: rule(Match::IpCidr, "192.0.2.0/24", Policy::Direct),
+                protocol: None,
+                lifetime_seconds: Some(60),
+            }],
+            None,
+        )
+        .unwrap();
+    let router = Router::compile(Config {
+        rules: vec![rule(Match::Domain, "blocked.test", Policy::Reject)],
+        ..Config::default()
+    })
+    .unwrap()
+    .with_debug(&session)
+    .unwrap();
+    let mut request = target("blocked.test", "192.0.2.1");
+    request.address = None;
+    assert!(router.evaluate_before_dns(request).unwrap().is_none());
+    assert_eq!(
+        router
+            .evaluate(target("blocked.test", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Direct
+    );
+    assert_eq!(
+        router
+            .evaluate(target("blocked.test", "198.51.100.1"))
+            .unwrap()
+            .policy,
+        Policy::Reject
+    );
+}
+
+#[test]
+fn audit_debug_not_configurable_or_persistent_and_has_quota() {
+    use libfluxa_core::routing::{
+        debug::{DebugRule, MAX_DEBUG_RULES, Session},
+        runtime::GenerationInput,
+    };
+    // 根字段及来源字段都不存在调试开关，严格解析明确拒绝。
+    for input in [
+        r#"{"format_version":1,"settings":{},"sources":[],"debug_rules":[]}"#,
+        r#"{"format_version":1,"settings":{"debug_rules":[]},"sources":[]}"#,
+        r#"{"format_version":1,"settings":{},"sources":[{"id":"debug","layer":"debug","rules":[]}]}"#,
+    ] {
+        assert!(GenerationInput::from_yaml(input).is_err());
+    }
+    let session = Session::new().unwrap();
+    let over = (0..=MAX_DEBUG_RULES)
+        .map(|_| DebugRule {
+            rule: rule(Match::Domain, "example.com", Policy::Direct),
+            protocol: None,
+            lifetime_seconds: Some(60),
+        })
+        .collect();
+    assert!(matches!(
+        session.replace(over, None),
+        Err(libfluxa_core::error::Error::ResourceLimit)
+    ));
+    assert!(!session.status().unwrap().active);
+    for _ in 0..128 {
+        session
+            .replace(
+                vec![DebugRule {
+                    rule: rule(Match::Domain, "example.com", Policy::Direct),
+                    protocol: None,
+                    lifetime_seconds: Some(60),
+                }],
+                None,
+            )
+            .unwrap();
+        session.clear().unwrap();
+    }
+}
+
+#[test]
+fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
+    use libfluxa_core::routing::store::Store;
+    let path = std::env::temp_dir().join(format!("fluxa-flat-fault-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let store = Store::open(&path).unwrap();
+    let rules = (0..32)
+        .map(|id| {
+            rule(
+                Match::DomainSuffix,
+                &format!("s{id}.example.org"),
+                Policy::Reject,
+            )
+        })
+        .collect();
+    store
+        .update(
+            Config::default(),
+            vec![source("local", Layer::Local, rules)],
+        )
+        .unwrap();
+    store.close().unwrap();
+    let file = path.join("runtime-rules.bin");
+    let original = std::fs::read(&file).unwrap();
+    let doc_size = u32::from_le_bytes(original[12..16].try_into().unwrap()) as usize;
+    let index_start = 56 + doc_size;
+    for mutation in 0..256usize {
+        let mut bytes = original.clone();
+        let position = index_start + (mutation * 977) % (bytes.len() - index_start);
+        bytes[position] ^= 1 << (mutation % 8);
+        let digest = ring::digest::digest(&ring::digest::SHA256, &bytes[56..]);
+        bytes[24..56].copy_from_slice(digest.as_ref());
+        std::fs::write(&file, bytes).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            if let Ok(store) = Store::open(&path) {
+                let _ = store
+                    .snapshot()
+                    .unwrap()
+                    .evaluate(&target("s17.example.org", "192.0.2.1"));
+                store.close().unwrap();
+            }
+        });
+        assert!(result.is_ok(), "故障样本 {mutation} 发生 panic");
+    }
+    std::fs::remove_dir_all(path).unwrap();
 }

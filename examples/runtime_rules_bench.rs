@@ -55,6 +55,21 @@ fn sources(rules: Vec<Rule>) -> Vec<Source> {
     groups
 }
 fn main() {
+    let arguments: Vec<_> = std::env::args().collect();
+    if let Some(position) = arguments.iter().position(|arg| arg == "--load") {
+        println!("baseline_rss_kib={}", rss());
+        let started = Instant::now();
+        let store = libfluxa_core::routing::store::Store::open(&arguments[position + 1]).unwrap();
+        let snapshot = store.snapshot().unwrap();
+        println!(
+            "cold_load_us={} cold_rss_kib={}",
+            started.elapsed().as_micros(),
+            rss()
+        );
+        measure(&snapshot, snapshot.document().rules.len());
+        store.close().unwrap();
+        return;
+    }
     let count: usize = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "100000".into())
@@ -111,6 +126,37 @@ fn main() {
         compile.as_millis(),
         rss()
     );
+    // 重启后的查询单独采样，两种缓存使用相同规则和调用路径。
+    let snapshot = if std::env::args().any(|arg| arg == "--reopen") {
+        let path = std::env::temp_dir().join(format!("fluxa-cache-query-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        let input = snapshot
+            .document()
+            .rules
+            .iter()
+            .map(|row| row.rule.clone())
+            .collect();
+        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        store
+            .update(snapshot.document().settings.clone(), sources(input))
+            .unwrap();
+        store.close().unwrap();
+        drop(store);
+        drop(snapshot);
+        let started = Instant::now();
+        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        let snapshot = store.snapshot().unwrap();
+        println!(
+            "reopen_us={} reopened_rss_kib={}",
+            started.elapsed().as_micros(),
+            rss()
+        );
+        store.close().unwrap();
+        std::fs::remove_dir_all(path).unwrap();
+        snapshot
+    } else {
+        std::sync::Arc::new(snapshot)
+    };
     if std::env::args().any(|arg| arg == "--persist") {
         let input: Vec<_> = snapshot
             .document()
@@ -162,7 +208,7 @@ fn main() {
                     },
                     sources(input.clone()),
                 )
-                .expect("第一次 SQLite 提交必须实际成功");
+                .expect("第一次缓存提交必须实际成功");
             print_update(1, &first);
             let second = store
                 .update(
@@ -183,13 +229,38 @@ fn main() {
             rss()
         );
         // 同步模式在上面的分支内关闭，异步模式由 Service 关闭。
-        let reopened = libfluxa_core::routing::store::Store::open(&path)
-            .expect("磁盘 YAML 必须能够重新加载编译");
+        let reopen_started = Instant::now();
+        let reopened =
+            libfluxa_core::routing::store::Store::open(&path).expect("磁盘缓存必须能够重新加载");
+        println!(
+            "reopen_us={} reopened_rss_kib={}",
+            reopen_started.elapsed().as_micros(),
+            rss()
+        );
+        let persisted = std::fs::read_dir(&path)
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("runtime-rules.")
+            })
+            .unwrap();
+        println!("cache_bytes={}", persisted.metadata().unwrap().len());
         assert_eq!(reopened.snapshot().unwrap().document().rules.len(), count);
         reopened.close().unwrap();
-        std::fs::remove_dir_all(path).unwrap();
+        if std::env::args().any(|arg| arg == "--keep-cache") {
+            println!("cache_directory={}", path.display());
+        } else {
+            std::fs::remove_dir_all(path).unwrap();
+        }
         return;
     }
+    measure(&snapshot, count);
+}
+
+fn measure(snapshot: &Snapshot, count: usize) {
     for (case, name) in [
         ("first", "d0.example.net".to_owned()),
         ("last", format!("d{}.example.net", count - 8)),

@@ -83,13 +83,16 @@ impl Store {
             std::fs::TryLockError::WouldBlock => Error::InvalidState,
             std::fs::TryLockError::Error(_) => Error::Network,
         })?;
-        let path = directory.join("runtime-rules.sqlite");
+        let path = directory.join("runtime-rules.bin");
         let snapshot = match fs::symlink_metadata(&path) {
-            Ok(_) => Some(Arc::new(super::database::load(&path)?)),
+            Ok(_) => Some(Arc::new(super::cache::load(&path)?)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if directory.join("runtime-rules.sqlite").try_exists()? {
+                    return Err(Error::Unsupported);
+                }
                 let legacy = directory.join("runtime-rules.yaml");
                 if legacy.try_exists()? {
-                    let snapshot = Arc::new(Snapshot::migrate_yaml(&read(&legacy)?)?);
+                    let snapshot = Arc::new(Snapshot::migrate_yaml(&read(&legacy)?)?.into_flat()?);
                     let temporary = Self::prepare(&directory, &snapshot)?;
                     fs::rename(&temporary.0, &path)?;
                     File::open(&directory)?.sync_all()?;
@@ -124,7 +127,7 @@ impl Store {
             options.mode(0o600);
         }
         let file = options.open(&temporary.0)?;
-        super::database::write(&temporary.0, snapshot)?;
+        super::cache::write(&temporary.0, snapshot)?;
         file.sync_all()?;
         drop(file);
         Ok(temporary)
@@ -169,7 +172,7 @@ impl Store {
         let version = previous.checked_add(1).ok_or(Error::ResourceLimit)?;
         let mut timings = UpdateTimings::default();
         let started = Instant::now();
-        let snapshot = Arc::new(Snapshot::generate(settings, sources, version)?);
+        let snapshot = Arc::new(Snapshot::generate(settings, sources, version)?.into_flat()?);
         timings.compile = started.elapsed();
         let started = Instant::now();
         let temporary = Self::prepare(&self.directory, &snapshot)?;
@@ -183,7 +186,7 @@ impl Store {
         if state.snapshot.as_ref().map_or(0, |s| s.document().version) != previous {
             return Err(Error::InvalidState);
         }
-        let destination = self.directory.join("runtime-rules.sqlite");
+        let destination = self.directory.join("runtime-rules.bin");
         if fs::symlink_metadata(&destination).is_ok_and(|m| m.file_type().is_symlink()) {
             return Err(Error::InvalidInput);
         }

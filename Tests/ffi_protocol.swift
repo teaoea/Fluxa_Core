@@ -59,6 +59,20 @@ struct ProtocolFFICheck {
     let recovered = try client.read(id: udp.id)
     precondition(recovered.data == Data([9]))
     try client.close(id: udp.id)
+    let blockedRouting = try RoutingConfiguration(
+      settings: routing.settings,
+      rules: [RoutingRule(type: .transport, value: "quic", policy: .reject)]
+    )
+    try client.configureNetwork(dns: nil, routing: blockedRouting, outbounds: [profile])
+    let blockedUDP = try client.openRouted(RoutingTarget(
+      address: "127.0.0.1",
+      port: UInt16(fixture.udpPort),
+      transport: .udp
+    ))
+    var quic = Data([0xC0, 0, 0, 0, 1, 1, 1, 1, 2, 0, 17])
+    quic.append(Data(repeating: 0, count: 17))
+    try rejection { try client.write(quic, id: blockedUDP.id) }
+    try client.close(id: blockedUDP.id)
     let tun = try NativeTunUDPClient(routing: routing, outbounds: [profile])
     var packet = Data([
       0x45,

@@ -71,8 +71,24 @@ struct Connection {
     revision: u64,
     idle_timeout: Duration,
     usage: Mutex<resources::Usage>,
+    quic_blocked: bool,
+    quic: Mutex<crate::protocol::quic::Flow>,
 }
 impl Connection {
+    fn inspect_datagram(&self, bytes: &[u8]) -> Result<()> {
+        if self
+            .quic
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .observe(bytes)
+            && self.quic_blocked
+        {
+            self.close();
+            return Err(Error::Rejected);
+        }
+        Ok(())
+    }
+
     fn close(&self) {
         self.cancel.send_replace(true);
     }
@@ -135,8 +151,10 @@ impl Manager {
             return Err(Error::InvalidInput);
         }
         policy.check_support()?;
+        let snapshot = self.network_snapshot()?;
+        snapshot.check_transport(transport)?;
         Ok(self
-            .establish(duration(milliseconds)?, dial(address, transport))
+            .establish_with(snapshot, duration(milliseconds)?, dial(address, transport))
             .await?
             .id)
     }
@@ -153,6 +171,7 @@ impl Manager {
         }
         policy.check_support()?;
         let snapshot = self.network_snapshot()?;
+        snapshot.check_transport(transport)?;
         if snapshot
             .resolver
             .as_ref()
@@ -165,18 +184,24 @@ impl Manager {
             .await?
             .id)
     }
-    async fn establish(
-        &self,
-        deadline: Duration,
-        future: impl std::future::Future<Output = Result<Dialed>>,
-    ) -> Result<Opened> {
-        self.establish_with(self.network_snapshot()?, deadline, future)
-            .await
-    }
     async fn establish_with(
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
+        future: impl std::future::Future<Output = Result<Dialed>>,
+    ) -> Result<Opened> {
+        let blocked = snapshot
+            .router
+            .as_ref()
+            .is_some_and(|router| router.blocks_quic());
+        self.establish_guarded(snapshot, deadline, blocked, future)
+            .await
+    }
+    async fn establish_guarded(
+        &self,
+        snapshot: Arc<NetworkSnapshot>,
+        deadline: Duration,
+        quic_blocked: bool,
         future: impl std::future::Future<Output = Result<Dialed>>,
     ) -> Result<Opened> {
         self.start_reaper()?;
@@ -215,6 +240,8 @@ impl Manager {
                 revision: snapshot.revision,
                 idle_timeout: Duration::from_millis(snapshot.limits.idle_timeout_ms),
                 usage: Mutex::new(resources::Usage::default()),
+                quic_blocked,
+                quic: Mutex::new(crate::protocol::quic::Flow::default()),
             }))
             .ok_or(Error::ResourceLimit)?;
         Ok(Opened {
@@ -237,6 +264,9 @@ impl Manager {
         }
         let connection = self.connection(id)?;
         let tcp = matches!(&connection.socket, Socket::Tcp { .. });
+        if !tcp {
+            connection.inspect_datagram(bytes)?;
+        }
         let framed = matches!(&connection.socket, Socket::ProxyUdp { .. });
         let result = connection
             .run(milliseconds, async {
@@ -301,6 +331,9 @@ impl Manager {
                     }
                 };
                 // UDP 始终接收整个报文，超过调用者上限时丢弃并报错，不交付截断成功。
+                if udp {
+                    connection.inspect_datagram(&bytes[..length])?;
+                }
                 connection.activity(length, false, udp)?;
                 if length > maximum {
                     return Err(Error::ResourceLimit);

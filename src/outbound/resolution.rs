@@ -164,6 +164,7 @@ impl Manager {
         target: FakeIPTarget,
         snapshot: std::sync::Arc<super::NetworkSnapshot>,
     ) -> Result<Opened> {
+        snapshot.check_transport(target.transport)?;
         target.policy.check_support()?;
         let address = super::endpoint(&target.address)?;
         let domain =
@@ -191,6 +192,7 @@ impl Manager {
         snapshot: std::sync::Arc<super::NetworkSnapshot>,
     ) -> Result<Opened> {
         let deadline = duration(target.timeout_ms)?;
+        snapshot.check_transport(target.transport)?;
         target.policy.check_support()?;
         if target.domain.len() > 254 || target.port == 0 {
             return Err(Error::InvalidInput);
