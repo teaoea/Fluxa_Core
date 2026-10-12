@@ -24,3 +24,9 @@ Rust 接收和发送 UDP 报文都使用同一检查函数，涵盖直接 UDP、
 可运行 Rust 示例：cargo run --example protocol_block；只编译规则和识别测试向量，不连接外部目标。
 
 发布前验证：181 项 Rust 测试、严格 Clippy 和 14 组真实 Swift FFI 通过，包括独立 aioquic 1.2.0 加密 Initial 拦截；业务模块无新增 unsafe。最终独立 REALITY 服务端按现有 37 组指纹/套件矩阵复验。早先本地互通出现一次 30 秒超时，未确定原因，最终源码完整矩阵重新执行，记录实际结果，不以普通报文测试替代 HTTP/3 应用验收。
+
+## v2.1.0 发布记录
+
+源码提交 d739ef1e160f675c549aca8122cfb4d5654c6561；最终版本标签 v2.1.0 对应 54d0f3a6d5c2f3a8809969699b04509053d75769。crate、XCFramework 和远程 Swift Package 代码一致。框架 SHA-256：1e94768ee76ae0d6b7dff9a6f552af0b0df86de064a1886159e48f510f0d385f。GitHub 工作流 38256139823 首次运行成功。
+
+App v2.3.0 固定远程 v2.1.0；完整回归 86 项零失败，真实私有节点与专用 XUDP 环境初始跳过，随后专用独立 Chrome 指纹服务端补验 XUDP 及 QUIC 拦截通过，私有节点仍未测。最低 macOS 14 运行、Intel、其他 Apple 平台、系统 VPN、完整 HTTP/3 应用和迁移仍未验收。
