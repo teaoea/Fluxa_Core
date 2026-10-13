@@ -6,7 +6,7 @@
 
 本文件列出自研 Rust 内核、依赖组件的固定版本与协议声明，Hickory 的 MIT 原文另存于 Notices/。依赖条目来自现有 Cargo 元数据，包含测试、可选功能及其他平台依赖，并非全部已链接到 macOS 库；版本由 `Cargo.lock` 固定。协议中的 `OR` 表示可选协议，`AND` 表示组合要求；保留上游 SPDX 表达式。
 
-本清单不代表实际分发组件及传递依赖的许可审计已完成。组件用途与来源见 [DEPENDENCIES.md](DEPENDENCIES.md)。
+本清单不代表实际分发组件及传递依赖的许可审计已完成。组件用途与来源见 [Documentation/DEPENDENCIES.md](Documentation/DEPENDENCIES.md)。
 
 | 组件 | 版本 | 开源协议 |
 | --- | --- | --- |

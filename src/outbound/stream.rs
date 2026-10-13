@@ -102,11 +102,15 @@ impl AsyncWrite for ManagedStream {
 }
 impl Drop for ManagedStream {
     fn drop(&mut self) {
-        let resource = self.owner.upgrade().and_then(|state| {
-            state
-                .lock()
-                .ok()
-                .and_then(|mut state| state.registry.take(self.id))
+        let resource = self.owner.upgrade().and_then(|state| match state.lock() {
+            Ok(mut state) => state.registry.take(self.id),
+            Err(_) => {
+                crate::error::diagnostics::record(
+                    Error::Internal,
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                );
+                None
+            }
         });
         if let Some(resource) = resource {
             resource.close();
@@ -161,7 +165,10 @@ impl Manager {
             })
         })();
         if result.is_err() {
-            let _ = self.close(id);
+            let _ = crate::error::diagnostics::observe(
+                self.close(id),
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
         }
         result
     }

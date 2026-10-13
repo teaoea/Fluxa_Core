@@ -125,6 +125,10 @@ impl Access {
             return false;
         }
         let Ok(mut sources) = self.sources.lock() else {
+            crate::error::diagnostics::record(
+                Error::Internal,
+                crate::error::diagnostics::DiagnosticSite::DnsService,
+            );
             return false;
         };
         let now = Instant::now();
@@ -183,30 +187,43 @@ impl Service {
                 if *canceled.borrow() {
                     break;
                 }
-                while children.try_join_next().is_some() {}
+                while let Some(result) = children.try_join_next() {
+                    crate::error::diagnostics::observe_join(
+                        result,
+                        crate::error::diagnostics::DiagnosticSite::DnsService,
+                    );
+                }
                 tokio::select! {
                     _=canceled.changed()=>{break;}
                     received=udp.recv_from(&mut bytes)=>{
-                        let Ok((len,peer))=received else {break;};
+                        let (len,peer)=match received { Ok(value)=>value, Err(error)=>{crate::error::diagnostics::record(error.into(),crate::error::diagnostics::DiagnosticSite::DnsService);break;} };
                         if len>4096 || !access.allow(peer.ip()) {continue;}
-                        let Ok(permit)=REQUESTS.try_acquire() else {increment(&own_stats.rejected);continue;};
+                        let Ok(permit)=REQUESTS.try_acquire() else {crate::error::diagnostics::record(Error::ResourceLimit,crate::error::diagnostics::DiagnosticSite::DnsService);increment(&own_stats.rejected);continue;};
                         let packet=bytes[..len].to_vec();let udp=udp.clone();let resolver=resolver.clone();let stats=own_stats.clone();
                         children.spawn(async move {let _permit=permit;increment(&stats.queries);
-                            if let Ok(reply)=resolver.respond(&packet,true).await {let _=udp.send_to(&reply,peer).await;}else{increment(&stats.rejected);}
+                            match resolver.respond(&packet,true).await {
+                                Ok(reply) => { if let Err(error) = udp.send_to(&reply,peer).await { crate::error::diagnostics::record(error.into(), crate::error::diagnostics::DiagnosticSite::DnsService); } },
+                                Err(error) => { crate::error::diagnostics::record(error, crate::error::diagnostics::DiagnosticSite::DnsService); increment(&stats.rejected); }
+                            }
                         });
                     }
                     accepted=tcp.accept()=>{
-                        let Ok((socket,peer))=accepted else {break;};
+                        let (socket,peer)=match accepted {Ok(value)=>value,Err(error)=>{crate::error::diagnostics::record(error.into(),crate::error::diagnostics::DiagnosticSite::DnsService);break;} };
                         if !access.permitted(peer.ip()) {increment(&own_stats.rejected);continue;}
-                        let Ok(permit)=CONNECTIONS.try_acquire() else {increment(&own_stats.rejected);continue;};
+                        let Ok(permit)=CONNECTIONS.try_acquire() else {crate::error::diagnostics::record(Error::ResourceLimit,crate::error::diagnostics::DiagnosticSite::DnsService);increment(&own_stats.rejected);continue;};
                         let resolver=resolver.clone();let access=access.clone();
-                        children.spawn(async move {let _permit=permit;let _=tcp_session(socket,peer,resolver,access).await;});
+                        children.spawn(async move {let _permit=permit;let _=crate::error::diagnostics::observe(tcp_session(socket,peer,resolver,access).await,crate::error::diagnostics::DiagnosticSite::DnsService);});
                     }
-                    _=children.join_next(),if !children.is_empty()=>{}
+                    joined=children.join_next(),if !children.is_empty()=>{if let Some(result)=joined {crate::error::diagnostics::observe_join(result,crate::error::diagnostics::DiagnosticSite::DnsService);}}
                 }
             }
             children.abort_all();
-            while children.join_next().await.is_some() {}
+            while let Some(result) = children.join_next().await {
+                crate::error::diagnostics::observe_join(
+                    result,
+                    crate::error::diagnostics::DiagnosticSite::DnsService,
+                );
+            }
             own_stats.running.store(false, Ordering::Release);
         });
         Ok(Self {

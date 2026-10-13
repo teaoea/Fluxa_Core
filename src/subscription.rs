@@ -146,7 +146,7 @@ pub async fn fetch(
         Err(Error::ResourceLimit)
     })
     .await
-    .map_err(|_| Error::Network)?
+    .map_err(|_| Error::Internal)?
 }
 /// Clash classical YAML：动作由订阅配置提供；不接受列表内第三列策略、no-resolve 或未知类型。
 pub fn parse_rules(

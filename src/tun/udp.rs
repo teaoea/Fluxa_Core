@@ -95,7 +95,10 @@ struct ConnectionLease {
 }
 impl Drop for ConnectionLease {
     fn drop(&mut self) {
-        let _ = self.manager.close(self.id);
+        let _ = crate::error::diagnostics::observe(
+            self.manager.close(self.id),
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
     }
 }
 /// 每会话只允许一个提交在途；读返回包可并发，关闭不等待提交锁。
@@ -295,7 +298,10 @@ impl Session {
                 .remove(&key)
         {
             flow.task.abort();
-            let _ = self.manager.close(flow.id);
+            let _ = crate::error::diagnostics::observe(
+                self.manager.close(flow.id),
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
         }
         result
     }
@@ -335,7 +341,10 @@ impl Session {
         state.closed = true;
         self.cancel.send_replace(true);
         for (_, flow) in state.flows.drain() {
-            let _ = self.manager.close(flow.id);
+            let _ = crate::error::diagnostics::observe(
+                self.manager.close(flow.id),
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
             flow.task.abort();
         }
         let mut receiver = self.receiver.lock().map_err(|_| Error::Internal)?;
@@ -346,7 +355,10 @@ impl Session {
 }
 impl Drop for Session {
     fn drop(&mut self) {
-        let _ = self.close();
+        let _ = crate::error::diagnostics::observe(
+            self.close(),
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
     }
 }
 async fn receive_loop(

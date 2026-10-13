@@ -23,7 +23,14 @@ struct State {
 struct Temporary(PathBuf);
 impl Drop for Temporary {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        if let Err(error) = fs::remove_file(&self.0)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            crate::error::diagnostics::record(
+                error.into(),
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
+        }
     }
 }
 /// 更新阶段耗时随完成结果返回，不在匹配路径采样或写入日志。
@@ -207,9 +214,13 @@ impl Store {
         }
         timings.switch = started.elapsed();
         let started = Instant::now();
-        let directory_synced = File::open(&self.directory)
-            .and_then(|file| file.sync_all())
-            .is_ok();
+        let directory_synced = crate::error::diagnostics::observe(
+            File::open(&self.directory)
+                .and_then(|file| file.sync_all())
+                .map_err(Error::from),
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        )
+        .is_ok();
         timings.directory_sync = started.elapsed();
         // 目录刷盘失败作为耐久性状态报告，不能伪造回滚或声称旧文件仍有效。
         Ok(Commit {

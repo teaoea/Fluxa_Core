@@ -32,6 +32,9 @@ pub struct Job {
     pub version: Option<u64>,
     pub directory_synced: Option<bool>,
     pub error: Option<String>,
+    /// 机器可识别的实际失败；旧 error 文本仅供诊断。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_info: Option<crate::error::ErrorInfo>,
 }
 pub struct Service {
     pub store: Arc<Store>,
@@ -132,6 +135,7 @@ impl Service {
             version: None,
             directory_synced: None,
             error: None,
+            error_info: None,
         };
         let previous = latest.replace(job.clone());
         let state = Arc::clone(&self.latest);
@@ -148,19 +152,35 @@ impl Service {
                     })
                 }))
                 .unwrap_or(Err(Error::Internal));
-                let result = if result.is_err() && store.job_cancelled(id).unwrap_or(false) {
+                let result = if result.is_err()
+                    && crate::error::diagnostics::observe(
+                        store.job_cancelled(id),
+                        crate::error::diagnostics::DiagnosticSite::BackgroundJob,
+                    )
+                    .unwrap_or(false)
+                {
                     Err(Error::Cancelled)
                 } else {
                     result
                 };
                 // 先持有状态锁再释放实例槽位，避免旧任务结果覆盖后提交的新任务。
                 if let Ok(mut state) = state.lock() {
-                    let _ = store.finish_job(id);
+                    let _ = crate::error::diagnostics::observe(
+                        store.finish_job(id),
+                        crate::error::diagnostics::DiagnosticSite::BackgroundJob,
+                    );
                     if state.as_ref().is_some_and(|job| job.id == id) {
                         *state = Some(Self::completed(id, result));
                     }
                 } else {
-                    let _ = store.finish_job(id);
+                    crate::error::diagnostics::record(
+                        Error::Internal,
+                        crate::error::diagnostics::DiagnosticSite::BackgroundJob,
+                    );
+                    let _ = crate::error::diagnostics::observe(
+                        store.finish_job(id),
+                        crate::error::diagnostics::DiagnosticSite::BackgroundJob,
+                    );
                 }
             });
         if result.is_err() {
@@ -178,6 +198,7 @@ impl Service {
                 version: Some(commit.version),
                 directory_synced: Some(commit.directory_synced),
                 error: None,
+                error_info: None,
             },
             Err(error) => Job {
                 id,
@@ -189,6 +210,7 @@ impl Service {
                 version: None,
                 directory_synced: None,
                 error: Some(error.to_string()),
+                error_info: Some(error.public_info()),
             },
         }
     }
@@ -218,7 +240,10 @@ impl Service {
 }
 impl Drop for Service {
     fn drop(&mut self) {
-        let _ = self.store.close();
+        let _ = crate::error::diagnostics::observe(
+            self.store.close(),
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
     }
 }
 
@@ -249,8 +274,14 @@ mod tests {
         }]
     }
     fn path() -> PathBuf {
+        // 生命周期编号只保证本进程唯一；测试目录增加进程与时间，不能读入旧测试产物。
         std::env::temp_dir().join(format!(
-            "fluxa-background-{}",
+            "fluxa-background-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
             crate::lifecycle::identifier().unwrap()
         ))
     }

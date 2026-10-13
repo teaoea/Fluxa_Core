@@ -109,3 +109,7 @@ C ABI 提供 dns_service_start/stop/status；运行中重配置明确拒绝。�
 Rust 148 项测试通过（私有节点互通 1 项未提供环境而跳过）；严格 Clippy 通过。真实 Swift FFI 十二组全部通过，其中 DNS 检查实际 UDP、TCP、DoT、HTTP/2 DoH，以及最近查询、跨句柄同配置共享和缓存 0 ms。独立固定服务端 37 个指纹/密码套件组合互通通过。资源注册表使用弱引用，不延长解析器生命周期，注册项最多 16 个、键最多 8192 字节，统计不含域名或响应。
 
 这项能力不增加 YAML 字段，完整示例配置不变。退出进程后统计清空；取消途中尚未完成的查询不当成已完成记录；配置不同或没有查询时返回空。仅观察本进程 Rust 默认 DNS，不包含 macOS 其他进程和回退服务器的耗时；最低 macOS 14、Intel、移动平台与系统 TUN 未测。发布来源及二进制校验以同版本 Release provenance.json 为准。
+
+## 错误协议示例与失败边界
+
+`Resolver::respond(&[], true)` 返回标准 FORMERR 报文，这是 DNS 协议负响应，不是错误默认放行。构造该响应的编码失败必须返回 `Error::DnsResponse`（1003），不能转换成空报文成功。无回复上游使用 1002，统计锁中毒使用 1014，系统报告内存不足使用 1006。可运行验证见 `cargo test --test error_contract`、`cargo test --lib dns::error_semantics_tests` 和 `cargo test --test dns_service`。

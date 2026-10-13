@@ -105,7 +105,7 @@ pub async fn current_address(client: &crate::https::HttpsClient, ipv6: bool) -> 
         client.execute_limited(endpoint, 64),
     )
     .await
-    .map_err(|_| Error::Network)??;
+    .map_err(|_| Error::Internal)??;
     if response.status != 200 {
         return Err(Error::Network);
     }

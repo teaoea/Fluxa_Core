@@ -274,8 +274,7 @@ impl Resolver {
                         false,
                         last.is_ok()
                             || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_)))),
-                    )
-                    .map_err(|_| NetError::Timeout)?;
+                    )?;
                 }
                 if last.is_ok() || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_))))
                 {
@@ -286,13 +285,17 @@ impl Resolver {
                     break;
                 }
             }
-            last
+            // 保留统计锁等内核失败，与上游查询结果分层；不能误标为 DNS 超时。
+            Ok::<_, Error>(last)
         })
         .await
         .map_err(|_| {
-            let _ = self.observe(started.elapsed().as_millis() as u64, false, false);
+            let _ = crate::error::diagnostics::observe(
+                self.observe(started.elapsed().as_millis() as u64, false, false),
+                crate::error::diagnostics::DiagnosticSite::DnsObservation,
+            );
             Error::DnsTimeout
-        })?;
+        })??;
         let mut answer = Answer {
             name,
             query_type: kind.to_string(),
@@ -409,7 +412,10 @@ impl Resolver {
                 cache.remove(&old);
             }
             // 返回文本上限 16 KiB；固定 128 KiB 覆盖最多 64 KiB 报文、展示记录和容器开销。
-            if let Ok(lease) = CACHE_BUDGET.reserve(128 * 1024) {
+            if let Ok(lease) = crate::error::diagnostics::observe(
+                CACHE_BUDGET.reserve(128 * 1024),
+                crate::error::diagnostics::DiagnosticSite::DnsCache,
+            ) {
                 cache.insert(
                     key,
                     Cached {
@@ -462,4 +468,42 @@ fn validated_query(query: Query) -> Result<(String, RecordType)> {
         return Err(Error::Unsupported);
     }
     Ok((name, kind))
+}
+
+#[cfg(test)]
+mod error_semantics_tests {
+    use super::*;
+    #[tokio::test]
+    async fn observation_lock_failure_is_internal_not_dns_timeout() {
+        let upstream = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let resolver = Resolver::new(Config {
+            servers: vec![Server::Udp {
+                address: upstream.local_addr().unwrap().to_string(),
+            }],
+            timeout_ms: 200,
+            dnssec: false,
+            fake_ip: None,
+            service: None,
+        })
+        .unwrap();
+        let observation = std::sync::Arc::clone(&resolver.observation);
+        // 仅测试自己的统计锁；业务锁中毒必须受控失败，不能恢复成解析成功或超时。
+        assert!(
+            std::thread::spawn(move || {
+                let _guard = observation.lock().unwrap();
+                panic!("注入统计锁中毒");
+            })
+            .join()
+            .is_err()
+        );
+        let error = resolver
+            .resolve(Query {
+                name: "example.test".into(),
+                query_type: "A".into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error, Error::Internal);
+        assert_eq!(error.code().value(), 1014);
+    }
 }

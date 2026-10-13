@@ -112,25 +112,30 @@ impl MitmProxy {
                 tokio::select! {
                     _ = stopped.changed() => break,
                     accepted = listener.accept() => {
-                        let Ok((socket, _)) = accepted else { break; };
+                        let (socket, _)=match accepted {Ok(value)=>value,Err(error)=>{crate::error::diagnostics::record(error.into(),crate::error::diagnostics::DiagnosticSite::MitmCapture);break;}};
                         static CONNECTIONS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
-                        let Ok(permit) = CONNECTIONS.try_acquire() else { drop(socket); continue; };
-                        if sessions.len() >= 32 { drop(socket); continue; }
+                        let Ok(permit) = CONNECTIONS.try_acquire() else { crate::error::diagnostics::record(Error::ResourceLimit, crate::error::diagnostics::DiagnosticSite::MitmCapture); drop(socket); continue; };
+                        if sessions.len() >= 32 { crate::error::diagnostics::record(Error::ResourceLimit, crate::error::diagnostics::DiagnosticSite::MitmCapture); drop(socket); continue; }
                         let (state, captures) = (Arc::clone(&state), Arc::clone(&captures));
                         sessions.spawn(async move {
                             let _permit = permit;
                             let started = Instant::now(); let mut capture = Capture::new();
                             let result = timeout(Duration::from_secs(60), session(socket, &state, &mut capture)).await;
                             capture.duration_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
-                            if let Err(error) = result.unwrap_or(Err(Error::Network)) { capture.error = Some(error.to_string()); }
-                            let _ = captures.push(capture);
+                            if let Err(error) = result.unwrap_or(Err(Error::NetworkTimeout)) { capture.error = Some(error.to_string()); capture.error_info = Some(error.public_info()); }
+                            let _ = crate::error::diagnostics::observe(captures.push(capture), crate::error::diagnostics::DiagnosticSite::MitmCapture);
                         });
                     }
-                    _ = sessions.join_next(), if !sessions.is_empty() => {}
+                    joined = sessions.join_next(), if !sessions.is_empty() => {if let Some(result)=joined {crate::error::diagnostics::observe_join(result,crate::error::diagnostics::DiagnosticSite::MitmCapture);}}
                 }
             }
             sessions.abort_all();
-            while sessions.join_next().await.is_some() {}
+            while let Some(result) = sessions.join_next().await {
+                crate::error::diagnostics::observe_join(
+                    result,
+                    crate::error::diagnostics::DiagnosticSite::MitmCapture,
+                );
+            }
         });
         Ok(Self {
             port,

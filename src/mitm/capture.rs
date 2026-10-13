@@ -26,6 +26,9 @@ pub struct Capture {
     pub intercepted: bool,
     pub duration_ms: u64,
     pub error: Option<String>,
+    /// 失败分类不依赖诊断文本；没有动态参数或完整底层错误链。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_info: Option<crate::error::ErrorInfo>,
 }
 fn body_base64<S: Serializer>(body: &[u8], serializer: S) -> std::result::Result<S::Ok, S::Error> {
     serializer.serialize_str(&STANDARD.encode(body))
@@ -46,6 +49,7 @@ impl Capture {
             intercepted: false,
             duration_ms: 0,
             error: None,
+            error_info: None,
         }
     }
     fn size(&self) -> usize {

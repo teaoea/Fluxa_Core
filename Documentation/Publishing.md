@@ -41,3 +41,7 @@ TUN 基础检查层新增功能，Rust 46 项、严格 Clippy、真实 Swift FFI
 框架 SHA-256：8800e08f820d79ec9db6b09386bb1e92b66c2499ec5bc0455a54de0b9019dc33；测试服务 SHA-256：3336f61db0c2820ba8060d0de5eac02afe3bbabb4eb33911bcb5c7489d4c30b5。仅 macOS ARM64；无系统 TUN、TCP/UDP 转发或 DNS 互通验收。
 
 优先顺序纠正：检查基础交付后暂停后续 TUN 转发，先完成 DNS、路由、共用出站基础，再推进系统 TUN、网关和 SOCKS/HTTP；当前连接中的系统域名解析不能视为独立 DNS 模块，规则配置模型也不能视为执行路由。
+
+## v2.3.0 统一整数错误协议发布准备
+
+新增固定 u16 错误代码、显式结构化 ABI 扩展、受限诊断及查询表自动检查，按功能版本递增为 2.3.0。原 ABI 数值、旧 JSON 和正式规则算法保留兼容；Rust ProtocolViolation 变体与 Job/Capture 可选字段为已授权源码兼容变更。源码、crate、框架及远程 Swift 包必须对应同一来源；生成校验值提交仅修改下载元数据。错误体系审查、已知 Fake-IP 和 Debug 执行顺序缺陷及未验证范围见 ErrorSystemReview.md，不把发布视为全平台或系统 VPN 验收。

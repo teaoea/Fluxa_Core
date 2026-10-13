@@ -96,7 +96,7 @@ impl HttpsClient {
             self.execute_inner(method, target, headers, body, ConnectionOptions::default()),
         )
         .await
-        .map_err(|_| Error::Network)?
+        .map_err(|_| Error::NetworkTimeout)?
     }
     /// 订阅等小型内容复用 HTTPS 流程，在分配响应正文前执行更小的上限。
     pub async fn execute_limited(&self, target: &str, maximum: usize) -> Result<Response> {
@@ -117,7 +117,7 @@ impl HttpsClient {
             ),
         )
         .await
-        .map_err(|_| Error::Network)?
+        .map_err(|_| Error::NetworkTimeout)?
     }
     /// 通过本机 CONNECT 入口执行 HTTPS；不会失败后回退直连。
     pub async fn execute_via_proxy(
@@ -142,7 +142,7 @@ impl HttpsClient {
             ),
         )
         .await
-        .map_err(|_| Error::Network)?
+        .map_err(|_| Error::NetworkTimeout)?
     }
     /// HTTP 与 HTTPS 共用分帧；明确给定本地上游时不回退直连。
     pub async fn execute_request(
@@ -169,7 +169,7 @@ impl HttpsClient {
             ),
         )
         .await
-        .map_err(|_| Error::Network)?
+        .map_err(|_| Error::NetworkTimeout)?
     }
     pub(crate) async fn connect_tls(
         &self,

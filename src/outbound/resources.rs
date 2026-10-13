@@ -65,7 +65,13 @@ impl Connection {
                 .usage
                 .lock()
                 .map(|usage| usage.last_activity.elapsed() >= self.idle_timeout)
-                .unwrap_or(true)
+                .unwrap_or_else(|_| {
+                    crate::error::diagnostics::record(
+                        Error::Internal,
+                        crate::error::diagnostics::DiagnosticSite::OutboundReaper,
+                    );
+                    true
+                })
     }
 }
 pub(super) fn reap(state: &Arc<Mutex<State>>) -> Result<()> {
@@ -91,10 +97,21 @@ async fn reaper(state: Weak<Mutex<State>>) {
         let Some(state) = state.upgrade() else {
             return;
         };
-        if state.lock().map(|state| state.stopped).unwrap_or(true) {
+        if state.lock().map(|state| state.stopped).unwrap_or_else(|_| {
+            crate::error::diagnostics::record(
+                Error::Internal,
+                crate::error::diagnostics::DiagnosticSite::OutboundReaper,
+            );
+            true
+        }) {
             return;
         }
-        if reap(&state).is_err() {
+        if crate::error::diagnostics::observe(
+            reap(&state),
+            crate::error::diagnostics::DiagnosticSite::OutboundReaper,
+        )
+        .is_err()
+        {
             return;
         }
         // 强引用在本轮结束释放，不跨下一次等待持有引擎。

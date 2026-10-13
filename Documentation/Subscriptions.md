@@ -14,7 +14,7 @@
 
 Rust 下载要求配置 DNS。Fluxa 优先传入主配置 DNS；macOS 未配置时平台适配读取当前系统 DNS 服务器快照交给 Rust，失败明确要求配置 DNS，不悄悄换用第三方公共 DNS。其他平台尚未提供该适配与二进制切片，不声称已可用。
 
-完整示例位于根目录 [fluxa.yaml](fluxa.yaml) 与 [fluxa_english.yaml](fluxa_english.yaml)，二者字段及行为一致，后者使用英文显示名称，注释均为中文。它们是宿主主配置：宿主严格解析配置编辑字段，Rust 通过对应 API 接收网络值；不是可以把整份文件直接传给 runtime-rules YAML 加载器的运行时生成产物。
+完整示例位于根目录 [fluxa.yaml](../fluxa.yaml) 与 [fluxa_english.yaml](../fluxa_english.yaml)，二者字段及行为一致，后者使用英文显示名称，注释均为中文。它们是宿主主配置：宿主严格解析配置编辑字段，Rust 通过对应 API 接收网络值；不是可以把整份文件直接传给 runtime-rules YAML 加载器的运行时生成产物。
 
 ## 本轮验证
 

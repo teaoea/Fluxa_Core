@@ -244,7 +244,13 @@ impl Manager {
                                     connected = Some(socket);
                                     break;
                                 }
-                                Err(_) => continue,
+                                Err(error) => {
+                                    crate::error::diagnostics::record(
+                                        error.into(),
+                                        crate::error::diagnostics::DiagnosticSite::IoConversion,
+                                    );
+                                    continue;
+                                }
                             }
                         }
                         let socket = connected.ok_or(Error::Network)?;

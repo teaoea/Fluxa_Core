@@ -43,23 +43,23 @@ fn response(request: &Message, code: ResponseCode) -> Message {
     }
     result
 }
-/// 畸形报文仅回应小型 FORMERR；不回显任意输入，也不产生放大响应。
-pub(super) fn malformed(bytes: &[u8]) -> Vec<u8> {
+/// 畸形报文仅回应小型 FORMERR；编码失败必须返回 DNS 错误，不能伪造空报文成功。
+pub(super) fn malformed(bytes: &[u8]) -> Result<Vec<u8>> {
     let id = bytes
         .get(..2)
         .map(|b| u16::from_be_bytes([b[0], b[1]]))
         .unwrap_or(0);
     Message::error_msg(id, OpCode::Query, ResponseCode::FormErr)
         .to_vec()
-        .unwrap_or_default()
+        .map_err(|_| Error::DnsResponse)
 }
 impl Resolver {
     pub async fn respond(&self, bytes: &[u8], udp: bool) -> Result<Vec<u8>> {
         if !(12..=4096).contains(&bytes.len()) {
-            return Ok(malformed(bytes));
+            return malformed(bytes);
         }
         let Ok(request) = Message::from_vec(bytes) else {
-            return Ok(malformed(bytes));
+            return malformed(bytes);
         };
         if request.metadata.message_type != MessageType::Query {
             return Err(Error::InvalidInput);

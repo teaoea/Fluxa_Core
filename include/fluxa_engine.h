@@ -27,6 +27,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 24 代表显式虚拟 DNS 端点及所属解析器 Fake-IP 自动代次衔接，不代表系统 VPN。
 // 位 22 代表单目标 XUDP 代理报文；不代表任意 Mux、空报文或系统 TUN。
 // 位 23 代表 TCP/UDP 规则及 QUIC 报文/连接关联拦截，不代表所有短头或迁移均可识别。
+// 位 25 代表 u16 错误代码、同线程查询及 command_v2 结构化错误扩展。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);
@@ -37,13 +38,22 @@ int32_t fluxa_engine_start(uint64_t handle);
    返回响应缓冲区句柄，使用后调用 destroy；零表示边界或资源错误。
    响应名额/预算不足在执行前返回零，读数据尚未消费；释放旧响应后可重试。 */
 uint64_t fluxa_engine_command(uint64_t handle, const uint8_t *input, size_t length);
+/* 共用 v1 的命令语义、输入借用和响应预算，显式返回新增 error_info。
+   成功/失败仍由 success 表示；响应句柄释放约定不变。 */
+uint64_t fluxa_engine_command_v2(uint64_t handle, const uint8_t *input, size_t length);
+/* 当前调用线程的最后结构化错误；返回所需长度，无错误为零。
+   空目标/容量不足不写；查询不分配、不清除。后续 ABI 操作会覆盖。
+   容量足够时 output 须可写；格式及代码见根目录《错误代码查询表.md》。 */
+size_t fluxa_engine_last_error_copy(uint8_t *output, size_t capacity);
+/* 最低开销查询：同线程固定 u16 代码，零表示无错误；不分配、不加锁、不清除。 */
+uint16_t fluxa_engine_last_error_code(void);
 size_t fluxa_engine_buffer_length(uint64_t handle);
 /* 目标须在调用期可写，不能与 Rust 内存重叠；容量不足不写，返回所需长度。 */
 size_t fluxa_engine_buffer_copy(uint64_t handle, uint8_t *output, size_t capacity);
 /* UDP 数据面：输入为一个完整 IP 包，最大 9000 字节；仅同步借用。
    generation=0 表示无 Fake-IP 代次，合成地址不能作为真实目标放行。
    状态码：0 成功，1 无效句柄，2 不支持，3 内部错误，4 输入错误，5 配额，
-   6 无效状态，7 取消，8 网络/DNS 错误，9 规则拒绝，10 超时，11 接收队列为空。
+   6 无效状态，7 取消，8 网络/DNS 错误，9 拒绝（新整数代码区分策略与协议约束），10 超时，11 接收队列为空。
    receive 的 output 须可写、对齐、无并发访问；成功句柄用 destroy 释放。
    错误或队列为空时 output 为零；响应配额不足不会取走队列中的返回包。 */
 int32_t fluxa_engine_tun_submit(uint64_t handle, const uint8_t *input, size_t length, uint64_t generation);

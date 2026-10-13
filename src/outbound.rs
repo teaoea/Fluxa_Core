@@ -402,7 +402,10 @@ impl Manager {
 }
 impl Drop for Manager {
     fn drop(&mut self) {
-        let _ = self.stop();
+        let _ = crate::error::diagnostics::observe(
+            self.stop(),
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
         if let Ok(task) = self.reaper.get_mut()
             && let Some(task) = task.take()
         {
