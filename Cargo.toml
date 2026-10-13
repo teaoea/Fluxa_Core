@@ -12,7 +12,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/Tests/fixtures/error-contract-v1.json", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
 
 [lib]
 name = "libfluxa_core"
@@ -133,3 +133,7 @@ path = "Tests/protocol_block.rs"
 [[test]]
 name = "tun_dns"
 path = "Tests/tun_dns.rs"
+
+[[test]]
+name = "error_contract"
+path = "Tests/error_contract.rs"

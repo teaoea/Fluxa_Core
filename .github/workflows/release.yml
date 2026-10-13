@@ -44,6 +44,12 @@ jobs:
           cargo fetch --locked
           cargo fmt --check
           cargo package --list --locked > /tmp/fluxa-package-files.txt
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          files = set(Path('/tmp/fluxa-package-files.txt').read_text().splitlines())
+          required = {'src/error.rs', 'Tests/error_contract.rs', 'Tests/fixtures/error-contract-v1.json', 'Documentation/error-codes.json', 'Documentation/错误代码查询表.md'}
+          if not required <= files: raise SystemExit('发布包缺少错误契约必要文件：'+str(required-files))
+          PYCODE
           cargo test --locked
           cargo run --locked --example error_contract -- --check
           cargo clippy --locked --all-targets -- -D warnings
