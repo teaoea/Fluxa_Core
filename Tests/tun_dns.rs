@@ -434,3 +434,93 @@ async fn reopened_same_pool_never_reuses_old_synthetic_address() {
         Err(Error::InvalidState)
     ));
 }
+#[tokio::test]
+async fn ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides() {
+    let upstream = support::fixture().await;
+    let make = || {
+        Arc::new(
+            Resolver::new(Config {
+                servers: vec![Server::Udp {
+                    address: format!("127.0.0.1:{}", upstream.port),
+                }],
+                timeout_ms: 100,
+                dnssec: false,
+                service: None,
+                fake_ip: Some(fake_ip::Config {
+                    ipv4_range: "198.19.0.0/16".into(),
+                    ipv6_range: "fd00:199:19::/64".into(),
+                    capacity: 8,
+                    exclude: vec![],
+                }),
+            })
+            .unwrap(),
+        )
+    };
+    let ordinary = make();
+    let query = |name: &str| libfluxa_core::dns::Query {
+        name: name.into(),
+        query_type: "A".into(),
+    };
+    let old = ordinary
+        .allocate_fake_ip(query("old-ordinary.test"))
+        .unwrap()
+        .addresses[0]
+        .clone();
+    let manager = Arc::new(Manager::default());
+    let owned = make();
+    manager
+        .configure_network(
+            Some(owned.clone()),
+            Some(Arc::new(
+                Router::compile(Routing {
+                    fallback: Policy::Direct,
+                    ..Routing::default()
+                })
+                .unwrap(),
+            )),
+            Limits::default(),
+        )
+        .unwrap();
+    let session = Session::new(
+        manager,
+        Options {
+            dns_endpoints: vec!["192.0.2.53:53".parse().unwrap()],
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let current = owned
+        .allocate_fake_ip(query("new-owned.test"))
+        .unwrap()
+        .addresses[0]
+        .clone();
+    assert_ne!(current, old);
+    let stale = encode(
+        "192.0.2.1:1234".parse().unwrap(),
+        format!("{old}:1234").parse().unwrap(),
+        b"no",
+        1500,
+    )
+    .unwrap();
+    assert!(matches!(
+        session.submit(&stale.bytes, None).await,
+        Err(Error::InvalidState)
+    ));
+    let foreign = ordinary
+        .allocate_fake_ip(query("foreign-new.test"))
+        .unwrap()
+        .addresses[0]
+        .clone();
+    assert_ne!(foreign, current);
+    let packet = encode(
+        "192.0.2.1:1234".parse().unwrap(),
+        format!("{foreign}:1234").parse().unwrap(),
+        b"no",
+        1500,
+    )
+    .unwrap();
+    assert!(matches!(
+        session.submit(&packet.bytes, None).await,
+        Err(Error::InvalidState)
+    ));
+}

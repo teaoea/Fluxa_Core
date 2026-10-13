@@ -40,6 +40,17 @@ struct TunDNSFFICheck {
       try client.submit(target)
       let echoed = try wait(client)
       precondition(echoed.suffix(body.count) == body && Array(echoed[12 ..< 16]) == address)
+      let foreign = try NativeDNSClient()
+      try foreign.configure(dns)
+      let foreignMapping = try foreign.query(name: "foreign.example.test")
+      let foreignAddress = foreignMapping.addresses[0].split(separator: ".").map { UInt8($0)! }
+      precondition(foreignAddress != address)
+      try rejected { try client.submit(packet(
+        address: foreignAddress,
+        port: fixture.udpPort,
+        body: body
+      )) }
+      try foreign.close()
       try client.updateNetwork(routing: routing, dns: dns)
       try rejected { try client.submit(packet(address: [198, 19, 0, 53], port: 53, body: query)) }
       try rejected { try client.submit(packet(

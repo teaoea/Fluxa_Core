@@ -55,3 +55,5 @@ TUN UDP v1.9.0 adds bounded IPv4/IPv6 UDP packet forwarding through the shared r
 Protocol blocking accepts transport tcp/udp/quic with reject only. QUIC v1/v2 identification uses packet structure and connection-local association, not UDP/443. Unknown standalone short headers, migration and unrecognized versions remain identification boundaries. Shared outbounds and TUN UDP enforce the same immutable connection policy. See ProtocolBlocking.md.
 
 TUN DNS/Fake-IP v2.2.0 intercepts explicitly configured virtual DNS endpoints using the existing resolver, encrypted upstreams and DNSSEC. Fake targets restore their domain using the bound resolver generation before real DNS and routing. Resolver replacement requires reopening the session; existing UDP flows retain their connection. TCP DNS ingress and system tunnels remain unsupported. See TunDNS.md.
+
+v2.2.1 includes ordinary API allocation history in the bounded pool high-water mark. Once a pool is bound to TUN, ordinary allocations share its cursor and foreign resolver mappings remain rejected by the owning session.

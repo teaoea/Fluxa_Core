@@ -94,17 +94,23 @@ static TUN_POOLS: LazyLock<Mutex<Vec<Namespace>>> = LazyLock::new(|| Mutex::new(
 struct Namespace {
     ranges: Ranges,
     cursor: Arc<Mutex<u32>>,
+    active: bool,
+}
+fn overlaps(left: &Ranges, right: &Ranges) -> bool {
+    (left.ipv4 <= right.ipv4_end && right.ipv4 <= left.ipv4_end)
+        || (left.ipv6 <= right.ipv6_end && right.ipv6 <= left.ipv6_end)
 }
 fn namespace(ranges: &Ranges) -> Result<Arc<Mutex<u32>>> {
     let mut pools = TUN_POOLS.lock().map_err(|_| Error::Internal)?;
-    if let Some(pool) = pools.iter().find(|pool| pool.ranges == *ranges) {
-        return Ok(pool.cursor.clone());
-    }
-    if pools.iter().any(|pool| {
-        (ranges.ipv4 <= pool.ranges.ipv4_end && pool.ranges.ipv4 <= ranges.ipv4_end)
-            || (ranges.ipv6 <= pool.ranges.ipv6_end && pool.ranges.ipv6 <= ranges.ipv6_end)
-    }) {
+    if pools
+        .iter()
+        .any(|pool| pool.ranges != *ranges && overlaps(ranges, &pool.ranges))
+    {
         return Err(Error::InvalidState);
+    }
+    if let Some(pool) = pools.iter_mut().find(|pool| pool.ranges == *ranges) {
+        pool.active = true;
+        return Ok(pool.cursor.clone());
     }
     if pools.len() >= 16 {
         return Err(Error::ResourceLimit);
@@ -113,8 +119,40 @@ fn namespace(ranges: &Ranges) -> Result<Arc<Mutex<u32>>> {
     pools.push(Namespace {
         ranges: ranges.clone(),
         cursor: cursor.clone(),
+        active: true,
     });
     Ok(cursor)
+}
+/// 普通池记录历史高水位；已被 TUN 接管的同范围池共享游标，避免跨解析器撞址。
+fn ordinary_id(ranges: &Ranges, id: u32) -> Result<u32> {
+    let mut pools = TUN_POOLS.lock().map_err(|_| Error::Internal)?;
+    if pools
+        .iter()
+        .any(|pool| pool.active && pool.ranges != *ranges && overlaps(ranges, &pool.ranges))
+    {
+        return Err(Error::InvalidState);
+    }
+    if let Some(pool) = pools.iter().find(|pool| pool.ranges == *ranges) {
+        let mut cursor = pool.cursor.lock().map_err(|_| Error::Internal)?;
+        if pool.active {
+            if *cursor >= ranges.available {
+                return Err(Error::ResourceLimit);
+            }
+            *cursor = cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
+            return Ok(*cursor);
+        }
+        *cursor = (*cursor).max(id);
+        return Ok(id);
+    }
+    if pools.len() >= 16 {
+        return Err(Error::ResourceLimit);
+    }
+    pools.push(Namespace {
+        ranges: ranges.clone(),
+        cursor: Arc::new(Mutex::new(id)),
+        active: false,
+    });
+    Ok(id)
 }
 struct Mapping {
     name: String,
@@ -185,7 +223,8 @@ impl Table {
                 *cursor = cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
                 *cursor
             } else {
-                state.cursor.checked_add(1).ok_or(Error::ResourceLimit)?
+                let id = state.cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
+                ordinary_id(&self.ranges, id)?
             };
             state.by_name.insert(name.clone(), id);
             state.by_id.insert(
