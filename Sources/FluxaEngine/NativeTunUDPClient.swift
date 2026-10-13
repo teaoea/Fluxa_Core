@@ -10,14 +10,17 @@ public final class NativeTunUDPClient: Sendable {
     routing: RoutingConfiguration, dns: DNSConfiguration? = nil,
     limits: OutboundLimits = OutboundLimits(), outbounds: [NativeProxyOutbound] = [],
     mtu: Int = 1500, maximumFlows: Int = 16, outputCapacity: Int = 32,
-    timeoutMilliseconds: UInt64 = 3000, idleTimeoutMilliseconds: UInt64 = 30000
+    timeoutMilliseconds: UInt64 = 3000, idleTimeoutMilliseconds: UInt64 = 30000,
+    dnsEndpoints: [String] = []
   ) throws {
-    client = try NativeCommandClient(requiredCapabilities: 1 << 21)
+    client =
+      try NativeCommandClient(requiredCapabilities: (1 << 21) |
+        (dnsEndpoints.isEmpty ? 0 : 1 << 24))
     try client.configureNetwork(dns: dns, routing: routing, limits: limits, outbounds: outbounds)
     _ = try client.command([
       "operation": "tun_udp_open", "mtu": mtu, "maximum_flows": maximumFlows,
       "output_capacity": outputCapacity, "timeout_ms": timeoutMilliseconds,
-      "idle_timeout_ms": idleTimeoutMilliseconds,
+      "idle_timeout_ms": idleTimeoutMilliseconds, "dns_endpoints": dnsEndpoints,
     ])
   }
 

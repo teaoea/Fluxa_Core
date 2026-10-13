@@ -81,6 +81,24 @@ impl Manager {
         hop: Option<SocketAddr>,
     ) -> Result<RoutedOpened> {
         let snapshot = self.network_snapshot()?;
+        self.connect_configured_snapshot_hop(request, snapshot, hop)
+            .await
+    }
+    /// TUN 捕获同一份网络配置，复用既有路由和出站，不复制连接流程。
+    pub(crate) async fn connect_configured_snapshot(
+        &self,
+        request: RoutedTarget,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
+    ) -> Result<RoutedOpened> {
+        self.connect_configured_snapshot_hop(request, snapshot, None)
+            .await
+    }
+    async fn connect_configured_snapshot_hop(
+        &self,
+        request: RoutedTarget,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
+        hop: Option<SocketAddr>,
+    ) -> Result<RoutedOpened> {
         let router = snapshot.router.as_ref().ok_or(Error::InvalidState)?;
         self.connect_with_snapshot(
             router,

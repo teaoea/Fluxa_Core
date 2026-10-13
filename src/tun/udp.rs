@@ -1,4 +1,4 @@
-//! 有界 UDP 数据包转发会话；不创建系统隧道，不处理 TCP、分片或 DNS 劫持。
+//! 有界 UDP 数据包转发会话；不创建系统隧道，不处理 TCP 或分片；仅接管显式 DNS 端点。
 use super::{MAX_MTU, MIN_MTU, checksum, parse, pseudo_sum};
 use crate::{
     budget::{ByteBudget, ByteLease},
@@ -27,6 +27,9 @@ pub struct Options {
     pub output_capacity: usize,
     pub timeout_ms: u64,
     pub idle_timeout_ms: u64,
+    /// 虚拟 DNS 端点，最多两个；空列表保持普通 UDP 转发。
+    #[serde(default)]
+    pub dns_endpoints: Vec<SocketAddr>,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -36,6 +39,7 @@ impl Default for Options {
             output_capacity: 32,
             timeout_ms: 3000,
             idle_timeout_ms: 30000,
+            dns_endpoints: Vec::new(),
         }
     }
 }
@@ -48,6 +52,19 @@ impl Options {
             || !(1..=60000).contains(&self.idle_timeout_ms)
         {
             return Err(Error::InvalidInput);
+        }
+        if self.dns_endpoints.len() > 2 {
+            return Err(Error::ResourceLimit);
+        }
+        for (index, endpoint) in self.dns_endpoints.iter().enumerate() {
+            if endpoint.port() != 53
+                || endpoint.ip().is_unspecified()
+                || endpoint.ip().is_multicast()
+                || endpoint.ip() == IpAddr::V4(std::net::Ipv4Addr::BROADCAST)
+                || self.dns_endpoints[..index].contains(endpoint)
+            {
+                return Err(Error::InvalidInput);
+            }
         }
         Ok(())
     }
@@ -85,6 +102,7 @@ impl Drop for ConnectionLease {
 pub struct Session {
     options: Options,
     manager: Arc<Manager>,
+    dns: Option<Arc<crate::dns::Resolver>>,
     state: Mutex<State>,
     submit_lock: tokio::sync::Mutex<()>,
     sender: mpsc::Sender<Result<Packet>>,
@@ -95,12 +113,36 @@ pub struct Session {
 impl Session {
     pub fn new(manager: Arc<Manager>, options: Options) -> Result<Self> {
         options.validate()?;
+        let dns = if options.dns_endpoints.is_empty() {
+            None
+        } else {
+            Some(
+                manager
+                    .network_snapshot()?
+                    .resolver
+                    .clone()
+                    .ok_or(Error::InvalidState)?,
+            )
+        };
+        // DNS 地址不能落入合成池，避免后续映射分配与 DNS 接管端点碰撞。
+        if dns.as_ref().is_some_and(|resolver| {
+            options
+                .dns_endpoints
+                .iter()
+                .any(|endpoint| resolver.is_fake_ip(endpoint.ip()))
+        }) {
+            return Err(Error::InvalidInput);
+        }
         let lease = SESSIONS.reserve(1)?;
+        if let Some(resolver) = &dns {
+            resolver.bind_tun_fake_ip()?;
+        }
         let (sender, receiver) = mpsc::channel(options.output_capacity);
         let (cancel, _) = watch::channel(false);
         Ok(Self {
             options,
             manager,
+            dns,
             state: Mutex::new(State {
                 closed: false,
                 flows: HashMap::new(),
@@ -151,6 +193,49 @@ impl Session {
             state.flows.retain(|_, flow| !flow.task.is_finished());
             state.flows.get(&key).map(|flow| flow.id)
         };
+        // 一次捕获配置；不能在校验映射后再读取另一份解析器。
+        let snapshot = self.manager.network_snapshot()?;
+        if self.options.dns_endpoints.contains(&key.destination) {
+            if generation.is_some() {
+                return Err(Error::InvalidInput);
+            }
+            let resolver = self.bound_dns(&snapshot)?;
+            snapshot.check_transport(Transport::Udp)?;
+            // 先占用有界输出槽；队列已满时不发起查询或分配映射。
+            let slot = self
+                .sender
+                .try_reserve()
+                .map_err(|_| Error::ResourceLimit)?;
+            let response = tokio::select! {
+                biased;
+                _ = cancellation.changed() => return Err(Error::Cancelled),
+                result = resolver.respond(payload, true) => result?,
+            };
+            self.bound_dns(self.manager.network_snapshot()?.as_ref())?;
+            if self.state.lock().map_err(|_| Error::Internal)?.closed {
+                return Err(Error::Cancelled);
+            }
+            slot.send(encode(
+                key.destination,
+                key.source,
+                &response,
+                self.options.mtu,
+            ));
+            return Ok(());
+        }
+        let mut mapping_generation = generation;
+        if existing.is_none()
+            && let Some(resolver) = &self.dns
+            && resolver.is_fake_ip(key.destination.ip())
+        {
+            self.bound_dns(&snapshot)?;
+            let owned = resolver.fake_ip_generation().ok_or(Error::InvalidState)?;
+            if generation.is_some_and(|value| value != owned) {
+                return Err(Error::InvalidState);
+            }
+            // 流的键保留宿主输入；自动代次只用于本次连接恢复。
+            mapping_generation = Some(owned);
+        }
         let id = if let Some(id) = existing {
             id
         } else {
@@ -169,12 +254,12 @@ impl Session {
                 },
                 timeout_ms: self.options.timeout_ms,
                 family: Family::Auto,
-                mapping_generation: generation,
+                mapping_generation,
             };
             let opened = tokio::select! {
                 biased;
                 _ = cancellation.changed() => return Err(Error::Cancelled),
-                result = self.manager.connect_configured(request) => result?,
+                result = self.manager.connect_configured_snapshot(request, snapshot) => result?,
             };
             let connection = ConnectionLease {
                 manager: Arc::clone(&self.manager),
@@ -213,6 +298,21 @@ impl Session {
             let _ = self.manager.close(flow.id);
         }
         result
+    }
+    /// 解析器所有者必须一致；配置替换后旧会话不能猜测新代次。
+    fn bound_dns(
+        &self,
+        snapshot: &crate::outbound::NetworkSnapshot,
+    ) -> Result<&Arc<crate::dns::Resolver>> {
+        let owned = self.dns.as_ref().ok_or(Error::InvalidState)?;
+        if !snapshot
+            .resolver
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(owned, current))
+        {
+            return Err(Error::InvalidState);
+        }
+        Ok(owned)
     }
     /// 非阻塞取出一个包；异步网络错误同样返回，不能伪装为队列为空。
     pub fn receive(&self) -> Result<Option<Packet>> {

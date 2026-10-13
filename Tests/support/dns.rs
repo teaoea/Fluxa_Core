@@ -199,7 +199,11 @@ fn answer(bytes: &[u8], udp: bool, count: &AtomicUsize) -> Option<Vec<u8>> {
         reply.metadata.id ^= 1;
         return reply.to_vec().ok();
     }
-    if name.starts_with("nxdomain.") || name.starts_with("nodata.") {
+    // 仅测试夹具的单 IPv4 目标，验证宿主没有偷偷替换候选地址。
+    if name.starts_with("nxdomain.")
+        || name.starts_with("nodata.")
+        || (name.starts_with("connect.ipv4only.") && question.query_type == RecordType::AAAA)
+    {
         if name.starts_with("nxdomain.") {
             reply.metadata.response_code = ResponseCode::NXDomain;
         }

@@ -18,7 +18,7 @@ Author: 可莉唯一的狗.
 - Runtime rule generation, normalization, deduplication, proven full-coverage pruning, and indexed matching. Domain targets use domain rules first; a domain match skips IP rules. Missing or unsupported proxy outbounds fail explicitly.
 - Shared TCP/UDP outbounds, cancellation, half-close, idle expiry, and atomic configuration snapshots.
 - Daily remote subscription schedules in UTC and bounded HTTPS subscription downloads. A missing schedule means manual updates only. On resume, only the most recent missed occurrence is handled; missed days are not replayed as separate jobs.
-- TUN packet inspection and checksum validation. Packet forwarding is not implemented yet.
+- TUN packet inspection and checksum validation. Bounded UDP forwarding is supported; TCP and system tunnels remain unsupported.
 
 ## Configuration examples
 
@@ -53,3 +53,5 @@ TUN UDP v1.9.0 adds bounded IPv4/IPv6 UDP packet forwarding through the shared r
 规则类别编号仅作为索引槽位，优先级独立表达。普通端口/传输规则不能覆盖域名/IP 普通规则，全域传输直连/代理被拒绝。API 专用临时调试 Overlay 可覆盖正式拦截；每条必须提供 1–3600 秒生命周期，内部存过期时间，到期失效并丢弃。配置和订阅不允许声明调试规则。原始来源可用时重新验证诊断；没有原始来源的生成文档仅标记结构验证。可运行示例为 cargo run --example runtime_rules_audit。C ABI/Swift 调试接入、控制接口认证及 App 集成尚未交付，本地修改暂缓提交与发布。
 
 Protocol blocking accepts transport tcp/udp/quic with reject only. QUIC v1/v2 identification uses packet structure and connection-local association, not UDP/443. Unknown standalone short headers, migration and unrecognized versions remain identification boundaries. Shared outbounds and TUN UDP enforce the same immutable connection policy. See ProtocolBlocking.md.
+
+TUN DNS/Fake-IP v2.2.0 intercepts explicitly configured virtual DNS endpoints using the existing resolver, encrypted upstreams and DNSSEC. Fake targets restore their domain using the bound resolver generation before real DNS and routing. Resolver replacement requires reopening the session; existing UDP flows retain their connection. TCP DNS ingress and system tunnels remain unsupported. See TunDNS.md.

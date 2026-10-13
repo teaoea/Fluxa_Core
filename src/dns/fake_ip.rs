@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    sync::Mutex,
+    sync::{Arc, LazyLock, Mutex},
 };
 // 代次仅在当前进程有效，耗尽后拒绝，不回绕复用旧令牌。
 
@@ -22,6 +22,7 @@ pub struct Config {
     #[serde(default)]
     pub exclude: Vec<String>,
 }
+#[derive(Clone, PartialEq, Eq)]
 struct Ranges {
     ipv4: u32,
     ipv6: u128,
@@ -87,6 +88,34 @@ fn range(value: &str) -> Result<(IpAddr, u32)> {
         prefix.parse().map_err(|_| Error::InvalidInput)?,
     ))
 }
+// 原始 TUN 包没有代次字段；为已绑定 TUN 的池保留有界地址高水位。
+// 只保留最多 16 个池的范围和游标，不保存域名/正文；同进程退役地址不再分配。
+static TUN_POOLS: LazyLock<Mutex<Vec<Namespace>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+struct Namespace {
+    ranges: Ranges,
+    cursor: Arc<Mutex<u32>>,
+}
+fn namespace(ranges: &Ranges) -> Result<Arc<Mutex<u32>>> {
+    let mut pools = TUN_POOLS.lock().map_err(|_| Error::Internal)?;
+    if let Some(pool) = pools.iter().find(|pool| pool.ranges == *ranges) {
+        return Ok(pool.cursor.clone());
+    }
+    if pools.iter().any(|pool| {
+        (ranges.ipv4 <= pool.ranges.ipv4_end && pool.ranges.ipv4 <= ranges.ipv4_end)
+            || (ranges.ipv6 <= pool.ranges.ipv6_end && pool.ranges.ipv6 <= ranges.ipv6_end)
+    }) {
+        return Err(Error::InvalidState);
+    }
+    if pools.len() >= 16 {
+        return Err(Error::ResourceLimit);
+    }
+    let cursor = Arc::new(Mutex::new(0));
+    pools.push(Namespace {
+        ranges: ranges.clone(),
+        cursor: cursor.clone(),
+    });
+    Ok(cursor)
+}
 struct Mapping {
     name: String,
     _lease: ByteLease,
@@ -96,6 +125,7 @@ struct State {
     by_name: BTreeMap<String, u32>,
     by_id: BTreeMap<u32, Mapping>,
     cursor: u32,
+    namespace: Option<Arc<Mutex<u32>>>,
 }
 pub struct Table {
     generation: u64,
@@ -113,6 +143,18 @@ impl Table {
             ranges,
             state: Mutex::new(State::default()),
         })
+    }
+    /// 只在 TUN 会话显式启用；已有非 TUN 映射不能转换，避免历史地址碰撞。
+    pub(crate) fn bind_tun(&self) -> Result<()> {
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.namespace.is_some() {
+            return Ok(());
+        }
+        if state.cursor != 0 {
+            return Err(Error::InvalidState);
+        }
+        state.namespace = Some(namespace(&self.ranges)?);
+        Ok(())
     }
     /// None 表示排除项，调用者应明确使用真实解析；排除域名按标签边界匹配。
     pub fn allocate(&self, name: &str, ipv6: bool) -> Result<Option<(String, bool)>> {
@@ -135,7 +177,16 @@ impl Table {
             }
             // 两份最多 253 字节的域名与两个树节点、配额值合计预留 1 KiB。
             let lease = BUDGET.reserve(1024)?;
-            let id = state.cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
+            let id = if let Some(namespace) = &state.namespace {
+                let mut cursor = namespace.lock().map_err(|_| Error::Internal)?;
+                if *cursor >= self.ranges.available {
+                    return Err(Error::ResourceLimit);
+                }
+                *cursor = cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
+                *cursor
+            } else {
+                state.cursor.checked_add(1).ok_or(Error::ResourceLimit)?
+            };
             state.by_name.insert(name.clone(), id);
             state.by_id.insert(
                 id,

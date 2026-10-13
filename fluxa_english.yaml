@@ -125,4 +125,13 @@ mitm:
 rewrites: []
 
 # TUN UDP 第一阶段通过宿主二进制接口测试，不创建系统隧道；本配置不新增启用开关。
-# TCP 转发、DNS 截获和分片尚未完成，不支持的流量明确拒绝。
+# TCP 转发、TCP DNS 入口和分片尚未完成，不支持的流量明确拒绝。
+
+# TUN DNS/Fake-IP v2.2.0：上游与合成池使用上面的 dns 配置。
+# 宿主打开 UDP 会话时可选 dns_endpoints（默认 []，最多两个数字地址端口，端口必须 53）。
+# 示例调用：tun_udp_open {mtu: 1500, maximum_flows: 16, output_capacity: 32,
+# timeout_ms: 3000, idle_timeout_ms: 30000, dns_endpoints: ["198.19.0.53:53", "[fd00:198:19::53]:53"]}
+# 此处是会话 API 示例，不是主配置启用开关；禁止把 dns_endpoints 写为主配置字段。
+# 端点不可落入 Fake-IP 池；不接管其他地址的 DNS，不修改系统 DNS 或创建隧道。
+# 配置解析器更换后必须重开会话，禁止将旧合成地址按新解析器的代次恢复。
+# TUN 池同进程保留退役地址高水位，最多 16 个不重叠池；耗尽拒绝，不回绕。

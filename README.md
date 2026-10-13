@@ -53,3 +53,5 @@ TUN UDP v1.9.0：Rust 负责有界流表、共用路由/出站、返回包生成
 XUDP v2.0.0：单目标 UDP 代理复用 REALITY/Vision、路由与取消机制，TUN UDP 使用同一出站。报文上限 7526 字节，空包明确拒绝；任意 Mux 与系统 TUN 未实现。详见 Protocols.md。
 
 协议拦截支持 transport 的 tcp、udp、quic，仅允许 reject。QUIC 按 v1/v2 报文及连接内关联识别，不按 UDP/443 推断；详见 ProtocolBlocking.md。
+
+TUN DNS/Fake-IP v2.2.0：显式虚拟 DNS 端点复用配置上游与标准 DNS 响应；合成目标由所属解析器自动校验代次并恢复真实地址。解析器更换后旧会话拒绝新映射请求，需要重开会话；存量 UDP 流保留旧连接。TCP TUN、DNS over TCP 入口和系统隧道尚未实现。详见 TunDNS.md。

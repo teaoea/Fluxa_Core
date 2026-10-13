@@ -166,6 +166,13 @@ impl Resolver {
         self.cache.lock().map_err(|_| Error::Internal)?.clear();
         Ok(())
     }
+    /// TUN 原始包无宿主代次；显式绑定后合成池同进程不复用旧地址。
+    pub(crate) fn bind_tun_fake_ip(&self) -> Result<()> {
+        if let Some(table) = &self.fake_ip {
+            table.bind_tun()?;
+        }
+        Ok(())
+    }
     pub fn fake_ip_generation(&self) -> Option<u64> {
         self.fake_ip.as_ref().map(fake_ip::Table::generation)
     }
