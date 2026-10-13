@@ -57,3 +57,7 @@ Protocol blocking accepts transport tcp/udp/quic with reject only. QUIC v1/v2 id
 TUN DNS/Fake-IP v2.2.0 intercepts explicitly configured virtual DNS endpoints using the existing resolver, encrypted upstreams and DNSSEC. Fake targets restore their domain using the bound resolver generation before real DNS and routing. Resolver replacement requires reopening the session; existing UDP flows retain their connection. TCP DNS ingress and system tunnels remain unsupported. See TunDNS.md.
 
 v2.2.1 includes ordinary API allocation history in the bounded pool high-water mark. Once a pool is bound to TUN, ordinary allocations share its cursor and foreign resolver mappings remain rejected by the owning session.
+
+## v2.2.2 FFI response admission
+
+FFI reserves a response slot, byte quota, and serialization buffer before executing a command or consuming a TUN return packet. On response-admission exhaustion the command returns zero before its side effects; release previous response handles before retrying. Other boundary failures must not be assumed safe to retry. Run `cargo run --example ffi_response_retry` for a local TCP demonstration. Large responses reserve conservatively within the existing 32 MiB global quota; no unbounded wait queue is introduced. This example is local ABI evidence, not system VPN validation.

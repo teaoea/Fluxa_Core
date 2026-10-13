@@ -57,3 +57,7 @@ XUDP v2.0.0：单目标 UDP 代理复用 REALITY/Vision、路由与取消机制�
 TUN DNS/Fake-IP v2.2.0：显式虚拟 DNS 端点复用配置上游与标准 DNS 响应；合成目标由所属解析器自动校验代次并恢复真实地址。解析器更换后旧会话拒绝新映射请求，需要重开会话；存量 UDP 流保留旧连接。TCP TUN、DNS over TCP 入口和系统隧道尚未实现。详见 TunDNS.md。
 
 v2.2.1 修复普通 API 与 TUN 地址池的交叉复用，历史地址退役、后续分配使用同一安全高水位，外来映射不能用于本会话。
+
+### v2.2.2：FFI 响应配额修复
+
+响应句柄与预算在命令执行、TCP 读取和 TUN 取包之前预留，配额不足时不消费数据。释放旧响应后可重试。可运行例程为 `cargo run --example ffi_response_retry`；详细约束及未测边界见 Outbound.md。

@@ -28,6 +28,16 @@ impl ByteBudget {
         })
     }
 }
+impl ByteLease {
+    /// 仅缩减已预留预算；缓冲区完成后归还多余容量，不重新申请配额。
+    pub(crate) fn shrink_to(&mut self, bytes: usize) {
+        assert!(bytes <= self.bytes, "预算只能缩减");
+        self.budget
+            .used
+            .fetch_sub(self.bytes - bytes, Ordering::AcqRel);
+        self.bytes = bytes;
+    }
+}
 impl Drop for ByteLease {
     fn drop(&mut self) {
         self.budget.used.fetch_sub(self.bytes, Ordering::AcqRel);
@@ -42,6 +52,10 @@ mod tests {
         let lease = BUDGET.reserve(8).unwrap();
         assert!(BUDGET.reserve(3).is_err());
         assert!(BUDGET.reserve(usize::MAX).is_err());
+        let mut lease = lease;
+        lease.shrink_to(2);
+        let extra = BUDGET.reserve(8).unwrap();
+        drop(extra);
         drop(lease);
         assert!(BUDGET.reserve(10).is_ok());
         assert_eq!(BUDGET.used.load(Ordering::Acquire), 0);

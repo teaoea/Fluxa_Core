@@ -34,7 +34,8 @@ int32_t fluxa_engine_destroy(uint64_t handle);
 /* 系统隧道及入口启动尚未实现；有效句柄返回 2，不会伪造已连接。 */
 int32_t fluxa_engine_start(uint64_t handle);
 /* input 仅在调用期间借用，须指向 length 个可读且无并发写入的字节。
-   返回响应缓冲区句柄，使用后调用 destroy；零表示边界或资源错误。 */
+   返回响应缓冲区句柄，使用后调用 destroy；零表示边界或资源错误。
+   响应名额/预算不足在执行前返回零，读数据尚未消费；释放旧响应后可重试。 */
 uint64_t fluxa_engine_command(uint64_t handle, const uint8_t *input, size_t length);
 size_t fluxa_engine_buffer_length(uint64_t handle);
 /* 目标须在调用期可写，不能与 Rust 内存重叠；容量不足不写，返回所需长度。 */
@@ -44,7 +45,7 @@ size_t fluxa_engine_buffer_copy(uint64_t handle, uint8_t *output, size_t capacit
    状态码：0 成功，1 无效句柄，2 不支持，3 内部错误，4 输入错误，5 配额，
    6 无效状态，7 取消，8 网络/DNS 错误，9 规则拒绝，10 超时，11 接收队列为空。
    receive 的 output 须可写、对齐、无并发访问；成功句柄用 destroy 释放。
-   错误或队列为空时 output 为零。 */
+   错误或队列为空时 output 为零；响应配额不足不会取走队列中的返回包。 */
 int32_t fluxa_engine_tun_submit(uint64_t handle, const uint8_t *input, size_t length, uint64_t generation);
 int32_t fluxa_engine_tun_receive(uint64_t handle, uint64_t *output);
 #ifdef __cplusplus

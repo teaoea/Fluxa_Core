@@ -31,6 +31,9 @@ const INTERNAL_ERROR: i32 = 3;
 const MAX_JSON: usize = 12 * 1024 * 1024;
 const MAX_OUTPUT: usize = 24 * 1024 * 1024;
 const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
+const SMALL_OUTPUT: usize = 256 * 1024;
+const READ_REPLY_OVERHEAD: usize = 4096;
+static OUTPUT: ByteBudget = ByteBudget::new(MAX_OUTPUT_MEMORY);
 #[derive(Default)]
 struct Engine {
     client: Mutex<Option<HttpsClient>>,
@@ -76,6 +79,7 @@ impl Engine {
     }
 }
 enum Resource {
+    PendingOutput,
     Engine(Arc<Engine>),
     Buffer(Arc<OwnedBuffer>),
 }
@@ -118,20 +122,111 @@ fn buffer(handle: u64) -> Option<Arc<OwnedBuffer>> {
         _ => None,
     }
 }
-fn store(bytes: Vec<u8>) -> Option<u64> {
-    let bytes = Zeroizing::new(bytes);
-    if bytes.len() > MAX_OUTPUT {
-        return None;
-    }
-    static OUTPUT: ByteBudget = ByteBudget::new(MAX_OUTPUT_MEMORY);
-    let lease = OUTPUT.reserve(bytes.len()).ok()?;
-    registry()
-        .lock()
-        .ok()?
-        .create(Resource::Buffer(Arc::new(OwnedBuffer {
+/// 在执行命令前占住响应名额、预算和缓冲区；失败及取消由守卫统一释放。
+struct OutputReservation {
+    handle: Option<u64>,
+    lease: Option<ByteLease>,
+    bytes: Zeroizing<Vec<u8>>,
+    limit: usize,
+}
+impl OutputReservation {
+    fn new(limit: usize) -> Option<Self> {
+        if limit > MAX_OUTPUT {
+            return None;
+        }
+        let lease = OUTPUT.reserve(limit).ok()?;
+        let mut bytes = Zeroizing::new(Vec::new());
+        bytes.try_reserve_exact(limit).ok()?;
+        if bytes.capacity() > limit {
+            return None;
+        }
+        let handle = registry().lock().ok()?.create(Resource::PendingOutput)?;
+        Some(Self {
+            handle: Some(handle),
+            lease: Some(lease),
             bytes,
+            limit,
+        })
+    }
+    fn finish(mut self) -> Option<u64> {
+        self.bytes.shrink_to_fit();
+        let mut lease = self.lease.take()?;
+        lease.shrink_to(self.bytes.capacity());
+        let resource = Resource::Buffer(Arc::new(OwnedBuffer {
+            bytes: std::mem::take(&mut self.bytes),
             _lease: lease,
-        })))
+        }));
+        let handle = self.handle?;
+        let mut registry = registry().lock().ok()?;
+        let slot = registry.get_mut(handle)?;
+        if !matches!(slot, Resource::PendingOutput) {
+            return None;
+        }
+        *slot = resource;
+        self.handle = None;
+        Some(handle)
+    }
+}
+impl std::io::Write for OutputReservation {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self
+            .bytes
+            .len()
+            .checked_add(bytes.len())
+            .is_none_or(|n| n > self.limit)
+        {
+            return Err(std::io::Error::other(Error::ResourceLimit));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl Drop for OutputReservation {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take()
+            && let Ok(mut registry) = registry().lock()
+        {
+            registry.take(handle);
+        }
+    }
+}
+/// 小命令不预留大正文预算；TCP 读取按请求上限预留 base64 与固定元数据。
+fn output_limit(input: &[u8]) -> usize {
+    #[derive(Deserialize)]
+    struct Hint {
+        operation: String,
+        maximum: Option<usize>,
+    }
+    match serde_json::from_slice::<Hint>(input) {
+        Ok(hint) if hint.operation == "outbound_read" => {
+            let maximum = hint.maximum.unwrap_or(0).min(crate::outbound::MAX_BUFFER);
+            maximum.div_ceil(3) * 4 + READ_REPLY_OVERHEAD
+        }
+        Ok(hint)
+            if matches!(
+                hint.operation.as_str(),
+                "request"
+                    | "https"
+                    | "subscription_fetch"
+                    | "subscription_rules"
+                    | "script"
+                    | "mitm_peek_capture"
+            ) =>
+        {
+            MAX_OUTPUT
+        }
+        _ => SMALL_OUTPUT,
+    }
+}
+#[cfg(test)]
+fn store(bytes: Vec<u8>) -> Option<u64> {
+    use std::io::Write;
+    let mut output = OutputReservation::new(bytes.len())?;
+    output.write_all(&bytes).ok()?;
+    output.finish()
 }
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
@@ -1301,6 +1396,7 @@ pub extern "C" fn fluxa_engine_start(handle: u64) -> i32 {
     .unwrap_or(INTERNAL_ERROR)
 }
 /// 请求仅在调用期间借用；返回响应句柄，需调用统一 destroy 释放。
+/// 响应名额或预算不足时，在执行命令前返回零；释放旧响应后可重试，读取数据未被消费。
 /// # Safety
 /// 调用方必须保证 input 在整个调用期间指向 length 个可读字节且没有并发写入。
 #[unsafe(no_mangle)]
@@ -1311,8 +1407,15 @@ pub unsafe extern "C" fn fluxa_engine_command(handle: u64, input: *const u8, len
         }
         // SAFETY: 空指针和长度已检查，实际可读性由 C ABI 调用方契约保证；不保留借用。
         let bytes = unsafe { std::slice::from_raw_parts(input, length) };
+        // 响应无法交付时提前拒绝，绝不先消费数据或创建不可返回的业务资源。
+        let Some(mut output) = OutputReservation::new(output_limit(bytes)) else {
+            return 0;
+        };
         let reply = command(handle, bytes).unwrap_or_else(Reply::from);
-        serde_json::to_vec(&reply).ok().and_then(store).unwrap_or(0)
+        if serde_json::to_writer(&mut output, &reply).is_err() {
+            return 0;
+        }
+        output.finish().unwrap_or(0)
     }))
     .unwrap_or(0)
 }
@@ -1415,8 +1518,14 @@ pub unsafe extern "C" fn fluxa_engine_tun_receive(handle: u64, output: *mut u64)
             Ok(session) => session,
             Err(code) => return code,
         };
+        let Some(mut reservation) = OutputReservation::new(crate::tun::MAX_MTU) else {
+            return 5;
+        };
         match session.receive() {
-            Ok(Some(packet)) => match store(packet.bytes.to_vec()) {
+            Ok(Some(packet)) => match std::io::Write::write_all(&mut reservation, &packet.bytes)
+                .ok()
+                .and_then(|_| reservation.finish())
+            {
                 Some(handle) => {
                     // SAFETY: output 的借用覆盖本次同步调用；只写值，不转移指针所有权。
                     unsafe {
@@ -1436,8 +1545,11 @@ pub unsafe extern "C" fn fluxa_engine_tun_receive(handle: u64, output: *mut u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+    // 配额测试需要独占同一进程的 FFI 注册表；业务实现不增加全局执行锁。
+    static TEST_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     #[test]
     fn abi_rejects_invalid_and_destroyed_handles() {
+        let _gate = TEST_GATE.blocking_lock();
         let handle = fluxa_engine_create();
         assert_ne!(handle, 0);
         assert_eq!(fluxa_engine_start(handle), UNSUPPORTED);
@@ -1448,6 +1560,7 @@ mod tests {
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {
+        let _gate = TEST_GATE.blocking_lock();
         let threads: Vec<_> = (0..8)
             .map(|_| {
                 std::thread::spawn(|| {
@@ -1466,6 +1579,7 @@ mod tests {
     }
     #[test]
     fn output_buffers_obey_budget_and_handle_type() {
+        let _gate = TEST_GATE.blocking_lock();
         let handle = store(vec![1; 32]).unwrap();
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_buffer_length(handle), 32);
@@ -1473,8 +1587,162 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_buffer_length(handle), 0);
     }
+    #[test]
+    fn admission_failure_keeps_tcp_bytes_and_returns_reservations() {
+        let _gate = TEST_GATE.blocking_lock();
+        for exhaust_memory in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                use std::io::Write;
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.write_all(b"FIRSTSECOND").unwrap();
+            });
+            let handle = fluxa_engine_create();
+            let request = serde_json::to_vec(&serde_json::json!({
+                "operation":"outbound_open", "address":address.to_string(),
+                "transport":"tcp", "policy":"direct", "timeout_ms":1000
+            }))
+            .unwrap();
+            let id = command(handle, &request).unwrap().outbound_id.unwrap();
+            peer.join().unwrap();
+            let mut buffers = Vec::new();
+            let memory = if exhaust_memory {
+                Some(OUTPUT.reserve(MAX_OUTPUT_MEMORY).unwrap())
+            } else {
+                for _ in 0..63 {
+                    buffers.push(store(vec![1]).unwrap());
+                }
+                None
+            };
+            let request = serde_json::to_vec(&serde_json::json!({
+                "operation":"outbound_read", "id":id, "maximum":11, "timeout_ms":1000
+            }))
+            .unwrap();
+            // SAFETY: 同步调用期间输入存活且只读，FFI 不保存该指针。
+            let refused = unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) };
+            assert_eq!(refused, 0);
+            drop(memory);
+            if let Some(buffer) = buffers.pop() {
+                assert_eq!(fluxa_engine_destroy(buffer), OK);
+            }
+            // SAFETY: 输入指针契约同上，释放配额后重试不会改变输入所有权。
+            let output = unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) };
+            let bytes = buffer(output).unwrap();
+            let reply: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                STANDARD.decode(reply["body"].as_str().unwrap()).unwrap(),
+                b"FIRSTSECOND"
+            );
+            drop(bytes);
+            assert_eq!(fluxa_engine_destroy(output), OK);
+            for buffer in buffers {
+                assert_eq!(fluxa_engine_destroy(buffer), OK);
+            }
+            assert_eq!(fluxa_engine_destroy(handle), OK);
+        }
+        // JSON 转义后的操作名称同样采用大响应上限，不能退回小预算后再执行。
+        assert_eq!(output_limit(br#"{"operation":"requ\u0065st"}"#), MAX_OUTPUT);
+        // 守卫未发布时归还名额和预算；完成后只持有实际容量。
+        for _ in 0..128 {
+            drop(OutputReservation::new(SMALL_OUTPUT).unwrap());
+        }
+        let output = store(vec![1; 32]).unwrap();
+        let extra = OUTPUT.reserve(MAX_OUTPUT_MEMORY - 32).unwrap();
+        drop(extra);
+        assert_eq!(fluxa_engine_destroy(output), OK);
+    }
+    #[test]
+    fn admission_failure_keeps_tun_return_packet() {
+        let _gate = TEST_GATE.blocking_lock();
+        for exhaust_memory in [false, true] {
+            let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            peer.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            let destination = peer.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                let mut bytes = [0; 32];
+                let (length, source) = peer.recv_from(&mut bytes).unwrap();
+                peer.send_to(&bytes[..length], source).unwrap();
+            });
+            let handle = fluxa_engine_create();
+            let engine = engine(handle).unwrap();
+            engine
+                .outbound
+                .configure_network(
+                    None,
+                    Some(Arc::new(
+                        crate::routing::Router::compile(crate::routing::Config {
+                            mode: crate::routing::Mode::Direct,
+                            ..Default::default()
+                        })
+                        .unwrap(),
+                    )),
+                    crate::outbound::Limits::default(),
+                )
+                .unwrap();
+            let session = Arc::new(
+                crate::tun::udp::Session::new(
+                    engine.outbound.clone(),
+                    crate::tun::udp::Options::default(),
+                )
+                .unwrap(),
+            );
+            *engine.tun_udp.lock().unwrap() = Some(session.clone());
+            let packet = crate::tun::udp::encode(
+                "192.0.2.1:12345".parse().unwrap(),
+                destination,
+                b"retained",
+                1500,
+            )
+            .unwrap();
+            runtime()
+                .unwrap()
+                .block_on(session.submit(&packet.bytes, None))
+                .unwrap();
+            peer.join().unwrap();
+            let mut buffers = Vec::new();
+            let memory = if exhaust_memory {
+                Some(OUTPUT.reserve(MAX_OUTPUT_MEMORY).unwrap())
+            } else {
+                for _ in 0..63 {
+                    buffers.push(store(vec![1]).unwrap());
+                }
+                None
+            };
+            let mut output = 123;
+            // SAFETY: output 对齐、可写且调用期间独占，不跨语言保存地址。
+            let status = unsafe { fluxa_engine_tun_receive(handle, &mut output) };
+            assert_eq!(status, 5);
+            assert_eq!(output, 0);
+            drop(memory);
+            if let Some(buffer) = buffers.pop() {
+                fluxa_engine_destroy(buffer);
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            loop {
+                // SAFETY: 重试期间同样独占这个有效 u64，不与内核缓冲区重叠。
+                let status = unsafe { fluxa_engine_tun_receive(handle, &mut output) };
+                if status == 0 {
+                    break;
+                }
+                assert_eq!(status, 11);
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let packet = buffer(output).unwrap();
+            assert!(packet.ends_with(b"retained"));
+            drop(packet);
+            fluxa_engine_destroy(output);
+            for buffer in buffers {
+                fluxa_engine_destroy(buffer);
+            }
+            fluxa_engine_destroy(handle);
+        }
+    }
     #[tokio::test]
     async fn nested_runtime_does_not_detach_failed_http_calls() {
+        let _gate = TEST_GATE.lock().await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let handle = fluxa_engine_create();
         engine(handle)
