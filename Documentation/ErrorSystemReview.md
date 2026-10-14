@@ -85,7 +85,7 @@ L4：证据为源码、测试文件、查询表、迁移示例、实跑命令及
 - `Documentation/DebugProxy.md`
 - `Documentation/ErrorContractIntroduction.md`
 - `Documentation/ErrorSourceAudit.md`
-- `Documentation/ErrorTestFailureRepair.md`
+- `Documentation/ErrorTestFailureRepair.md`（阶段记录已合并至本文末尾）
 - `Documentation/GeoIP.md`
 - `Documentation/HTTPS.md`
 - `Documentation/JS.md`
@@ -175,10 +175,41 @@ L4：证据为源码、测试文件、查询表、迁移示例、实跑命令及
 
 每个 ErrorCode 的中文注释检查已纳入 error_contract 一致性测试。当前 error.rs SHA-256：`43b5d7614b87d80efbec0dd975630a59d899347f9459717d254a06b6b68462cf`。
 
-完整的实际修改范围另存 [ErrorChangedFiles.md](ErrorChangedFiles.md)，技术文档已在 Documentation，查询表的正式路径为 `/Users/klee/Documents/FLuxa_Core/Documentation/错误代码查询表.md`。
+完整的历史修改范围见本文“修改文件范围”及对应 Git 提交；独立阶段文件清单已删除，技术文档已在 Documentation，查询表的正式路径为 `/Users/klee/Documents/FLuxa_Core/Documentation/错误代码查询表.md`。
 
 最终构建缓存异常记录：补充 OutOfMemory 预期后一次增量测试仍返回旧分类；清理该 crate 构建缓存，重新编译专项及完整回归后通过。最终验收仅采用清理后的正式目录结果。SwiftFormat 与 SwiftLint strict 最新示例检查通过，0 格式差异、0 违规。
 
 ## v2.3.1 TLS 传播补充审查
 
 实际源码 `https.rs::tls_error` 只保留 Cancelled，包裹的 ResourceLimit／Internal 会变成 Tls，违反真实原因传播规范。已把共用 I/O 分类集中到 error.rs，并在 HTTPS 与 MITM 的 TLS 边界复用。原编号和失败结果不变；只有泛化网络 I/O 在 TLS 阶段归类为 TLS，明确内核原因不被覆盖。独立测试以预算、状态、取消、策略、能力及协议原因作预期，系统内存不足和超时亦保持真实分类。完整 Rust 回归 211 通过、0失败、1既有远端测试忽略，严格 Clippy 通过。错误代码仍20个，首版基线语义没有修改。
+
+## 首版错误体系测试失败取证（合并归档）
+
+以下是旧整数协议首版的历史证据，编号与旧 JSON 说明不作为当前协议。原独立校验预期、失败原因、修复及运行结果完整保留；现行协议以错误代码查询表为准。
+
+## 错误体系测试失败修复记录
+
+日期：2026-10-14。验证目录：`/private/tmp/fluxa-core-errors`。本记录只覆盖三项失败的修复，不代表统一错误体系的 L1–L4 已全部完成，也不代表已同步实际内核或已发布。
+
+### 独立校验依据
+
+改造前提交的 `src/ffi.rs::command` 首先执行 `engine(handle)?`，之后才解析命令 JSON。保持旧接口行为是已确认的兼容性约束。因此句柄无效与 JSON 非法同时出现时返回句柄失败；有效句柄的非法 JSON 返回输入失败。此前新增测试把前一种情况预期写成输入失败，是测试预期错误，不能通过改变生产校验顺序使它通过。
+
+### 修改及复现
+
+- `src/ffi.rs::legacy_validation_order_preserves_handle_before_json` 覆盖无效／有效句柄与非法输入／有效命令四种组合；断言分别为 1018、1018、1001、1013。保持旧 JSON 的失败状态及不含 error_info 的断言。
+- 测试专用 `TestHandle` 在断言展开时释放已取得的句柄；正常路径仍逐个断言 destroy 成功。原失败测试未释放响应句柄，随后的配额填充又在中途失败并残留资源，造成连锁失败。
+- `failed_test_assertion_returns_owned_response_capacity` 主动触发并捕获 panic，之后申请完整 64 个响应名额，验证第 65 个受控拒绝，再逐一验证释放成功。这项仅测试测试守卫，不改变业务注册表。
+- 更新生产边界注释、错误协议说明和 `Tests/ffi_error_code.swift` 示例，真实跨语言验证两种非法输入的错误分类。
+
+### 实际检查结果
+
+| 命令或检查 | 结果 |
+| --- | --- |
+| cargo fmt --check | 通过 |
+| cargo clippy --offline --all-targets --target-dir /private/tmp/fluxa-errors-target -- -D warnings | 通过 |
+| cargo test --offline --target-dir /private/tmp/fluxa-errors-target | 206 通过、0 失败、1 忽略；忽略项为已有真实远端互通测试 |
+| cargo run --offline --example error_contract --target-dir /private/tmp/fluxa-errors-target -- --check | 通过，20 个整数错误代码契约一致 |
+| cargo build --offline --lib + swiftc 编译及执行 Tests/ffi_error_code.swift | 通过：旧格式、新整数协议、校验顺序、响应配额耗尽错误查询、成功清除旧错误 |
+
+本轮日志分别位于 `/private/tmp/fluxa-errors-repair-final-tests.log`、`/private/tmp/fluxa-errors-repair-final-clippy.log`、`/private/tmp/fluxa-errors-repair-doc.log`。Swift 程序实际执行输出已核对。本轮没有发布、没有改规则优先级，也没有以编译和测试结果替代其余独立业务语义审查。

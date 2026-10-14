@@ -4,7 +4,7 @@
 
 ## 缺陷与独立预期
 
-原 H1 的全局 TUN_POOLS 永久保留旧配置，改变重叠范围或累计 16 个历史配置后拒绝新会话。已取消的 9357bfc 候选虽然改成 Weak，仍将外部对象存活当成占用权：保留旧解析器导致 /16 → /15 返回 9001；八个已 close 会话仍占额度，第九个返回 8002；旧解析器关闭后仍能分配地址。实际旧实现取证见所有权关系核验报告，不能用该候选 230 项通过证明新规范。
+原 H1 的全局 TUN_POOLS 永久保留旧配置，改变重叠范围或累计 16 个历史配置后拒绝新会话。已取消的 9357bfc 候选虽然改成 Weak，仍将外部对象存活当成占用权：保留旧解析器导致 /16 → /15 返回 9001；八个已 close 会话仍占额度，第九个返回 8002；旧解析器关闭后仍能分配地址。实际旧实现取证见本文“取消候选的所有权取证”，不能用该候选 230 项通过证明新规范。
 
 本次独立预期：关闭立即撤销权限，完成必要清理后才返回成功；旧 Arc 仅保留数据，不能恢复活动使用权，也不能阻止新会话合法重绑。保存的实际配置/映射/缓存内存仍受预算约束。DNS 失败、资源失败和取消不得变成 DIRECT 或伪造成功。
 
@@ -54,7 +54,7 @@ resolver.close().await?; // resolver 为 Arc<Resolver>
 - 原 Fake-IP 六项地址历史/双族/额度/并发分配/失败原子性测试保持；原 DNS/TUN/出站/错误/规则回归继续执行。
 - 真实 Swift FFI 全 17 组通过，包括 TUN DNS 40 次关闭与 20 次重叠区间变更；最后的驱动原因传播修改追加 DNS FFI 复验，不能把旧编译产物当成新改动证据。
 
-最终计数、命令与源码提交记录在本次验收日志汇总中，只有实际命令完成后才登记。
+最终计数、命令与源码提交记录在本文“最终验收证据”中，只有实际命令完成后才登记。
 
 ## L1–L4 与未测边界
 
@@ -65,3 +65,65 @@ L3：独立依据用户十三条原则核对有效租约、真实释放、旧对
 未验证：真实 macOS Network Extension/系统 VPN、最低部署版本、其它架构/平台、跨重启缓存隔离、所有分配故障/锁中毒注入、长期高并发压力和整个进程 RSS 硬上限。暂停的自研 TCP/TUN 下一阶段未改动。
 
 dev API 可不兼容改变；未经授权不合入 main，不发布 crates.io，不修改 App。取消的 9357bfc 二进制候选没有标签/上传，不能恢复发布。Package.swift 恢复最后已发布 v2.4.1 URL 与原 SHA-256；H1 的本地验证内核与该远程旧包必须区分，未生成或发布新的远程包。
+
+## 取消候选的所有权取证（合并归档）
+
+原独立取证完整保留，明确区分旧候选与最终修复；对象引用计数不再作为资源租约依据。
+
+## H1：Resolver、Snapshot 与 Pool 所有权关系核验
+
+核验对象：旧候选 9357bfc；已取消，不能作为最终修复。本报告区分源码确认与实际运行结果，不以引用计数或编译结果证明业务正确性。
+
+| 文件与类型 | 实际所有权关系 | 实际资源 | 结论与新约定差异 |
+| --- | --- | --- | --- |
+| src/outbound/configuration.rs NetworkSnapshot | resolver: Option<Arc<Resolver>> | 间接持有解析器资源 | 外部旧快照可延长 Resolver 对象；不能据此延长业务租约 |
+| src/dns/mod.rs Resolver | inner: Vec<TokioResolver>、fake_ip: Table、_permit: SemaphorePermit | 上游连接池与 DNS 客户端额度；缓存另有 ByteLease | 配额和池仍依赖对象析构，须增加显式撤销、停止和完成边界 |
+| src/dns/fake_ip.rs Table/State、Pools | Table.namespace: Arc<()>；Pools 的 Weak 计数决定 active 占用 | Fake-IP 逻辑地址空间，没有监听 Socket | 当前候选违反禁止引用计数判定占用的原则；原 H1 则为永久全局 active/历史范围 |
+| src/dns/service.rs Service | 工作任务持有 TcpListener、Arc<UdpSocket> 及服务额度；子任务克隆 Resolver | 真正的本地 TCP/UDP DNS 监听 Socket | 监听器不属于 Fake-IP Pool，也没有 Resolver → Service 的所有权反向边；stop 会取消并等待工作及子任务退出 |
+| src/tun/udp.rs Session | dns: Arc<Resolver>、_lease: ByteLease、各 Flow JoinHandle | 会话额度、连接、后台任务 | close 只标记和 abort，不等待任务退出；_lease 仍随对象析构释放，必须改造 |
+| src/outbound.rs Connection、Manager | 注册表保存 Arc<Connection>；Connection 持有 Socket 与 ByteLease | 出站 Socket 与连接预算 | close 发取消信号、移出注册表；不能仅凭此认定所有活动引用及 Socket 已释放，需核验关闭完成与获取竞态 |
+| src/routing/runtime.rs Snapshot | 规则 Document、Entry、Index、FlatIndex 与 ByteLease | 规则数据与预算；没有监听 Socket 或 DNS Pool | 不应误报为监听器占用；旧快照保留的实际内存仍须计入预算 |
+
+### 上游池源码证据
+
+固定依赖 Hickory 0.26.3：resolver.rs 的 Resolver 持有客户端/池；name_server_pool.rs 的 NameServerPool 通过 Arc<PoolState> 管理上游；name_server.rs 的 NameServer 持有 AsyncMutex<Vec<ConnectionState>>。runtime.rs 的 TokioHandle 持有 Arc<Mutex<JoinSet>>。这些为上游连接/驱动任务，不是本项目 DNS Service 的本地监听器；仅销毁外层 Snapshot 不是确定性停止接口。
+
+### 实际运行取证
+
+在旧候选干净副本运行 `/private/tmp/fluxa-h1-publish-242/examples/ownership_probe.rs`，没有改写被测生产实现。日志 `/private/tmp/fluxa-h1-owner-probe.log`：
+
+1. close 后保留旧解析器/快照，旧解析器仍成功分配 Fake-IP：违反新约定。
+2. `/16` → `/15` 重绑定仍返回结构化 9001：外部旧引用仍阻止绑定，违反新约定。
+3. 保留八个已经 close 的 Session，第九个返回 8002，params 为 actual=1、limit=8：会话额度未在关闭时释放，违反新约定。不能误写为普通 8001。
+4. 保留旧 Resolver/NetworkSnapshot，DNS Service.stop 等待完成后，同端口 TCP/UDP 系统重绑定成功：证实旧快照没有通过 Fake-IP Pool 持有该监听器。
+
+### 本次改造状态
+
+生产链已由独立权限组件接入 Resolver、Fake-IP、TUN、共用出站与 DNS Service。旧引用仅保留只读数据和实际内存预算，不能继续使用活动资源。实际 TCP EOF、监听重绑定、取消查询、40 组旧引用及关闭后配置预算保留验证详见 [本次 H1 审查](H1-FakeIP生命周期修复.md)。旧候选的测试结论不代替本次验证。
+
+## 最终验收证据（合并）
+
+本节保留最终实跑计数、命令、原始日志与未验证范围；H1 源码已提交并推送 dev：eac1a37908fedc9fe17e060c651a4e4a53779e5a。
+
+## H1 最终验收记录
+
+日期：2026-10-14。作者：可莉唯一的狗。生产修改来自已验证隔离副本并同步到 dev，Git 提交记录确定最终源码身份；不能把已取消的 9357bfc 当作最终修复。
+
+| 层级 | 实际执行/证据 | 结果 |
+| --- | --- | --- |
+| L1 | cargo fmt --check；cargo check --all-targets；cargo clippy --all-targets -- -D warnings | 通过，严格检查未放宽 |
+| L2 | cargo test --locked --no-fail-fast -- --test-threads=1 | 234 通过、0 失败、1 既有外部服务测试忽略 |
+| L2 | bash check-ffi.sh all | 全部 17 组真实 Swift→C ABI→Rust 通过 |
+| L2 | 最后驱动错误传播修改后 bash check-ffi.sh dns | Fake-IP、UDP/TCP/DoT/HTTP2 DoH、关闭及100次回收通过 |
+| L2 | cargo run --example error_contract -- --check | 40 项全部登记，重复/遗漏/未定义/空字段均0 |
+| L2 | cargo run --example fake_ip_reconfigure | 保留旧对象时 /16→/15 重绑通过；旧 IPv6 ::1 不重用，新地址 ::2 |
+| L3 | 独立生命周期测试及生产关闭/获取锁边界核验 | 40组旧引用、旧操作失败、并发关闭、取消等待、实际监听重绑/TCP EOF、配置预算保留、真实资源原因均有独立预期和实跑证据 |
+| L4 | 旧候选实际复现、最终源码、原始日志、迁移示例及未测范围 | 可追溯；不以技术检查代替全平台或业务证明 |
+
+原始本机日志位于 /private/tmp/：fluxa-h1-final-verification.log、fluxa-h1-clippy.log、fluxa-h1-check-final.log、fluxa-h1-ffi-final.log、fluxa-h1-final-dns-ffi.log、fluxa-h1-final-contract.log、fluxa-h1-final-example.log。生产关闭链、测试文件及迁移说明见 [H1修复审查](H1-FakeIP生命周期修复.md)。
+
+早期沙箱监听权限失败、迁移遗漏、并行夹具共享八会话配额争用、取消错误误报及嵌套运行时回归均保留失败日志，修复后重跑；没有删除测试、减弱断言或扩大原额度。单线程夹具不代替独立并发测试。
+
+未验证：系统 Network Extension/VPN、最低系统、全部平台、跨重启缓存隔离、全部分配/锁中毒故障、长时间压力及全部上游/外部 TLS 对象和分配器 RSS 的精确计量。
+
+dev Rust 异步关闭为已允许 API 改造，调用、注释、示例同步；C ABI v2/Swift 签名保留。main 未合并、crates.io 未发布、App 未修改。远程 Swift 包恢复已发布 v2.4.1 URL与原校验值，不能把它当成本轮新 H1 二进制。新规范发布守卫和权限配置的完整落地不属于本次 H1 已验证项。

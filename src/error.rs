@@ -182,6 +182,12 @@ define_codes! {
     ConfigDuplicateField => (2003, "重复配置字段", "CONFIG", "同一 YAML 映射出现重复字段，不允许后项覆盖前项。", "Mapping::next_key_seed 检测字段重复。", "拒绝整个输入，不部分接受。", "src/routing/yaml.rs Mapping::next_key_seed"),
     /// GenerationInput 声明的格式版本不是当前支持的版本 1。
     ConfigUnsupportedVersion => (2004, "规则来源配置版本不支持", "CONFIG", "GenerationInput 声明的格式版本不是当前支持的版本 1。", "GenerationInput::from_yaml 检查 format_version。", "拒绝该来源配置，不放宽解析规则。", "src/routing/runtime.rs GenerationInput::from_yaml"),
+    /// IPC 对端的操作系统身份、动态代码签名或加固策略不符合可信名单。
+    DebugIdentityRejected => (4003, "调试身份拒绝", "DEBUG", "本地 IPC 身份、代码签名或可信资料保护不符合内核固定策略。", "系统对端身份、audit token、签名/加固验证，或信任文件所有权、权限、路径保护检查失败。", "拒绝建立调试授权，不改变规则或网络状态。", "src/platform/debug_identity.rs inspect、verify、protected_file；src/routing/debug/ipc.rs serve_authenticated"),
+    /// 已识别对端没有当前具体调试操作权限，或试图修改其他授权拥有的方案。
+    DebugUnauthorized => (4004, "调试操作未授权", "DEBUG", "已识别调用者不具备当前调试操作权限。", "内核逐操作授权检查拒绝，或方案属于其他有效授权。", "拒绝该操作，保留原有效方案并记录受控审计结果。", "src/routing/debug/ipc.rs dispatch"),
+    /// 独立凭证证明无效、过期、序号重放或会话绑定不符。
+    DebugAuthenticationFailed => (4005, "调试凭证验证失败", "DEBUG", "独立调试凭证未能证明当前 IPC 会话请求的真实性与时效性。", "Ed25519 证明、挑战/会话、严格递增序号或授权期限校验失败。", "拒绝请求并撤销对应连接授权，不降级为普通业务调用。", "src/routing/debug/ipc.rs serve_authenticated、verify_signature"),
     /// 调试规则生命周期缺失、为零或超过 3600 秒。
     DebugInvalidLifetime => (4001, "非法调试生命周期", "DEBUG", "调试规则生命周期缺失、为零或超过 3600 秒。", "Session::replace_at 逐条校验生命周期。", "拒绝整次替换，原调试方案保持有效。", "src/routing/debug.rs Session::replace_at"),
     /// 已经关闭的调试会话不允许替换、清空或读取状态。
@@ -329,6 +335,9 @@ impl ErrorCode {
             | Self::GeoipResourceLimit
             | Self::GeoipQueryFailed
             | Self::DebugSessionClosed
+            | Self::DebugIdentityRejected
+            | Self::DebugUnauthorized
+            | Self::DebugAuthenticationFailed
             | Self::NetworkConnectRefused => &[],
         }
     }
@@ -378,6 +387,9 @@ impl ErrorCode {
             | Self::GeoipResourceLimit
             | Self::GeoipQueryFailed
             | Self::DebugSessionClosed
+            | Self::DebugIdentityRejected
+            | Self::DebugUnauthorized
+            | Self::DebugAuthenticationFailed
             | Self::NetworkConnectRefused => "{}（不接受任何参数键）",
         }
     }
@@ -424,7 +436,11 @@ impl ErrorCode {
                 "routing::yaml"
             }
             Self::ConfigUnsupportedVersion => "routing::runtime",
-            Self::DebugInvalidLifetime | Self::DebugSessionClosed => "routing::debug",
+            Self::DebugInvalidLifetime
+            | Self::DebugSessionClosed
+            | Self::DebugIdentityRejected
+            | Self::DebugUnauthorized
+            | Self::DebugAuthenticationFailed => "routing::debug",
             Self::ResourceBudgetExceeded => "budget",
             Self::NetworkConnectRefused => "error、outbound",
         }
@@ -631,6 +647,9 @@ impl<'de> Deserialize<'de> for ErrorInfo {
             | ErrorCode::SerializationFailed
             | ErrorCode::ProtocolViolation
             | ErrorCode::DebugSessionClosed
+            | ErrorCode::DebugIdentityRejected
+            | ErrorCode::DebugUnauthorized
+            | ErrorCode::DebugAuthenticationFailed
             | ErrorCode::GeoipNotConfigured
             | ErrorCode::GeoipInitializationFailed
             | ErrorCode::GeoipNoMatch
@@ -715,6 +734,9 @@ impl ErrorInfo {
             | ErrorCode::SerializationFailed
             | ErrorCode::ProtocolViolation
             | ErrorCode::DebugSessionClosed
+            | ErrorCode::DebugIdentityRejected
+            | ErrorCode::DebugUnauthorized
+            | ErrorCode::DebugAuthenticationFailed
             | ErrorCode::GeoipNotConfigured
             | ErrorCode::GeoipInitializationFailed
             | ErrorCode::GeoipNoMatch
@@ -759,6 +781,12 @@ pub enum Error {
     DebugInvalidLifetime(Option<u64>),
     /// 已关闭的调试会话。
     DebugSessionClosed,
+    /// 系统对端身份或代码签名验证失败。
+    DebugIdentityRejected,
+    /// 当前具体操作未获得有效 Debug 授权。
+    DebugUnauthorized,
+    /// 独立凭证、时效或防重放验证失败。
+    DebugAuthenticationFailed,
     /// 原子预算申请失败；只保存申请量及限额。
     ResourceBudgetExceeded {
         actual: u64,
@@ -815,6 +843,9 @@ impl Error {
             Self::ConfigUnsupportedVersion(_) => ErrorCode::ConfigUnsupportedVersion,
             Self::DebugInvalidLifetime(_) => ErrorCode::DebugInvalidLifetime,
             Self::DebugSessionClosed => ErrorCode::DebugSessionClosed,
+            Self::DebugIdentityRejected => ErrorCode::DebugIdentityRejected,
+            Self::DebugUnauthorized => ErrorCode::DebugUnauthorized,
+            Self::DebugAuthenticationFailed => ErrorCode::DebugAuthenticationFailed,
             Self::ResourceBudgetExceeded { .. } => ErrorCode::ResourceBudgetExceeded,
             Self::NetworkConnectRefused => ErrorCode::NetworkConnectRefused,
             Self::InvalidInput => ErrorCode::InvalidInput,
@@ -867,6 +898,9 @@ impl Error {
             }
             Self::ConfigYamlSyntax
             | Self::DebugSessionClosed
+            | Self::DebugIdentityRejected
+            | Self::DebugUnauthorized
+            | Self::DebugAuthenticationFailed
             | Self::NetworkConnectRefused
             | Self::InvalidInput
             | Self::DnsTimeout
@@ -908,6 +942,9 @@ impl fmt::Display for Error {
             Self::ConfigUnsupportedVersion(_) => "规则来源配置版本不支持",
             Self::DebugInvalidLifetime(_) => "调试生命周期必须为 1–3600 秒",
             Self::DebugSessionClosed => "调试会话已关闭",
+            Self::DebugIdentityRejected => "调试身份验证拒绝",
+            Self::DebugUnauthorized => "调试操作未授权",
+            Self::DebugAuthenticationFailed => "调试凭证验证失败",
             Self::ResourceBudgetExceeded { .. } => "预算准入失败",
             Self::NetworkConnectRefused => "连接被远端拒绝",
 

@@ -57,7 +57,7 @@ pub fn record(error: Error, site: DiagnosticSite) {
         raw_os_error: None,
     });
 }
-pub(super) fn record_io(error: &io::Error, code: ErrorCode) {
+pub(crate) fn record_io(error: &io::Error, code: ErrorCode) {
     append(Diagnostic {
         code,
         site: DiagnosticSite::IoConversion,

@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 case "${1:-all}" in
-  error_code|response_retry|tun_dns|protocol_block|lifecycle|https|mitm|script|tun|tun_udp|dns|dns_service|routing|outbound|runtime_rules|subscription|geoip) client_tests=("$1") ;;
-  all) client_tests=(error_code response_retry tun_dns protocol_block lifecycle https mitm script tun tun_udp dns dns_service routing outbound runtime_rules subscription geoip) ;;
-  *) echo '支持 error_code、response_retry、tun_dns、protocol_block、lifecycle、https、mitm、script、tun、tun_udp、dns、dns_service、routing、outbound、runtime_rules、subscription、geoip 或 all'; exit 1 ;;
+  debug_ipc|error_code|response_retry|tun_dns|protocol_block|lifecycle|https|mitm|script|tun|tun_udp|dns|dns_service|routing|outbound|runtime_rules|subscription|geoip) client_tests=("$1") ;;
+  all) client_tests=(debug_ipc error_code response_retry tun_dns protocol_block lifecycle https mitm script tun tun_udp dns dns_service routing outbound runtime_rules subscription geoip) ;;
+  *) echo '支持 debug_ipc、error_code、response_retry、tun_dns、protocol_block、lifecycle、https、mitm、script、tun、tun_udp、dns、dns_service、routing、outbound、runtime_rules、subscription、geoip 或 all'; exit 1 ;;
 esac
 check_directory="$(mktemp -d /tmp/fluxa-ffi-check.XXXXXX)"
 fixture_pid=''

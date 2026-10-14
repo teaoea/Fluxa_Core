@@ -10,7 +10,10 @@ pub mod https;
 mod lifecycle;
 pub mod mitm;
 mod network;
+// 仅系统身份适配边界允许必要 FFI，业务模块仍禁止 unsafe。
 pub mod outbound;
+#[allow(unsafe_code)]
+mod platform;
 pub mod protocol;
 pub mod rewrite;
 pub mod routing;

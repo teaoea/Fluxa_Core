@@ -1,7 +1,7 @@
 //! 一致性检查核对契约，语义检查采用独立确认的业务预期；不由当前实现生成断言。
 use libfluxa_core::{
     error::{Error, ErrorCode, ErrorInfo},
-    routing::{Config, Mode, Policy, Router, Target, Transport},
+    routing::{Config, Policy, Transport},
 };
 use std::collections::HashSet;
 #[test]
@@ -138,35 +138,6 @@ fn strict_error_schema_rejects_unregistered_or_unbounded_data() {
     );
 }
 #[test]
-fn policies_errors_and_debug_lifecycle_have_independent_expected_semantics() {
-    // 业务契约：纯匹配返回 Reject 是成功的策略决策，执行拒绝与远端 I/O 故障不同。
-    let router = Router::compile(Config {
-        mode: Mode::Rules,
-        fallback: Policy::Reject,
-        ..Default::default()
-    })
-    .unwrap();
-    let decision = router
-        .evaluate(Target {
-            domain: Some("example.test".into()),
-            address: None,
-            port: 443,
-            transport: Transport::Tcp,
-        })
-        .unwrap();
-    assert_eq!(decision.policy, Policy::Reject);
-    assert_eq!(Error::Rejected.code().value(), 1101);
-    let refused: Error = std::io::Error::from(std::io::ErrorKind::ConnectionRefused).into();
-    assert_eq!(refused.code().value(), 6003);
-    assert_ne!(refused.code(), Error::Rejected.code());
-    let session = libfluxa_core::routing::debug::Session::new().unwrap();
-    session.close().unwrap();
-    assert_eq!(session.clear().unwrap_err().code().value(), 4002);
-    assert_eq!(Error::DnsTimeout.code().value(), 5001);
-    assert_eq!(Error::NetworkTimeout.code().value(), 6002);
-    assert_eq!(Error::ResourceLimit.code().value(), 8001);
-}
-#[test]
 fn embedded_kernel_failure_survives_io_wrapper_without_sensitive_text() {
     let wrapped = std::io::Error::other(Error::Rejected);
     assert_eq!(Error::from(wrapped), Error::Rejected);
@@ -213,54 +184,6 @@ fn fixed_integer_protocol_has_no_string_or_heap_representation() {
             Err(Error::InvalidInput)
         );
     }
-}
-
-#[test]
-fn failed_debug_replacement_keeps_the_authorized_active_rules() {
-    use libfluxa_core::routing::{
-        Match, Rule,
-        debug::{DebugRule, Session},
-    };
-    let session = Session::new().unwrap();
-    let row = |lifetime| DebugRule {
-        rule: Rule {
-            r#type: Match::Domain,
-            value: "example.test".into(),
-            policy: Policy::Direct,
-            outbound: None,
-        },
-        protocol: None,
-        lifetime_seconds: lifetime,
-    };
-    let before = session.replace(vec![row(Some(60))], None).unwrap();
-    for lifetime in [None, Some(0), Some(3601)] {
-        let error = session.replace(vec![row(lifetime)], None).unwrap_err();
-        assert_eq!(error.code(), ErrorCode::DebugInvalidLifetime);
-        assert_eq!(error.public_info().params.actual, lifetime);
-        assert_eq!(session.status().unwrap().version, before.version);
-    }
-    let error = session.replace(vec![row(Some(60)); 257], None).unwrap_err();
-    assert_eq!(error.code(), ErrorCode::ResourceLimit);
-    assert_eq!(session.status().unwrap().version, before.version);
-    let router = Router::compile(Config {
-        fallback: Policy::Reject,
-        ..Default::default()
-    })
-    .unwrap()
-    .with_debug(&session)
-    .unwrap();
-    assert_eq!(
-        router
-            .evaluate(Target {
-                domain: Some("example.test".into()),
-                address: None,
-                port: 443,
-                transport: Transport::Tcp
-            })
-            .unwrap()
-            .policy,
-        Policy::Direct
-    );
 }
 
 #[tokio::test]
@@ -541,21 +464,6 @@ fn typed_context_is_required_bounded_and_specific_to_code() {
     }
     assert!(serde_json::to_vec(&ErrorInfo::new(ErrorCode::ResourceBudgetExceeded)).is_err());
 }
-#[test]
-fn debug_closed_and_yaml_syntax_return_real_failures() {
-    use libfluxa_core::routing::{debug::Session, runtime::GenerationInput};
-    let session = Session::new().unwrap();
-    session.close().unwrap();
-    assert_eq!(session.clear(), Err(Error::DebugSessionClosed));
-    assert_eq!(session.status(), Err(Error::DebugSessionClosed));
-    assert_eq!(
-        session.replace(vec![], None),
-        Err(Error::DebugSessionClosed)
-    );
-    let result = GenerationInput::from_yaml("format_version: \"unterminated");
-    assert_eq!(result.err().unwrap(), Error::ConfigYamlSyntax);
-}
-
 #[test]
 fn safety_filter_preserves_unknown_and_duplicate_classification() {
     use libfluxa_core::routing::runtime::GenerationInput;

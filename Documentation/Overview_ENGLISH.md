@@ -69,3 +69,5 @@ FFI reserves a response slot, byte quota, and serialization buffer before execut
 按用户要求全部已有接口统一新方案，ABI 版本为 2，旧错误编号不再兼容；command 与 `fluxa_engine_command_v2` 均返回结构化字段，`fluxa_engine_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
 
 运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，审查边界见 [ErrorReworkReview.md](ErrorReworkReview.md)。开发强制遵循 [错误体系规范](错误代码体系设计.md)。
+
+未完成任务与当前暂停状态见 [TODO.md](TODO.md)。

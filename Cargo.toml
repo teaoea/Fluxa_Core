@@ -73,6 +73,13 @@ path = "Tests/proxy.rs"
 name = "dns"
 path = "Tests/dns.rs"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# 复用已锁定的 Apple 安全框架与系统类型；仅平台边界需要 audit token 和签名验证。
+security-framework = "=3.7.0"
+core-foundation = "=0.10.1"
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.190"
+
 [dev-dependencies]
 h2 = "=0.4.20"
 bytes = "=1.12.1"

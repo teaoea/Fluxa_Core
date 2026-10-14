@@ -1,5 +1,5 @@
 //! 临时调试规则仅通过本地 API 操作，不实现 Deserialize，也不进入配置或持久化。
-//! 认证及授权属于宿主控制入口；此模块不创建网络或 IPC 服务。
+//! 认证、授权与审计由专用本地 IPC 完成，禁止普通业务接口创建调试会话。
 use super::runtime::{Origin, RuleClass};
 use super::{Decision, Match, Matcher, Policy, Reason, Rule, Target, Transport, matcher};
 use crate::{
@@ -7,7 +7,10 @@ use crate::{
     error::{Error, Result},
 };
 use std::{
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -32,6 +35,8 @@ struct Entry {
     sequence: usize,
 }
 struct Compiled {
+    revoked: AtomicBool,
+    revocation: tokio::sync::watch::Sender<bool>,
     entries: RwLock<Vec<Entry>>,
     version: u64,
     _memory: ByteLease,
@@ -41,11 +46,12 @@ struct State {
     closed: bool,
     active: Option<Arc<Compiled>>,
 }
-pub struct Session {
+pub(crate) struct Session {
+    id: u64,
     state: RwLock<State>,
     _lease: ByteLease,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Status {
     pub active: bool,
     pub count: usize,
@@ -62,13 +68,18 @@ fn discard_expired(entries: &mut Vec<Entry>, now: Instant) -> Result<()> {
     Ok(())
 }
 impl Session {
-    pub fn new() -> Result<Self> {
+    pub(crate) fn identity(&self) -> u64 {
+        self.id
+    }
+
+    pub(crate) fn new() -> Result<Self> {
         Ok(Self {
+            id: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             state: RwLock::new(State::default()),
             _lease: SESSIONS.reserve(1)?,
         })
     }
-    /// 所有规则成功后一次发布。宿主必须先完成调试权限检查，不能从配置调用。
+    /// 专用 IPC 逐操作授权成功后才能调用；全部规则成功后一次发布。
     pub fn replace(&self, rules: Vec<DebugRule>, outbound: Option<String>) -> Result<Status> {
         self.replace_at(rules, outbound, Instant::now())
     }
@@ -120,6 +131,8 @@ impl Session {
         }
         let version = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
         let compiled = Arc::new(Compiled {
+            revoked: AtomicBool::new(false),
+            revocation: tokio::sync::watch::channel(false).0,
             entries: RwLock::new(entries),
             version,
             _memory: memory,
@@ -127,6 +140,10 @@ impl Session {
         let mut state = self.state.write().map_err(|_| Error::Internal)?;
         if state.closed {
             return Err(Error::DebugSessionClosed);
+        }
+        if let Some(old) = &state.active {
+            old.revoked.store(true, Ordering::Release);
+            old.revocation.send_replace(true);
         }
         state.active = if compiled
             .entries
@@ -145,13 +162,19 @@ impl Session {
         if state.closed {
             return Err(Error::DebugSessionClosed);
         }
-        state.active = None;
+        if let Some(old) = state.active.take() {
+            old.revoked.store(true, Ordering::Release);
+            old.revocation.send_replace(true);
+        }
         Ok(())
     }
     pub fn close(&self) -> Result<()> {
         let mut state = self.state.write().map_err(|_| Error::Internal)?;
         state.closed = true;
-        state.active = None;
+        if let Some(old) = state.active.take() {
+            old.revoked.store(true, Ordering::Release);
+            old.revocation.send_replace(true);
+        }
         Ok(())
     }
     pub fn status(&self) -> Result<Status> {
@@ -199,8 +222,33 @@ impl Session {
     }
 }
 /// 视图不延长规则有效期，旧视图每次决策同样检查单调时钟截止时间。
+#[derive(Clone)]
 pub(super) struct View(Option<Arc<Compiled>>);
 impl View {
+    pub(super) fn revoked(&self) -> bool {
+        self.0
+            .as_ref()
+            .is_some_and(|active| active.revoked.load(Ordering::Acquire))
+    }
+    pub(super) async fn changed(&self) -> Result<()> {
+        let Some(active) = &self.0 else {
+            return std::future::pending().await;
+        };
+        let mut revoked = active.revocation.subscribe();
+        if *revoked.borrow() {
+            return Ok(());
+        }
+        let deadline = {
+            let entries = active.entries.read().map_err(|_| Error::Internal)?;
+            entries.iter().map(|entry| entry.deadline).min()
+        };
+        let next = deadline
+            .map(|deadline| deadline.min(Instant::now() + Duration::from_secs(1)))
+            .unwrap_or_else(Instant::now);
+        tokio::select! {biased; _=revoked.changed()=>(),_=tokio::time::sleep_until(tokio::time::Instant::from_std(next))=>()}
+        Ok(())
+    }
+
     fn applicable(entry: &Entry, target: &Target, now: Instant) -> bool {
         entry.deadline > now && entry.protocol.is_none_or(|p| p == target.transport)
     }
@@ -218,6 +266,9 @@ impl View {
         let Some(active) = &self.0 else {
             return Ok(super::DebugPreDecision::Continue);
         };
+        if active.revoked.load(Ordering::Acquire) {
+            return Ok(super::DebugPreDecision::Continue);
+        }
         let now = Instant::now();
         let (name, address) = super::runtime::Snapshot::metadata(target)?;
         let mut entries = active.entries.write().map_err(|_| Error::Internal)?;
@@ -246,6 +297,9 @@ impl View {
         let Some(active) = &self.0 else {
             return Ok(None);
         };
+        if active.revoked.load(Ordering::Acquire) {
+            return Ok(None);
+        }
         let (name, address) = super::runtime::Snapshot::metadata(target)?;
         let mut entries = active.entries.write().map_err(|_| Error::Internal)?;
         discard_expired(&mut entries, now)?;
@@ -357,3 +411,10 @@ mod tests {
         );
     }
 }
+
+/// 独立 Unix IPC 控制入口；不注册普通业务 JSON 操作。
+#[cfg(unix)]
+pub mod ipc;
+
+#[cfg(test)]
+mod semantic_tests;

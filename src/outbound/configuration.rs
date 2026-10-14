@@ -44,6 +44,71 @@ pub struct NetworkSnapshot {
     pub outbounds: Arc<std::collections::HashMap<String, Arc<crate::protocol::config::Node>>>,
 }
 impl Manager {
+    /// 仅专用 IPC 授权层可绑定 Debug；普通配置提交不得创造授权会话。
+    pub(crate) fn replace_debug(
+        &self,
+        session: Arc<crate::routing::debug::Session>,
+        rules: Vec<crate::routing::debug::DebugRule>,
+        outbound: Option<String>,
+    ) -> Result<()> {
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.stopped {
+            return Err(Error::InvalidState);
+        }
+        if state
+            .debug
+            .as_ref()
+            .is_some_and(|active| active.identity() != session.identity())
+        {
+            return Err(Error::DebugUnauthorized);
+        }
+        let router = state.network.router.as_ref().ok_or(Error::InvalidState)?;
+        // 状态和路由存在性先检查，规则完整验证后发布，失败不留下部分授权。
+        session.replace(rules, outbound)?;
+        let router = Arc::new((**router).clone().with_debug(&session)?);
+        state.network = Arc::new(NetworkSnapshot {
+            router: Some(router),
+            ..(*state.network).clone()
+        });
+        state.debug = Some(session);
+        Ok(())
+    }
+    pub(crate) async fn close_revoked_debug(&self) -> Result<()> {
+        let connections = {
+            let state = self.state.lock().map_err(|_| Error::Internal)?;
+            state
+                .registry
+                .iter()
+                .filter(|(_, connection)| connection.protection.revoked_debug())
+                .map(|(id, connection)| (id, connection.clone()))
+                .collect::<Vec<_>>()
+        };
+        for (_, connection) in &connections {
+            connection.request_close()?;
+        }
+        for (id, connection) in connections {
+            connection.wait_closed().await?;
+            self.state
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .registry
+                .take(id);
+        }
+        Ok(())
+    }
+    pub(crate) fn unbind_debug(&self, identity: u64) -> Result<()> {
+        // 撤销由 Session 完成，存活快照检查 revoked，不依赖外部引用释放。
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state
+            .debug
+            .as_ref()
+            .is_some_and(|active| active.identity() == identity)
+        {
+            state.debug.take();
+        }
+        Ok(())
+    }
+
     pub fn network_snapshot(&self) -> Result<Arc<NetworkSnapshot>> {
         Ok(Arc::clone(
             &self.state.lock().map_err(|_| Error::Internal)?.network,
@@ -136,6 +201,11 @@ impl Manager {
             return Err(Error::InvalidState);
         }
         let revision = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        let router = if let Some(session) = &state.debug {
+            Arc::new((*router).clone().with_debug(session)?)
+        } else {
+            router
+        };
         let replacement = Arc::new(NetworkSnapshot {
             revision,
             router: Some(router),
@@ -154,6 +224,10 @@ impl Manager {
             return Err(Error::InvalidState);
         }
         let mut replacement = update(&state.network);
+        if let Some(session) = &state.debug {
+            let router = replacement.router.as_ref().ok_or(Error::InvalidState)?;
+            replacement.router = Some(Arc::new((**router).clone().with_debug(session)?));
+        }
         replacement.revision = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
         let revision = replacement.revision;
         state.network = Arc::new(replacement);

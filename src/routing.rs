@@ -118,6 +118,7 @@ enum Matcher {
     Transport(Transport),
     Quic,
 }
+#[derive(Clone)]
 pub struct Router {
     runtime: std::sync::Arc<runtime::Snapshot>,
     debug: Option<debug::View>,
@@ -210,6 +211,40 @@ impl Router {
             Ok(())
         }
     }
+    /// 只对当前目标核验临时例外；IP 调试可能等待 DNS，不能提前执行正式拦截。
+    pub(crate) fn check_before_dns_transport(&self, target: &Target) -> Result<()> {
+        if let Some(debug) = &self.debug {
+            match debug.before_dns(target)? {
+                DebugPreDecision::Decided(decision) => {
+                    return if decision.policy == Policy::Reject {
+                        Err(Error::Rejected)
+                    } else {
+                        Ok(())
+                    };
+                }
+                DebugPreDecision::WaitForDns => return Ok(()),
+                DebugPreDecision::Continue => (),
+            }
+        }
+        self.check_transport(target.transport)
+    }
+    pub(crate) fn protection(&self, target: Target) -> Result<TrafficProtection> {
+        let rejected =
+            self.debug.is_some() && self.runtime.evaluate(&target)?.policy == Policy::Reject;
+        Ok(TrafficProtection {
+            transport_reject: rejected || self.runtime.blocks_transport(target.transport),
+            quic_reject: self.runtime.blocks_quic(),
+            grant: match &self.debug {
+                Some(view) => view.evaluate(&target)?.map(|decision| DebugProtection {
+                    view: view.clone(),
+                    target,
+                    policy: decision.policy,
+                    outbound: decision.outbound,
+                }),
+                None => None,
+            },
+        })
+    }
     pub fn blocks_quic(&self) -> bool {
         self.runtime.blocks_quic()
     }
@@ -254,7 +289,7 @@ impl Router {
         })
     }
     /// 只通过显式 API 为后续决策绑定当前调试视图；不存在配置字段或隐式入口。
-    pub fn with_debug(mut self, session: &debug::Session) -> Result<Self> {
+    pub(crate) fn with_debug(mut self, session: &debug::Session) -> Result<Self> {
         self.debug = Some(session.view()?);
         Ok(self)
     }
@@ -292,3 +327,61 @@ pub mod background;
 
 #[path = "routing/cache.rs"]
 mod cache;
+
+/// 正式保护与限时例外分离；不因调试建连而永久撤销 QUIC/传输安全检查。
+#[derive(Default)]
+pub(crate) struct TrafficProtection {
+    transport_reject: bool,
+    quic_reject: bool,
+    grant: Option<DebugProtection>,
+}
+struct DebugProtection {
+    view: debug::View,
+    target: Target,
+    policy: Policy,
+    outbound: Option<String>,
+}
+impl TrafficProtection {
+    pub(crate) fn has_debug_grant(&self) -> bool {
+        self.grant.is_some()
+    }
+    pub(crate) fn revoked_debug(&self) -> bool {
+        self.grant
+            .as_ref()
+            .is_some_and(|grant| grant.view.revoked())
+    }
+    pub(crate) async fn invalidated(&self) -> Result<()> {
+        let Some(grant) = &self.grant else {
+            return std::future::pending().await;
+        };
+        loop {
+            self.check(false)?;
+            grant.view.changed().await?;
+        }
+    }
+
+    pub(crate) fn check(&self, quic: bool) -> Result<()> {
+        if let Some(grant) = &self.grant {
+            match grant.view.evaluate(&grant.target)? {
+                Some(decision) if decision.policy == Policy::Reject => return Err(Error::Rejected),
+                Some(decision)
+                    if decision.policy == grant.policy && decision.outbound == grant.outbound =>
+                {
+                    return Ok(());
+                }
+                _ => {
+                    return Err(if self.transport_reject || (quic && self.quic_reject) {
+                        Error::Rejected
+                    } else {
+                        Error::Cancelled
+                    });
+                }
+            }
+        }
+        if self.transport_reject || (quic && self.quic_reject) {
+            Err(Error::Rejected)
+        } else {
+            Ok(())
+        }
+    }
+}

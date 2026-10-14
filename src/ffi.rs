@@ -36,6 +36,8 @@ const READ_REPLY_OVERHEAD: usize = 4096;
 static OUTPUT: ByteBudget = ByteBudget::new(MAX_OUTPUT_MEMORY);
 #[derive(Default)]
 struct Engine {
+    #[cfg(unix)]
+    debug_ipc: Mutex<Option<crate::routing::debug::ipc::Service>>,
     client: Mutex<Option<HttpsClient>>,
     geoip: Mutex<Arc<crate::geoip::Service>>,
     busy: AtomicBool,
@@ -109,6 +111,8 @@ impl Engine {
     }
 }
 enum Resource {
+    #[cfg(unix)]
+    DebugClient(Arc<debug::Handle>),
     PendingOutput,
     Engine(Arc<Engine>),
     Buffer(Arc<OwnedBuffer>),
@@ -1498,7 +1502,13 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
     // 位 25 代表整数错误查询及显式结构化命令扩展，原能力位不改义。
     const STRUCTURED_ERROR_CAPABILITY: u64 = 1 << 25;
-    33554431 | STRUCTURED_ERROR_CAPABILITY
+    33554431
+        | STRUCTURED_ERROR_CAPABILITY
+        | if cfg!(target_os = "macos") {
+            1 << 26
+        } else {
+            0
+        }
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
@@ -1528,7 +1538,28 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
             }
         };
         if resource.is_some() {
+            #[cfg(unix)]
+            if let Some(Resource::DebugClient(client)) = &resource {
+                let client = client.clone();
+                if let Err(error) = run_network(async move { client.close().await }) {
+                    return error_status(error);
+                }
+            }
             if let Some(Resource::Engine(engine)) = &resource {
+                #[cfg(unix)]
+                {
+                    let closed = (|| {
+                        let mut slot = engine.debug_ipc.lock().map_err(|_| Error::Internal)?;
+                        if let Some(service) = slot.as_mut() {
+                            runtime()?.block_on(service.close())?;
+                        }
+                        slot.take();
+                        Ok::<_, Error>(())
+                    })();
+                    if let Err(error) = closed {
+                        return error_status(error);
+                    }
+                }
                 if let Err(error) = engine.close_tun() {
                     return error_status(error);
                 }
@@ -2019,8 +2050,15 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        // 原位 0–24 保留，按协议新增位 25；仍精确检查完整掩码。
-        assert_eq!(fluxa_engine_capabilities(), 67108863);
+        // 原位 0–25 保留；macOS 独立安全 IPC 明确新增位 26，仍精确检查掩码。
+        assert_eq!(
+            fluxa_engine_capabilities(),
+            if cfg!(target_os = "macos") {
+                134217727
+            } else {
+                67108863
+            }
+        );
     }
     #[test]
     fn concurrent_owners_release_their_own_handles() {
@@ -2236,3 +2274,6 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), 0);
     }
 }
+
+#[cfg(unix)]
+mod debug;

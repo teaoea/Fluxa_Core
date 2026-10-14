@@ -96,7 +96,7 @@ struct Connection {
     revision: u64,
     idle_timeout: Duration,
     usage: Mutex<resources::Usage>,
-    quic_blocked: bool,
+    protection: crate::routing::TrafficProtection,
     quic: Mutex<crate::protocol::quic::Flow>,
 }
 // 字段按顺序释放：先归还真实 Socket 引用，再通知在途操作结束。
@@ -107,20 +107,20 @@ struct SocketOperation {
 }
 impl Connection {
     fn inspect_datagram(self: &Arc<Self>, bytes: &[u8]) -> Result<()> {
-        if self
+        let quic = self
             .quic
             .lock()
             .map_err(|_| Error::Internal)?
-            .observe(bytes)
-            && self.quic_blocked
-        {
+            .observe(bytes);
+        if let Err(error) = self.protection.check(quic) {
             self.close();
-            return Err(Error::Rejected);
+            return Err(error);
         }
         Ok(())
     }
 
     fn operation(&self) -> Result<SocketOperation> {
+        self.protection.check(false)?;
         if *self.cancel.borrow() {
             return Err(Error::Cancelled);
         }
@@ -196,6 +196,7 @@ pub struct Read {
     _lease: ByteLease,
 }
 struct State {
+    debug: Option<Arc<crate::routing::debug::Session>>,
     registry: Registry<Arc<Connection>>,
     stopped: bool,
     network: Arc<NetworkSnapshot>,
@@ -210,6 +211,7 @@ impl Default for Manager {
         let (generation, _) = watch::channel(0);
         Self {
             state: Arc::new(Mutex::new(State {
+                debug: None,
                 registry: Registry::default(),
                 stopped: false,
                 network: Arc::new(NetworkSnapshot::default()),
@@ -270,19 +272,33 @@ impl Manager {
         deadline: Duration,
         future: impl std::future::Future<Output = Result<Dialed>>,
     ) -> Result<Opened> {
-        let blocked = snapshot
-            .router
-            .as_ref()
-            .is_some_and(|router| router.blocks_quic());
-        self.establish_guarded(snapshot, deadline, blocked, future)
-            .await
+        let configuration = snapshot.clone();
+        self.establish_guarded(snapshot, deadline, async {
+            let dialed = future.await?;
+            let target = crate::routing::Target {
+                domain: None,
+                address: Some(dialed.2.ip().to_string()),
+                port: dialed.2.port(),
+                transport: match &dialed.0 {
+                    Socket::Tcp { .. } => Transport::Tcp,
+                    _ => Transport::Udp,
+                },
+            };
+            let protection = configuration
+                .router
+                .as_ref()
+                .map(|router| router.protection(target))
+                .transpose()?
+                .unwrap_or_default();
+            Ok((dialed, protection))
+        })
+        .await
     }
     async fn establish_guarded(
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
-        quic_blocked: bool,
-        future: impl std::future::Future<Output = Result<Dialed>>,
+        future: impl std::future::Future<Output = Result<(Dialed, crate::routing::TrafficProtection)>>,
     ) -> Result<Opened> {
         crate::lifecycle::runtime()?;
         snapshot.ensure_active()?;
@@ -317,7 +333,7 @@ impl Manager {
         if self.state.lock().map_err(|_| Error::Internal)?.stopped {
             return Err(Error::InvalidState);
         }
-        let (socket, lease, address) = tokio::select! {
+        let ((socket, lease, address), protection) = tokio::select! {
             biased;
             _ = generation.changed() => return Err(Error::Cancelled),
             _ = revoked => return Err(Error::InvalidState),
@@ -343,6 +359,7 @@ impl Manager {
             .map(|owner| owner.enter(owner.identity()))
             .transpose()?;
         let id = snapshot.commit(|| {
+            protection.check(false)?;
             state
                 .registry
                 .create(Arc::new(Connection {
@@ -360,11 +377,29 @@ impl Manager {
                     revision: snapshot.revision,
                     idle_timeout: Duration::from_millis(snapshot.limits.idle_timeout_ms),
                     usage: Mutex::new(resources::Usage::default()),
-                    quic_blocked,
+                    protection,
                     quic: Mutex::new(crate::protocol::quic::Flow::default()),
                 }))
                 .ok_or(Error::ResourceLimit)
         })?;
+        // 监听 Debug 撤销与到期，主动唤醒挂起读写并释放 Socket，不能只在下一次调用检查。
+        if let Some(connection) = state.registry.get(id).cloned()
+            && connection.protection.has_debug_grant()
+        {
+            let mut canceled = connection.cancel.subscribe();
+            let state = Arc::downgrade(&self.state);
+            crate::lifecycle::runtime()?.spawn(async move {
+                tokio::select! {biased; _=canceled.wait_for(|closed|*closed)=>(),result=connection.protection.invalidated()=>{
+                    if let Err(error)=result {crate::error::diagnostics::record(error,crate::error::diagnostics::DiagnosticSite::Cleanup);}
+                    connection.close();
+                }}
+                let result=connection.wait_closed().await;
+                if let Err(error)=result {crate::error::diagnostics::record(error,crate::error::diagnostics::DiagnosticSite::Cleanup);}
+                else if let Some(state)=state.upgrade() {
+                    match state.lock() {Ok(mut state)=>{state.registry.take(id);},Err(_)=>crate::error::diagnostics::record(Error::Internal,crate::error::diagnostics::DiagnosticSite::Cleanup)}
+                }
+            });
+        }
         Ok(Opened {
             id,
             address: address.to_string(),
@@ -554,6 +589,9 @@ impl Manager {
         let connections = {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
             state.stopped |= stop;
+            if stop && let Some(debug) = state.debug.take() {
+                debug.close()?;
+            }
             let next = (*self.generation.borrow())
                 .checked_add(1)
                 .ok_or(Error::ResourceLimit)?;

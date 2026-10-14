@@ -355,6 +355,45 @@
     "status": "有效"
   },
   {
+    "code": 4003,
+    "name": "调试身份拒绝",
+    "category": "DEBUG",
+    "modules": "routing::debug",
+    "detail": "本地 IPC 身份、代码签名或可信资料保护不符合内核固定策略。",
+    "trigger": "系统对端身份、audit token、签名/加固验证，或信任文件所有权、权限、路径保护检查失败。",
+    "effect": "拒绝建立调试授权，不改变规则或网络状态。",
+    "params": "{}（不接受任何参数键）",
+    "parameters": [],
+    "source": "src/platform/debug_identity.rs inspect、verify、protected_file；src/routing/debug/ipc.rs serve_authenticated",
+    "status": "有效"
+  },
+  {
+    "code": 4004,
+    "name": "调试操作未授权",
+    "category": "DEBUG",
+    "modules": "routing::debug",
+    "detail": "已识别调用者不具备当前调试操作权限。",
+    "trigger": "内核逐操作授权检查拒绝，或方案属于其他有效授权。",
+    "effect": "拒绝该操作，保留原有效方案并记录受控审计结果。",
+    "params": "{}（不接受任何参数键）",
+    "parameters": [],
+    "source": "src/routing/debug/ipc.rs dispatch",
+    "status": "有效"
+  },
+  {
+    "code": 4005,
+    "name": "调试凭证验证失败",
+    "category": "DEBUG",
+    "modules": "routing::debug",
+    "detail": "独立调试凭证未能证明当前 IPC 会话请求的真实性与时效性。",
+    "trigger": "Ed25519 证明、挑战/会话、严格递增序号或授权期限校验失败。",
+    "effect": "拒绝请求并撤销对应连接授权，不降级为普通业务调用。",
+    "params": "{}（不接受任何参数键）",
+    "parameters": [],
+    "source": "src/routing/debug/ipc.rs serve_authenticated、verify_signature",
+    "status": "有效"
+  },
+  {
     "code": 4001,
     "name": "非法调试生命周期",
     "category": "DEBUG",
