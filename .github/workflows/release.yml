@@ -52,6 +52,7 @@ jobs:
           PYCODE
           cargo test --locked
           cargo run --locked --example error_contract -- --check
+          cargo test --locked --test error_contract segmented_codes_have_one_category_per_prefix
           cargo clippy --locked --all-targets -- -D warnings
           python3 -m venv /tmp/fluxa-quic-peer
           /tmp/fluxa-quic-peer/bin/python -m pip install aioquic==1.2.0

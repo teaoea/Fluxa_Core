@@ -1,6 +1,40 @@
 //! 内核公开错误协议的唯一权威定义；与自然语言、调用方身份和枚举排列无关。
 use serde::{Deserialize, Serialize};
 
+/// 已发布旧号永久保留，不得赋予新含义；它们不是当前可返回的 ErrorCode。
+pub const RETIRED_ERROR_CODES: &[u16] = &[
+    // DNS 查询超时的历史编号，已退役，禁止复用。
+    1002, // DNS 响应失败的历史编号，已退役，禁止复用。
+    1003, // DNS 验证失败的历史编号，已退役，禁止复用。
+    1004, // 未生成合成地址的历史编号，已退役，禁止复用。
+    1005, // 资源上限的历史编号，已退役，禁止复用。
+    1006, // 连接或读写失败的历史编号，已退役，禁止复用。
+    1007, // 网络操作超时的历史编号，已退役，禁止复用。
+    1008, // 操作已取消的历史编号，已退役，禁止复用。
+    1009, // TLS 握手或校验失败的历史编号，已退役，禁止复用。
+    1010, // 证书或密钥无效的历史编号，已退役，禁止复用。
+    1011, // 状态不允许操作的历史编号，已退役，禁止复用。
+    1012, // 能力不支持的历史编号，已退役，禁止复用。
+    1013, // 内部状态错误的历史编号，已退役，禁止复用。
+    1014, // 脚本执行或输出失败的历史编号，已退役，禁止复用。
+    1015, // 脚本执行超时的历史编号，已退役，禁止复用。
+    1016, // 策略主动拒绝的历史编号，已退役，禁止复用。
+    1017, // 无效 ABI 句柄的历史编号，已退役，禁止复用。
+    1018, // 响应序列化失败的历史编号，已退役，禁止复用。
+    1019, // 代理协议约束违反的历史编号，已退役，禁止复用。
+    1020,
+];
+const fn is_retired_code(value: u16) -> bool {
+    let mut index = 0;
+    while index < RETIRED_ERROR_CODES.len() {
+        if RETIRED_ERROR_CODES[index] == value {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
 /// 每项定义同时生成强类型代码、固定整数值和可审查契约；新增项必须更新文档快照。
 macro_rules! define_codes {
     ($($(#[$doc:meta])* $variant:ident => ($id:literal, $name:literal, $category:literal,
@@ -13,6 +47,7 @@ macro_rules! define_codes {
         }
         const _: () = {
             $(assert!($id >= 1000 && $id <= 9999 && $id % 100 != 0);
+              assert!(!is_retired_code($id));
               assert!(stringify!($id).len() == 4 && stringify!($id).as_bytes()[0] != b'0');)+
         };
         impl Serialize for ErrorCode {
@@ -105,7 +140,7 @@ define_codes! {
     /// 会话关闭、缺少所需资源、代次不符、版本竞争或独占文件锁忙；现有通用类别不承诺具体状态子原因。
     InvalidState => (9001, "状态不允许操作", "LIFECYCLE", "会话关闭、缺少所需资源、代次不符、版本竞争或独占文件锁忙；现有通用类别不承诺具体状态子原因。", "状态、所有者、版本或锁占用检查失败。", "拒绝当前操作；不会继续使用未取得或已失效的对象。", "src/routing/store.rs；src/routing/debug.rs Session；src/dns/mod.rs restore_fake_ip"),
     /// 协议、配置版本或请求能力不在当前实现范围；不表示能够自动替换成直连。
-    Unsupported => (1002, "能力不支持", "INPUT", "协议、配置版本或请求能力不在当前实现范围；不表示能够自动替换成直连。", "支持范围校验、未实现功能入口或版本检查。", "明确拒绝，不伪造成功或静默能力降级。", "src/ffi.rs Command::TunStart；src/routing/cache.rs load；src/protocol/config.rs"),
+    Unsupported => (1021, "能力不支持", "INPUT", "协议、配置版本或请求能力不在当前实现范围；不表示能够自动替换成直连。", "支持范围校验、未实现功能入口或版本检查。", "明确拒绝，不伪造成功或静默能力降级。", "src/ffi.rs Command::TunStart；src/routing/cache.rs load；src/protocol/config.rs"),
     /// 锁中毒、运行时创建、任务 panic 或不能成立的内部状态；不吸收已知输入、资源及网络错误。
     Internal => (9901, "内部状态错误", "INTERNAL", "锁中毒、运行时创建、任务 panic 或不能成立的内部状态；不吸收已知输入、资源及网络错误。", "锁错误、运行时或内部一致性失败以及 FFI panic 隔离。", "返回失败或边界状态，不继续处理失效的内部状态。", "src/ffi.rs runtime；src/routing/background.rs；各模块锁转换"),
     /// 脚本执行失败，或结果不符合要求的 JSON/输出约束。

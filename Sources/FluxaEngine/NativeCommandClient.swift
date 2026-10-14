@@ -210,7 +210,7 @@ final class NativeCommandClient: Sendable {
     #endif
     let message = switch status {
     case 1201: "TUN 引擎句柄无效。"
-    case 1002: "TUN 请求的协议或出站尚未支持。"
+    case 1021: "TUN 请求的协议或出站尚未支持。"
     case 1001: "TUN 数据包不合法。"
     case 8001, 8002: "TUN 超过资源或并发上限。"
     case 9001: "TUN 会话未打开或已关闭。"

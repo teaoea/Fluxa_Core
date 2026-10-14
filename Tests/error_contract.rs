@@ -371,7 +371,7 @@ fn every_internal_error_maps_to_the_independent_protocol_identity() {
         (Error::Tls, 7001),
         (Error::Certificate, 7002),
         (Error::InvalidState, 9001),
-        (Error::Unsupported, 1002),
+        (Error::Unsupported, 1021),
         (Error::Internal, 9901),
         (Error::Script, 1301),
         (Error::ScriptTimeout, 1302),
@@ -464,6 +464,17 @@ fn segmented_codes_have_one_category_per_prefix() {
         (14, "PROTOCOL"),
         (99, "INTERNAL"),
     ];
+    for retired in libfluxa_core::error::RETIRED_ERROR_CODES {
+        assert_eq!(
+            ErrorCode::from_value(*retired),
+            None,
+            "退役代码不得被重新解释为其它错误"
+        );
+        assert_eq!(
+            ErrorInfo::from_json(format!("{{\"code\":{retired},\"params\":{{}}}}").as_bytes()),
+            Err(Error::InvalidInput)
+        );
+    }
     for code in ErrorCode::ALL {
         assert!((1000..=9999).contains(&code.value()));
         assert_ne!(code.value() % 100, 0);

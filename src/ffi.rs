@@ -1814,7 +1814,7 @@ mod tests {
         let reply: serde_json::Value =
             serde_json::from_slice(&buffer(output).unwrap().bytes).unwrap();
         assert_eq!(reply["success"], false);
-        assert_eq!(reply["error_info"]["code"], 1002);
+        assert_eq!(reply["error_info"]["code"], 1021);
         assert_eq!(fluxa_engine_destroy(output), OK);
         assert!(last_info().is_none());
         assert_eq!(fluxa_engine_destroy(handle), OK);

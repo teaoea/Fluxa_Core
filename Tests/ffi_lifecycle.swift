@@ -6,7 +6,7 @@ precondition(fluxa_engine_capabilities() & 1 == 1)
 for _ in 0 ..< 1000 {
   let handle = fluxa_engine_create()
   precondition(handle != 0)
-  precondition(fluxa_engine_start(handle) == 1002)
+  precondition(fluxa_engine_start(handle) == 1021)
   precondition(fluxa_engine_destroy(handle) == 0)
   precondition(fluxa_engine_destroy(handle) == 1201)
   precondition(fluxa_engine_start(handle) == 1201)

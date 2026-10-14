@@ -156,7 +156,7 @@
     "status": "有效"
   },
   {
-    "code": 1002,
+    "code": 1021,
     "name": "能力不支持",
     "category": "INPUT",
     "modules": "ffi、routing、protocol、dns、http、rewrite、tun",

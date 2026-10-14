@@ -32,7 +32,7 @@ uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);
 int32_t fluxa_engine_destroy(uint64_t handle);
-/* 系统隧道及入口启动尚未实现；有效句柄返回 1002，不会伪造已连接。 */
+/* 系统隧道及入口启动尚未实现；有效句柄返回 1021，不会伪造已连接。 */
 int32_t fluxa_engine_start(uint64_t handle);
 /* input 仅在调用期间借用，须指向 length 个可读且无并发写入的字节。
    返回响应缓冲区句柄，使用后调用 destroy；零表示边界或资源错误。

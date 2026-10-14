@@ -11,12 +11,12 @@ struct ErrorCodeFFICheck {
         let request = Data(#"{"operation":"tun_start"}"#.utf8)
         let legacy = try command(handle: handle, request: request, structured: false)
         precondition(legacy["success"] as? Bool == false)
-        precondition((legacy["error_info"] as? [String: Any])?["code"] as? Int == 1002)
+        precondition((legacy["error_info"] as? [String: Any])?["code"] as? Int == 1021)
         let current = try command(handle: handle, request: request, structured: true)
         guard let errorInfo = current["error_info"] as? [String: Any],
               let code = errorInfo["code"] as? Int
         else { preconditionFailure("缺少整数结构化错误") }
-        precondition(code == 1002 && current["error"] == nil)
+        precondition(code == 1021 && current["error"] == nil)
         // 旧协议先验证句柄再解析 JSON；同一非法输入在不同句柄下必须准确分类。
         let malformed = Data("not-json".utf8)
         for (target, expected) in [(UInt64(0), UInt16(1201)), (handle, UInt16(1001))] {
