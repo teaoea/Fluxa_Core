@@ -58,6 +58,8 @@ struct NativeCommandReply: Decodable {
   let success: Bool
   let error: String?
   let errorInfo: NativeKernelError?
+  let warn: NativeGeoIPWarning?
+  let geoipStatus: NativeGeoIPStatus?
   let status: Int?
   let headers: [NativeHeader]
   let body: String
@@ -69,9 +71,10 @@ struct NativeCommandReply: Decodable {
   let droppedCaptures: UInt64?
   let durationMilliseconds: UInt64
   enum CodingKeys: String, CodingKey {
-    case success, error, status, headers, body, geoip, address
+    case success, error, status, headers, body, geoip, address, warn
     case port, capture
     case errorInfo = "error_info"
+    case geoipStatus = "geoip_status"
     case subscriptionRulesCount = "subscription_rules_count"
     case subscriptionRules = "subscription_rules"
     case subscriptionSchedule = "subscription_schedule"
@@ -126,7 +129,7 @@ final class NativeCommandClient: Sendable {
   @discardableResult
   func configureNetwork(
     dns: DNSConfiguration?, routing: RoutingConfiguration,
-    limits: OutboundLimits, outbounds: [NativeProxyOutbound] = []
+    limits: OutboundLimits, outbounds: [NativeProxyOutbound] = [], geoipURL: String? = nil
   ) throws -> UInt64 {
     var route = try NativeRoutingClient.configurationCommand(routing)
     route.removeValue(forKey: "operation")
@@ -138,6 +141,7 @@ final class NativeCommandClient: Sendable {
     let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(limits))
     let reply = try command([
       "operation": "network_configure", "routing": route,
+      "geoip_url": geoipURL as Any? ?? NSNull(),
       "dns": dnsObject as Any? ?? NSNull(), "limits": object,
       "outbounds": JSONSerialization.jsonObject(with: JSONEncoder().encode(outbounds)),
     ])

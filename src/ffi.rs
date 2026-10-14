@@ -37,7 +37,7 @@ static OUTPUT: ByteBudget = ByteBudget::new(MAX_OUTPUT_MEMORY);
 #[derive(Default)]
 struct Engine {
     client: Mutex<Option<HttpsClient>>,
-    geoip: Mutex<Option<crate::geoip::Database>>,
+    geoip: Mutex<Arc<crate::geoip::Service>>,
     busy: AtomicBool,
     outbound: Arc<crate::outbound::Manager>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
@@ -251,14 +251,16 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
-    GeoipOpen {
-        path: String,
-    },
+    GeoipOpen {},
     GeoipLookup {
         address: String,
         language: String,
     },
-    GeoipClose,
+    GeoipClose {},
+    GeoipConfigure {
+        geoip_url: Option<String>,
+    },
+    GeoipRefresh {},
     PublicIp {
         ipv6: bool,
     },
@@ -274,6 +276,8 @@ enum Command {
         url: String,
     },
     NetworkConfigure {
+        #[serde(default)]
+        geoip_url: Option<String>,
         dns: Option<crate::dns::Config>,
         routing: crate::routing::Config,
         limits: crate::outbound::Limits,
@@ -447,6 +451,12 @@ impl RuntimeRulesSummary {
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
+    warn: Option<crate::geoip::Warning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    geoip_status: Option<crate::geoip::Status>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geoip: Option<crate::geoip::Location>,
@@ -556,10 +566,12 @@ impl From<crate::outbound::RoutedOpened> for Reply {
 }
 impl Reply {
     fn failure(error: Error) -> Self {
+        crate::error::diagnostics::record(error, crate::error::diagnostics::DiagnosticSite::Abi);
         set_last_error(error.public_info());
         Self {
             // 所有命令提供机器错误；文本仅作诊断，不参与分类。
             error_info: Some(error.public_info()),
+            level: Some("error"),
             ..Self::default()
         }
     }
@@ -769,54 +781,90 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             timeout_ms,
         } => probe_latency(&engine, &host, port, timeout_ms),
         Command::PublicIp { ipv6 } => public_ip(&engine, ipv6),
-        Command::GeoipOpen { path } => {
-            if path.is_empty() || path.len() > 4096 {
-                return Err(Error::InvalidInput);
-            }
-            let database = crate::geoip::Database::open(std::path::Path::new(&path))?;
-            *engine.geoip.lock().map_err(|_| Error::Internal)? = Some(database);
-            Ok(Reply {
-                success: true,
-                ..Reply::default()
-            })
-        }
         Command::GeoipLookup { address, language } => {
+            let service = Arc::clone(&*engine.geoip.lock().map_err(|_| Error::Internal)?);
+            if service.is_disabled() {
+                return Ok(Reply {
+                    success: true,
+                    warn: service.warning(),
+                    geoip_status: Some(crate::geoip::Status::disabled()),
+                    ..Reply::default()
+                });
+            }
+            let database = service.database()?;
             let address = if address.parse::<std::net::IpAddr>().is_ok() {
                 address
             } else {
                 let name = crate::network::normalize_host(&address)?;
-                let resolver = engine.dns()?;
+                let resolver = engine.dns().map_err(crate::geoip::query_error)?;
                 let mut selected = None;
                 for kind in ["A", "AAAA"] {
-                    let answer = runtime()?.block_on(resolver.resolve_real(crate::dns::Query {
-                        name: name.clone(),
-                        query_type: kind.into(),
-                    }))?;
+                    let answer = runtime()?
+                        .block_on(resolver.resolve_real(crate::dns::Query {
+                            name: name.clone(),
+                            query_type: kind.into(),
+                        }))
+                        .map_err(crate::geoip::query_error)?;
                     if answer.rcode != 0 {
-                        return Err(Error::DnsResponse);
+                        return Err(crate::geoip::query_error(Error::DnsResponse));
                     }
                     if let Some(value) = answer.addresses.into_iter().next() {
                         selected = Some(value);
                         break;
                     }
                 }
-                selected.ok_or(Error::DnsResponse)?
+                selected
+                    .ok_or(Error::DnsResponse)
+                    .map_err(crate::geoip::query_error)?
             };
-            let database = engine.geoip.lock().map_err(|_| Error::Internal)?;
-            let location = database
-                .as_ref()
-                .ok_or(Error::InvalidState)?
-                .lookup(&address, &language)?;
+            let location = database.lookup(&address, &language)?;
             Ok(Reply {
                 success: true,
+                geoip_status: Some(if location.is_some() {
+                    crate::geoip::Status::ready()
+                } else {
+                    crate::geoip::Status::no_match()
+                }),
                 geoip: location,
                 ..Reply::default()
             })
         }
-        Command::GeoipClose => {
-            *engine.geoip.lock().map_err(|_| Error::Internal)? = None;
+        Command::GeoipClose {} => {
+            engine.geoip.lock().map_err(|_| Error::Internal)?.close()?;
             Ok(Reply {
                 success: true,
+                ..Reply::default()
+            })
+        }
+        Command::GeoipConfigure { geoip_url } => {
+            let service = Arc::new(crate::geoip::Service::new(crate::geoip::Config {
+                geoip_url,
+            })?);
+            let warn = service.warning();
+            *engine.geoip.lock().map_err(|_| Error::Internal)? = service;
+            Ok(Reply {
+                success: true,
+                geoip_status: warn.as_ref().map(|_| crate::geoip::Status::disabled()),
+                warn,
+                ..Reply::default()
+            })
+        }
+        Command::GeoipOpen {} | Command::GeoipRefresh {} => {
+            let service = Arc::clone(&*engine.geoip.lock().map_err(|_| Error::Internal)?);
+            // 先检查来源，不为无配置路径初始化证书或联网。
+            if service.is_disabled() {
+                return Ok(Reply {
+                    success: true,
+                    warn: service.warning(),
+                    geoip_status: Some(crate::geoip::Status::disabled()),
+                    ..Reply::default()
+                });
+            }
+            let client = engine.client()?;
+            run_network(async move { service.refresh(&client).await })?;
+            Ok(Reply {
+                success: true,
+                geoip_status: Some(crate::geoip::Status::ready()),
                 ..Reply::default()
             })
         }
@@ -826,6 +874,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             ..Reply::default()
         }),
         Command::NetworkConfigure {
+            geoip_url,
             dns,
             routing,
             limits,
@@ -840,6 +889,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 return Err(Error::InvalidState);
             }
             limits.validate()?;
+            let geoip = Arc::new(crate::geoip::Service::new(crate::geoip::Config {
+                geoip_url,
+            })?);
+            let warn = geoip.warning();
             let router = Arc::new(crate::routing::Router::compile(routing)?);
             let resolver = dns
                 .map(|config| {
@@ -847,14 +900,19 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                         .map(Arc::new)
                 })
                 .transpose()?;
+            // 来源锁与网络快照提交按一次命令顺序更新；下载不会持有此锁。
+            let mut geoip_guard = engine.geoip.lock().map_err(|_| Error::Internal)?;
             let revision = engine.outbound.configure_network_with_outbounds(
                 resolver,
                 Some(router),
                 limits,
                 outbounds,
             )?;
+            *geoip_guard = geoip;
             Ok(Reply {
                 success: true,
+                geoip_status: warn.as_ref().map(|_| crate::geoip::Status::disabled()),
+                warn,
                 network_revision: Some(revision),
                 ..Reply::default()
             })

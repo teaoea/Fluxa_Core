@@ -17,7 +17,7 @@ trap cleanup EXIT
 build_targets=(--lib --example geoip_fixture)
 needs_fixture=false
 for client_test in "${client_tests[@]}"; do
-  if [[ "$client_test" == response_retry || "$client_test" == tun_dns || "$client_test" == protocol_block || "$client_test" == https || "$client_test" == mitm || "$client_test" == dns || "$client_test" == dns_service || "$client_test" == tun_udp || "$client_test" == outbound || "$client_test" == subscription ]]; then needs_fixture=true; fi
+  if [[ "$client_test" == geoip || "$client_test" == response_retry || "$client_test" == tun_dns || "$client_test" == protocol_block || "$client_test" == https || "$client_test" == mitm || "$client_test" == dns || "$client_test" == dns_service || "$client_test" == tun_udp || "$client_test" == outbound || "$client_test" == subscription ]]; then needs_fixture=true; fi
 done
 if $needs_fixture; then build_targets+=(--example https_fixture); fi
 cargo build --locked --offline --target-dir "$check_directory/rust" "${build_targets[@]}"
@@ -44,7 +44,7 @@ for client_test in "${client_tests[@]}"; do
     "Tests/ffi_$client_test.swift" -Xlinker "$check_directory/rust/debug/libfluxa_core" \
     -framework Security -framework CoreFoundation -o "$check_directory/client-ffi"
   if [[ "$client_test" == geoip ]]; then
-    "$check_directory/client-ffi" "$check_directory/geoip.mmdb"
+    "$check_directory/client-ffi" "$check_directory/geoip.mmdb" "$check_directory/fixture.json"
   else
     "$check_directory/client-ffi" "$check_directory/fixture.json"
   fi

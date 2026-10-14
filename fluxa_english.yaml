@@ -6,6 +6,11 @@ schema-version: 1
 kind: configuration
 name: My Fluxa
 
+# 可选 MMDB 下载地址，仅使用用户显式配置；无默认来源。
+# 缺失时 WARN + Disabled 2410，无法查询归属地；配置后需显式 geoip_refresh 下载。
+geoip_url: null # 不启用 GeoIP；启用时改为下面明确的 URL。
+# geoip_url: https://ssss.aa.com # 示例占位地址，请换成自己的原始 .mmdb HTTPS 地址。
+
 # 节点 URI 含凭据，请使用自己的节点；当前示例不提供可用账号。
 # VLESS URI 必须指定 security=reality、flow=xtls-rprx-vision、sni、pbk、sid。
 # fp 支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、

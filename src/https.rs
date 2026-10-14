@@ -31,6 +31,7 @@ struct ConnectionOptions {
     proxy_port: Option<u16>,
     allow_http: bool,
     maximum_body: Option<usize>,
+    database_download: bool,
 }
 impl HttpsClient {
     /// 复用受验证的根证书配置供加密 DNS；不提供跳过证书校验入口。
@@ -119,6 +120,24 @@ impl HttpsClient {
         .await
         .map_err(|_| Error::NetworkTimeout)?
     }
+    /// GeoIP 专用大文件入口；调用者必须先持有全量正文预算，证书/路由/超时仍共用原流程。
+    pub(crate) async fn download_database(&self, target: &str) -> Result<Response> {
+        timeout(
+            Duration::from_secs(60),
+            self.execute_inner(
+                "GET",
+                target,
+                &[],
+                &[],
+                ConnectionOptions {
+                    database_download: true,
+                    ..ConnectionOptions::default()
+                },
+            ),
+        )
+        .await
+        .map_err(|_| Error::NetworkTimeout)?
+    }
     /// 通过本机 CONNECT 入口执行 HTTPS；不会失败后回退直连。
     pub async fn execute_via_proxy(
         &self,
@@ -163,6 +182,7 @@ impl HttpsClient {
                 ConnectionOptions {
                     allow_http: true,
                     maximum_body: None,
+                    database_download: false,
                     proxy_port,
                     stream: None,
                 },
@@ -390,7 +410,11 @@ impl HttpsClient {
         .await?;
         let mut informational = 0;
         let (head, status) = loop {
-            let head = http::read_head(&mut stream).await?;
+            let head = if options.database_download {
+                http::read_database_head(&mut stream).await?
+            } else {
+                http::read_head(&mut stream).await?
+            };
             let mut parts = head.first.splitn(3, ' ');
             if !matches!(parts.next(), Some("HTTP/1.1" | "HTTP/1.0")) {
                 return Err(Error::InvalidInput);
@@ -413,6 +437,11 @@ impl HttpsClient {
         };
         let response_body = if method.eq_ignore_ascii_case("HEAD") || matches!(status, 204 | 304) {
             Vec::new()
+        } else if options.database_download {
+            if status != 200 {
+                return Err(Error::GeoipDownloadFailed);
+            }
+            http::read_database_body(&mut stream, &head).await?
         } else {
             http::read_body_limited(
                 &mut stream,

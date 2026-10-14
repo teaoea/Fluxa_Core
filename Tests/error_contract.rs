@@ -24,6 +24,14 @@ fn registered_contract_and_initial_baseline_are_complete() {
             "新方案已登记语义不得静默删除、修改或复用"
         );
     }
+    let geoip_published: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/error-contract-v2.4.1.json")).unwrap();
+    for entry in geoip_published.as_array().unwrap() {
+        assert!(
+            registered.as_array().unwrap().contains(entry),
+            "v2.4.1 契约不得静默改义、改号或删除"
+        );
+    }
     let mut seen = HashSet::new();
     let document = include_str!("../Documentation/错误代码查询表.md");
     for code in ErrorCode::ALL {
@@ -462,6 +470,7 @@ fn segmented_codes_have_one_category_per_prefix() {
         (12, "ABI"),
         (13, "SCRIPT"),
         (14, "PROTOCOL"),
+        (24, "GEOIP"),
         (99, "INTERNAL"),
     ];
     for retired in libfluxa_core::error::RETIRED_ERROR_CODES {

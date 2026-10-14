@@ -6,7 +6,7 @@
 
 ## 协议、用途及兼容性
 
-公开 code 为固定 u16 四位整数，前两位类别、后两位具体错误。类别登记：10 INPUT、20 CONFIG、40 DEBUG、50 DNS、60 IO、70 TLS、80 RESOURCE、90 LIFECYCLE、11 POLICY、12 ABI、13 SCRIPT、14 PROTOCOL、99 INTERNAL。尾号 00 本版不分配；类别为当前实际归类，不虚构 AUTH/IPC。兼容接口的旧代码是历史协议，不能按新分段解释。
+公开 code 为固定 u16 四位整数，前两位类别、后两位具体错误。类别登记：10 INPUT、20 CONFIG、40 DEBUG、50 DNS、60 IO、70 TLS、80 RESOURCE、90 LIFECYCLE、11 POLICY、12 ABI、13 SCRIPT、14 PROTOCOL、24 GEOIP、99 INTERNAL。尾号 00 本版不分配；类别为当前实际归类，不虚构 AUTH/IPC。兼容接口的旧代码是历史协议，不能按新分段解释。
 
 权威定义在 src/error.rs；强类型枚举显式登记，不根据排列或运行时算术推导。内部 Error 保留旧变体，并为已核实的 YAML、Debug、预算及 I/O 类型增加独立失败及必要上下文。类别前缀、唯一性、源码注释、必要元数据和文档自动核验；技术检查不代替 L3。
 
@@ -35,3 +35,7 @@ AbiStatus::Success=0 为成功，AbiStatus::Empty=11 为接收队列空，不登
 ## 已发布旧编号永久保留
 
 1001 保持原通用输入含义；1002–1020 作为 v2.3.x 历史编号退役，永久禁止复用。新方案的能力不支持为 1021，不能用旧 DNS 超时号 1002 表达新含义。当前解析拒绝退役号，不把旧诊断误读为另一类错误。退休号在 src/error.rs 集中登记并经编译期及测试检查，完整旧语义保留在未修改的 v1 历史契约中。新分段规则只适用于当前有效代码，历史混合编号仅作为归档查询。
+
+## GeoIP 可选功能状态
+
+GeoIP 使用用户明确指定的 2401–2409 错误，前两位 24 为 GEOIP 类别。状态代码 2410（WARN + Disabled）、2411（INFO + Ready）、2412（合法 no-match，非错误）也在中央契约登记，不能把它们视为执行 Err。缺少 geoip_url 时返回 success:true、geoip_status 和 warn，不初始化数据库、不下载、不查询 DNS。明确配置但执行失败返回 success:false、level:error 和 error_info，禁止静默降级。所有参数为空，不公开 URL、IP 或凭据。完整性验证指响应分帧及 MMDB 结构验证，不声称实施外部签名或预期校验和验证。

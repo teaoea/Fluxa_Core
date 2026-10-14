@@ -1,5 +1,7 @@
 //! 真实回环 TLS 服务供 Rust 和 Swift FFI 测试共用；私钥只存在于进程内存。
 pub mod dns;
+#[path = "../geoip_fixture.rs"]
+pub(crate) mod geoip_data;
 use libfluxa_core::http;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair, KeyUsagePurpose};
 use rustls::{ServerConfig, pki_types::PrivatePkcs8KeyDer};
@@ -119,6 +121,20 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
         return;
     }
     let response: Vec<u8> = match path {
+        "/geoip" | "/geoip-large" => {
+            let mut payload = geoip_data::fixture();
+            if path == "/geoip-large" {
+                let marker = b"\xab\xcd\xefMaxMind.com";
+                let index = payload.windows(marker.len()).position(|v| v == marker).unwrap();
+                payload.splice(index..index, std::iter::repeat_n(0, 9 * 1024 * 1024));
+            }
+            let mut response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes();
+            response.extend(payload); response
+        },
+        "/geoip-limit" => b"HTTP/1.1 200 OK\r\nContent-Length: 268435457\r\n\r\n".to_vec(),
+        "/geoip-corrupt" => b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnope".to_vec(),
+        "/geoip-truncated" => b"HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\nshort".to_vec(),
+
                             "/subscription" => { let payload = b"schema-version: 1\nkind: rules\nname: Fixture\nrules: []\n"; let mut response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", payload.len()).into_bytes(); response.extend(payload); response },
                             "/subscription-redirect" => b"HTTP/1.1 302 Found\r\nLocation: /subscription\r\nContent-Length: 0\r\n\r\n".to_vec(),
                             "/subscription-downgrade" => b"HTTP/1.1 302 Found\r\nLocation: http://localhost/\r\nContent-Length: 0\r\n\r\n".to_vec(),

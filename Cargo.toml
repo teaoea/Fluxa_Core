@@ -1,6 +1,6 @@
 [package]
 name = "libfluxa_core"
-version = "2.4.0"
+version = "2.4.1"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.89"
@@ -12,7 +12,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/Tests/fixtures/error-contract-v1.json", "/Tests/fixtures/error-contract-v2.json", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/Tests/fixtures/error-contract-v1.json", "/Tests/fixtures/error-contract-v2.json", "/Tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
 
 [lib]
 name = "libfluxa_core"

@@ -13,6 +13,8 @@ pub enum DiagnosticSite {
     BackgroundJob,
     OutboundReaper,
     Abi,
+    GeoipDownload,
+    GeoipQuery,
 }
 /// 只保留受控分类；原始错误字符串与完整错误链不进入公开诊断。
 #[derive(Debug, Clone, Copy)]
@@ -21,6 +23,12 @@ pub struct Diagnostic {
     pub site: DiagnosticSite,
     pub io_kind: Option<io::ErrorKind>,
     pub raw_os_error: Option<i32>,
+}
+impl Diagnostic {
+    /// 等级由中央语义分类决定，不解析错误文本，不存重复的动态字段。
+    pub const fn level(self) -> super::LogLevel {
+        self.code.level()
+    }
 }
 pub const DIAGNOSTIC_CAPACITY: usize = 64;
 struct Ring {

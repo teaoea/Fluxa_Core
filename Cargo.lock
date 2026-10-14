@@ -851,7 +851,7 @@ checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
 name = "libfluxa_core"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "aho-corasick",
  "base64",

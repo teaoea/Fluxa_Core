@@ -87,6 +87,25 @@ macro_rules! define_codes {
         }
     };
 }
+/// 结构化日志级别与错误/状态代码分离；状态不应改变 Result 的成功语义。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Warn,
+    Info,
+    Error,
+}
+impl ErrorCode {
+    pub const fn level(self) -> LogLevel {
+        if matches!(self, Self::GeoipNotConfigured) {
+            LogLevel::Warn
+        } else if matches!(self, Self::GeoipReady | Self::GeoipNoMatch) {
+            LogLevel::Info
+        } else {
+            LogLevel::Error
+        }
+    }
+}
 /// 契约字段来自实际映射，文档一致性不代替独立业务语义审查。
 #[derive(Debug, Serialize)]
 pub struct ErrorContract {
@@ -172,6 +191,30 @@ define_codes! {
     /// 操作系统明确返回 ConnectionRefused；与规则主动拒绝区分。
     NetworkConnectRefused => (6003, "连接被远端拒绝", "IO", "操作系统明确返回 ConnectionRefused；与规则主动拒绝区分。", "Error::classify_io 的类型化 I/O kind 检查。", "当前连接失败，不转换为策略 REJECT 或成功。", "src/error.rs Error::classify_io"),
 
+    /// 显式 geoip_url 为空、超长或不是合法下载地址。
+    GeoipInvalidUrl => (2401, "GeoIP URL 格式非法", "GEOIP", "显式 geoip_url 为空、超长或不是合法下载地址。", "Config::validate 拒绝 URL 格式、主机、凭据、片段或控制符。", "ERROR，拒绝整次配置并保留旧来源和网络配置。", "src/geoip.rs Config::validate"),
+    /// GeoIP 数据源使用不允许的协议，当前仅接受 HTTPS。
+    GeoipUrlScheme => (2402, "GeoIP URL 协议不允许", "GEOIP", "GeoIP 数据源使用不允许的协议，当前仅接受 HTTPS。", "URL 已解析但 scheme 不是 https。", "ERROR，拒绝整次配置，不降级 HTTP。", "src/geoip.rs Config::validate"),
+    /// 来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。
+    GeoipDownloadFailed => (2403, "GeoIP 数据库下载失败", "GEOIP", "来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。", "HTTPS 数据源访问失败或 GET 最终状态非 200。", "ERROR，下载返回 Err，底层类型保留在固定诊断环；不默认下载或静默启用旧库。", "src/geoip.rs access_error；src/https.rs execute_inner"),
+    /// 数据库下载超出共用 HTTPS 的 60 秒总期限。
+    GeoipDownloadTimeout => (2404, "GeoIP 数据库下载超时", "GEOIP", "数据库下载超出共用 HTTPS 的 60 秒总期限。", "下载流程返回 NetworkTimeout。", "ERROR，取消下载，返回 Err；临时预算释放。", "src/geoip.rs access_error；src/https.rs download_database"),
+    /// 下载数据不是可识别的原始 MMDB 格式或使用不支持的内容编码。
+    GeoipInvalidDatabase => (2405, "GeoIP 数据库格式非法", "GEOIP", "下载数据不是可识别的原始 MMDB 格式或使用不支持的内容编码。", "正文为空、非 identity 编码、缺失 MMDB 元数据标记或非 MMDB 内容。", "ERROR，拒绝加载，不发布无效数据库。", "src/geoip.rs Database::from_bytes"),
+    /// 响应截断、声明长度不一致或 MMDB 结构初始化验证失败。
+    GeoipIntegrityFailed => (2406, "GeoIP 数据库完整性验证失败", "GEOIP", "响应截断、声明长度不一致或 MMDB 结构初始化验证失败。", "下载分帧读到提前 EOF；或已初始化 MMDB 的可达记录结构验证失败。", "ERROR，拒绝加载；此校验不等于来源签名或预期 SHA-256 验证。", "src/http.rs read_body_bounded；src/geoip.rs Database::from_bytes"),
+    /// 数据库长度、下载分配或全局数据库配额超过限额。
+    GeoipResourceLimit => (2407, "GeoIP 数据库超过资源预算", "GEOIP", "数据库长度、下载分配或全局数据库配额超过限额。", "256 MiB 单库上限或 512 MiB 总预算准入失败、受控分配失败。", "ERROR，拒绝下载或加载，归还临时租约；不绕过原预算。", "src/geoip.rs resource_error、Service::refresh；src/http.rs read_database_body"),
+    /// 用户配置了 GeoIP，但当前来源没有可用数据库或数据库状态锁故障。
+    GeoipInitializationFailed => (2408, "GeoIP 数据库初始化失败", "GEOIP", "用户配置了 GeoIP，但当前来源没有可用数据库或数据库状态锁故障。", "查询前数据库尚未加载、已关闭，或数据库状态锁不可用。", "ERROR，查询返回 Err，不切换旧来源、不以 Disabled 代替明确配置失败。", "src/geoip.rs Service::database"),
+    /// 数据库已启用，但查询或记录字段解码执行失败。
+    GeoipQueryFailed => (2409, "GeoIP 查询执行失败", "GEOIP", "数据库已启用，但查询或记录字段解码执行失败。", "Reader::lookup、decode_path 或国家代码格式校验失败。", "ERROR，返回 Err，不冒充合法无匹配记录。", "src/geoip.rs Database::lookup"),
+    /// 没有提供 geoip_url，表示用户未启用可选 GeoIP 功能。
+    GeoipNotConfigured => (2410, "GeoIP 未配置并关闭", "GEOIP", "没有提供 geoip_url，表示用户未启用可选 GeoIP 功能。", "配置缺少该字段或显式为 null。", "WARN + Disabled，不初始化 MMDB、不下载、不查询目标 DNS；返回状态代码而非执行 Err。", "src/geoip.rs Status::disabled；src/ffi.rs GeoipLookup"),
+    /// 当前来源的 MMDB 已加载，可进行查询。
+    GeoipReady => (2411, "GeoIP 已启用", "GEOIP", "当前来源的 MMDB 已加载，可进行查询。", "完整下载初始化成功，或查询取得有效记录。", "INFO + Ready，返回成功状态代码，不生成 error_info。", "src/geoip.rs Status::ready；src/ffi.rs GeoipRefresh"),
+    /// 有效数据库完成查询，但合法目标 IP 没有归属地记录。
+    GeoipNoMatch => (2412, "GeoIP 合法未匹配", "GEOIP", "有效数据库完成查询，但合法目标 IP 没有归属地记录。", "MMDB lookup 返回无记录。", "非错误，返回 no-match 和状态代码，不生成 error_info 或默认归属地。", "src/geoip.rs Status::no_match；src/ffi.rs GeoipLookup"),
 }
 impl ErrorCode {
     pub const fn parameters(self) -> &'static [ParameterSchema] {
@@ -273,6 +316,18 @@ impl ErrorCode {
             | Self::InvalidHandle
             | Self::SerializationFailed
             | Self::ProtocolViolation
+            | Self::GeoipNotConfigured
+            | Self::GeoipInitializationFailed
+            | Self::GeoipNoMatch
+            | Self::GeoipDownloadFailed
+            | Self::GeoipInvalidDatabase
+            | Self::GeoipReady
+            | Self::GeoipInvalidUrl
+            | Self::GeoipUrlScheme
+            | Self::GeoipDownloadTimeout
+            | Self::GeoipIntegrityFailed
+            | Self::GeoipResourceLimit
+            | Self::GeoipQueryFailed
             | Self::DebugSessionClosed
             | Self::NetworkConnectRefused => &[],
         }
@@ -310,6 +365,18 @@ impl ErrorCode {
             | Self::InvalidHandle
             | Self::SerializationFailed
             | Self::ProtocolViolation
+            | Self::GeoipNotConfigured
+            | Self::GeoipInitializationFailed
+            | Self::GeoipNoMatch
+            | Self::GeoipDownloadFailed
+            | Self::GeoipInvalidDatabase
+            | Self::GeoipReady
+            | Self::GeoipInvalidUrl
+            | Self::GeoipUrlScheme
+            | Self::GeoipDownloadTimeout
+            | Self::GeoipIntegrityFailed
+            | Self::GeoipResourceLimit
+            | Self::GeoipQueryFailed
             | Self::DebugSessionClosed
             | Self::NetworkConnectRefused => "{}（不接受任何参数键）",
         }
@@ -341,6 +408,18 @@ impl ErrorCode {
             Self::InvalidHandle => "ffi",
             Self::SerializationFailed => "ffi",
             Self::ProtocolViolation => "protocol::datagram",
+            Self::GeoipNotConfigured
+            | Self::GeoipInitializationFailed
+            | Self::GeoipNoMatch
+            | Self::GeoipDownloadFailed
+            | Self::GeoipInvalidDatabase
+            | Self::GeoipReady
+            | Self::GeoipInvalidUrl
+            | Self::GeoipUrlScheme
+            | Self::GeoipDownloadTimeout
+            | Self::GeoipIntegrityFailed
+            | Self::GeoipResourceLimit
+            | Self::GeoipQueryFailed => "geoip、ffi",
             Self::ConfigYamlSyntax | Self::ConfigUnknownField | Self::ConfigDuplicateField => {
                 "routing::yaml"
             }
@@ -552,6 +631,18 @@ impl<'de> Deserialize<'de> for ErrorInfo {
             | ErrorCode::SerializationFailed
             | ErrorCode::ProtocolViolation
             | ErrorCode::DebugSessionClosed
+            | ErrorCode::GeoipNotConfigured
+            | ErrorCode::GeoipInitializationFailed
+            | ErrorCode::GeoipNoMatch
+            | ErrorCode::GeoipDownloadFailed
+            | ErrorCode::GeoipInvalidDatabase
+            | ErrorCode::GeoipReady
+            | ErrorCode::GeoipInvalidUrl
+            | ErrorCode::GeoipUrlScheme
+            | ErrorCode::GeoipDownloadTimeout
+            | ErrorCode::GeoipIntegrityFailed
+            | ErrorCode::GeoipResourceLimit
+            | ErrorCode::GeoipQueryFailed
             | ErrorCode::NetworkConnectRefused => (false, false, false, false),
         };
         let info = Self {
@@ -624,6 +715,18 @@ impl ErrorInfo {
             | ErrorCode::SerializationFailed
             | ErrorCode::ProtocolViolation
             | ErrorCode::DebugSessionClosed
+            | ErrorCode::GeoipNotConfigured
+            | ErrorCode::GeoipInitializationFailed
+            | ErrorCode::GeoipNoMatch
+            | ErrorCode::GeoipDownloadFailed
+            | ErrorCode::GeoipInvalidDatabase
+            | ErrorCode::GeoipReady
+            | ErrorCode::GeoipInvalidUrl
+            | ErrorCode::GeoipUrlScheme
+            | ErrorCode::GeoipDownloadTimeout
+            | ErrorCode::GeoipIntegrityFailed
+            | ErrorCode::GeoipResourceLimit
+            | ErrorCode::GeoipQueryFailed
             | ErrorCode::NetworkConnectRefused => p == ErrorParams::default(),
         }
     }
@@ -683,6 +786,24 @@ pub enum Error {
     Rejected,
     /// 代理报文违反会话或目标绑定约束，和正式规则 REJECT 分离。
     ProtocolViolation,
+    /// 显式 geoip_url 为空、超长或不是合法下载地址。
+    GeoipInvalidUrl,
+    /// GeoIP 数据源使用不允许的协议，当前仅接受 HTTPS。
+    GeoipUrlScheme,
+    /// 来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。
+    GeoipDownloadFailed,
+    /// 数据库下载超出共用 HTTPS 的 60 秒总期限。
+    GeoipDownloadTimeout,
+    /// 下载数据不是可识别的原始 MMDB 格式或使用不支持的内容编码。
+    GeoipInvalidDatabase,
+    /// 响应截断、声明长度不一致或 MMDB 结构初始化验证失败。
+    GeoipIntegrityFailed,
+    /// 数据库长度、下载分配或全局数据库配额超过限额。
+    GeoipResourceLimit,
+    /// 用户配置了 GeoIP，但当前来源没有可用数据库或数据库状态锁故障。
+    GeoipInitializationFailed,
+    /// 数据库已启用，但查询或记录字段解码执行失败。
+    GeoipQueryFailed,
 }
 impl Error {
     /// 每个现有内部类别穷尽映射；不解析 Display 文本，不以枚举索引推导代码。
@@ -714,6 +835,15 @@ impl Error {
             Self::ScriptTimeout => ErrorCode::ScriptTimeout,
             Self::Rejected => ErrorCode::Rejected,
             Self::ProtocolViolation => ErrorCode::ProtocolViolation,
+            Self::GeoipInvalidUrl => ErrorCode::GeoipInvalidUrl,
+            Self::GeoipUrlScheme => ErrorCode::GeoipUrlScheme,
+            Self::GeoipDownloadFailed => ErrorCode::GeoipDownloadFailed,
+            Self::GeoipDownloadTimeout => ErrorCode::GeoipDownloadTimeout,
+            Self::GeoipInvalidDatabase => ErrorCode::GeoipInvalidDatabase,
+            Self::GeoipIntegrityFailed => ErrorCode::GeoipIntegrityFailed,
+            Self::GeoipResourceLimit => ErrorCode::GeoipResourceLimit,
+            Self::GeoipInitializationFailed => ErrorCode::GeoipInitializationFailed,
+            Self::GeoipQueryFailed => ErrorCode::GeoipQueryFailed,
         }
     }
     /// Rust 调用方取得结构化错误，不改变原 Result 的失败语义。
@@ -755,7 +885,16 @@ impl Error {
             | Self::Script
             | Self::ScriptTimeout
             | Self::Rejected
-            | Self::ProtocolViolation => (),
+            | Self::ProtocolViolation
+            | Self::GeoipInvalidUrl
+            | Self::GeoipUrlScheme
+            | Self::GeoipDownloadFailed
+            | Self::GeoipDownloadTimeout
+            | Self::GeoipInvalidDatabase
+            | Self::GeoipIntegrityFailed
+            | Self::GeoipResourceLimit
+            | Self::GeoipInitializationFailed
+            | Self::GeoipQueryFailed => (),
         }
         info
     }
@@ -788,6 +927,15 @@ impl fmt::Display for Error {
             Self::Script => "脚本执行失败或结果不是有效 JSON 数据",
             Self::Rejected => "请求被 Fluxa 规则拒绝",
             Self::ProtocolViolation => "代理报文违反会话或目标绑定约束",
+            Self::GeoipInvalidUrl => "GeoIP URL 格式非法",
+            Self::GeoipUrlScheme => "GeoIP URL 协议不允许",
+            Self::GeoipDownloadFailed => "GeoIP 数据库下载失败",
+            Self::GeoipDownloadTimeout => "GeoIP 数据库下载超时",
+            Self::GeoipInvalidDatabase => "GeoIP 数据库格式非法",
+            Self::GeoipIntegrityFailed => "GeoIP 数据库完整性验证失败",
+            Self::GeoipResourceLimit => "GeoIP 数据库超过资源预算",
+            Self::GeoipInitializationFailed => "GeoIP 数据库初始化失败",
+            Self::GeoipQueryFailed => "GeoIP 查询执行失败",
             Self::ScriptTimeout => "脚本执行超时",
             Self::Internal => "内部资源错误",
         })

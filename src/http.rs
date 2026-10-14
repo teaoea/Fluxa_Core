@@ -5,6 +5,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 pub const MAX_HEADER: usize = 32 * 1024;
 pub const MAX_BODY: usize = 8 * 1024 * 1024;
+/// 仅供已预留数据库预算的下载入口；普通 HTTP 请求仍限 8 MiB。
+pub(crate) const MAX_DATABASE_BODY: usize = 256 * 1024 * 1024;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Header {
@@ -27,6 +29,18 @@ impl Head {
     }
 }
 pub async fn read_head<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Head> {
+    read_head_bounded(reader, MAX_BODY).await
+}
+/// 数据库专用头检查仍限制 32 KiB，只放宽已预留预算的正文长度。
+pub(crate) async fn read_database_head<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+) -> Result<Head> {
+    read_head_bounded(reader, MAX_DATABASE_BODY).await
+}
+async fn read_head_bounded<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+    maximum: usize,
+) -> Result<Head> {
     let mut bytes = Vec::with_capacity(1024);
     loop {
         if bytes.len() >= MAX_HEADER {
@@ -70,10 +84,10 @@ pub async fn read_head<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Resul
         first,
         headers: output,
     };
-    framing(&head)?;
+    framing(&head, maximum)?;
     Ok(head)
 }
-fn framing(head: &Head) -> Result<Option<usize>> {
+fn framing(head: &Head, maximum: usize) -> Result<Option<usize>> {
     let lengths: Vec<_> = head
         .headers
         .iter()
@@ -100,7 +114,7 @@ fn framing(head: &Head) -> Result<Option<usize>> {
                 return Err(Error::InvalidInput);
             }
             let n = h.value.parse::<usize>().map_err(|_| Error::InvalidInput)?;
-            if n > MAX_BODY {
+            if n > maximum {
                 Err(Error::ResourceLimit)
             } else {
                 Ok(n)
@@ -125,12 +139,36 @@ pub async fn read_body_limited<R: AsyncRead + Unpin>(
     if maximum == 0 || maximum > MAX_BODY {
         return Err(Error::InvalidInput);
     }
-    if let Some(length) = framing(head)? {
+    read_body_bounded(reader, head, until_eof, maximum).await
+}
+/// GeoIP 在调用前持有最大正文预算，复用分帧校验，不放宽普通响应入口。
+pub(crate) async fn read_database_body<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+    head: &Head,
+) -> Result<Vec<u8>> {
+    read_body_bounded(reader, head, true, MAX_DATABASE_BODY).await
+}
+async fn read_body_bounded<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+    head: &Head,
+    until_eof: bool,
+    maximum: usize,
+) -> Result<Vec<u8>> {
+    if let Some(length) = framing(head, maximum)? {
         if length > maximum {
             return Err(Error::ResourceLimit);
         }
-        let mut body = vec![0; length];
-        reader.read_exact(&mut body).await?;
+        let mut body = Vec::new();
+        body.try_reserve_exact(length)
+            .map_err(|_| Error::ResourceLimit)?;
+        body.resize(length, 0);
+        reader.read_exact(&mut body).await.map_err(|error| {
+            if maximum == MAX_DATABASE_BODY && error.kind() == std::io::ErrorKind::UnexpectedEof {
+                Error::GeoipIntegrityFailed
+            } else {
+                Error::from(error)
+            }
+        })?;
         return Ok(body);
     }
     if head.value("transfer-encoding").is_some() {
@@ -154,8 +192,21 @@ pub async fn read_body_limited<R: AsyncRead + Unpin>(
                 .filter(|n| *n <= maximum)
                 .ok_or(Error::ResourceLimit)?;
             let start = body.len();
+            body.try_reserve_exact(end - start)
+                .map_err(|_| Error::ResourceLimit)?;
             body.resize(end, 0);
-            reader.read_exact(&mut body[start..]).await?;
+            reader
+                .read_exact(&mut body[start..])
+                .await
+                .map_err(|error| {
+                    if maximum == MAX_DATABASE_BODY
+                        && error.kind() == std::io::ErrorKind::UnexpectedEof
+                    {
+                        Error::GeoipIntegrityFailed
+                    } else {
+                        Error::from(error)
+                    }
+                })?;
             if reader.read_u16().await? != 0x0d0a {
                 return Err(Error::InvalidInput);
             }
@@ -163,12 +214,20 @@ pub async fn read_body_limited<R: AsyncRead + Unpin>(
     }
     let mut body = Vec::new();
     if until_eof {
-        reader
-            .take((maximum + 1) as u64)
-            .read_to_end(&mut body)
-            .await?;
-        if body.len() > maximum {
-            return Err(Error::ResourceLimit);
+        // 固定小块读入，先检查增长再分配，避免 read_to_end 的几何扩容超过上限。
+        let mut block = [0; 8192];
+        loop {
+            let count = reader.read(&mut block).await?;
+            if count == 0 {
+                break;
+            }
+            body.len()
+                .checked_add(count)
+                .filter(|length| *length <= maximum)
+                .ok_or(Error::ResourceLimit)?;
+            body.try_reserve_exact(count)
+                .map_err(|_| Error::ResourceLimit)?;
+            body.extend_from_slice(&block[..count]);
         }
     }
     Ok(body)
