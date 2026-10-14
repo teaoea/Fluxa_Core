@@ -51,6 +51,8 @@ impl Config {
         {
             return Err(Error::GeoipInvalidUrl);
         }
+        crate::network::normalize_host(url.host_str().ok_or(Error::GeoipInvalidUrl)?)
+            .map_err(|_| Error::GeoipInvalidUrl)?;
         Ok(())
     }
 }
@@ -404,6 +406,13 @@ impl<'de> Deserialize<'de> for VerifiedValue {
                 Ok(VerifiedValue { work: 1 })
             }
             fn visit_u64<E: serde::de::Error>(self, _: u64) -> std::result::Result<Self::Value, E> {
+                Ok(VerifiedValue { work: 1 })
+            }
+            // MMDB 扩展类型 10 支持 uint128，不应把合法附加字段当作损坏。
+            fn visit_u128<E: serde::de::Error>(
+                self,
+                _: u128,
+            ) -> std::result::Result<Self::Value, E> {
                 Ok(VerifiedValue { work: 1 })
             }
             fn visit_i64<E: serde::de::Error>(self, _: i64) -> std::result::Result<Self::Value, E> {

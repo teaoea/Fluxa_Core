@@ -74,3 +74,5 @@ C ABI 仍为 2，底层函数签名不变；JSON 新增可选 warn/geoip_status/
 - `Tests/fixtures/error-contract-v2.4.1.json`
 - `examples/geoip_configuration.rs`
 - `Documentation/GeoIP-v2.4.1-Review.md`
+
+发布前实际发现合法 uint128 附加字段会被校验器误拒，独立 MMDB 样本修改后原测试返回 2406，新增 visit_u128 后恢复通过；不弱化完整性校验。未上传候选先取消，再从修正源码发布。独立官方对端附件最终从同一公开 Release API 下载并核对原 SHA-256，37 轮 Rust 与 37 轮 Swift 实际通过；最终发布记录另核对版本身份。

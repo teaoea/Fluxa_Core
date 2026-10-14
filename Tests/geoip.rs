@@ -56,6 +56,7 @@ fn configured_url_is_strict_and_never_defaults() {
     for value in [
         "",
         "bad url",
+        "https://bad..host/db",
         "https://user:password@example.com/db",
         "https://example.com/db#fragment",
         "https://example.com:0/db",

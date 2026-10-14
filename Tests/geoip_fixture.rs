@@ -23,6 +23,12 @@ fn integer(value: u32, kind: u8) -> Vec<u8> {
 }
 fn location(country: &str, city: &str, region: &str) -> Vec<u8> {
     map(vec![
+        // MMDB 标准允许 uint128；附加字段合法，校验器不能误报损坏。
+        ("test_u128", {
+            let mut value = vec![0x10, 3];
+            value.extend([0xff; 16]);
+            value
+        }),
         ("country", map(vec![("iso_code", text(country))])),
         ("city", map(vec![("names", map(vec![("en", text(city))]))])),
         ("subdivisions", {
