@@ -30,7 +30,7 @@ git diff --check
 
 - `cargo test --offline -- --test-threads=1`：**245 通过，0 失败，1 项原有外部互通测试忽略**；忽略项没有被删除或改成通过。全局预算测试串行执行，专项并发回归仍保留。
 - 18 组实际 Swift FFI：debug_ipc、error_code、response_retry、tun_dns、protocol_block、lifecycle、https、mitm、script、tun、tun_udp、dns、dns_service、routing、outbound、runtime_rules、subscription、geoip 全部通过。
-- `python3 Tools/check_debug_ipc.py`：当前源码实际静态库、独立加固签名 Rust 测试及独立签名 Swift 进程，验证真实 Unix IPC 和 OS 身份。状态权限拒绝修改、正常授权替换/清空/审计/关闭、实际 UDP 放行/撤销、重复序号拒绝通过。
+- `python3 Tools/check_debug_ipc.py`：当前源码实际静态库、独立加固签名 Rust 测试及独立签名 Swift 进程，验证真实 Unix IPC 和 OS 身份。状态权限拒绝修改、正常授权替换/清空/审计/关闭、实际 UDP 放行/撤销、重复序号拒绝通过。交付核对补齐 `DebugIPC` 子模块可用性：旧 ABI 模块布局下 Swift 编译及明确不可用返回通过，新模块下完整签名联调通过。固定远程 v2.4.1 二进制不替换，新能力不冒充旧二进制已经提供。
 - `cargo run --offline --example error_contract -- --check`：**43 项公开错误全登记，重复/遗漏/未定义/空字段均 0**；旧正式契约基线未改号、改义。新增 4003、4004、4005 集中于 `src/error.rs`，有中文注释、Schema、真实触发和后果。
 - 原 Debug 测试从外部 integration 移入私有模块，保持正常规则、失败保留、TTL、配置禁止、来源和 DNS 前后预期。唯一有意更改的旧预期是清空后的旧视图放行，依据用户新的显式授权撤销规范。
 

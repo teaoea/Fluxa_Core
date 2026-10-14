@@ -1,5 +1,6 @@
 import Foundation
 import libfluxa_core
+import libfluxa_core.DebugIPC
 
 /// 专用 ABI 与普通业务命令隔离，独立固定预期，不从内核生成断言。
 @main

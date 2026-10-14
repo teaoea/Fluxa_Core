@@ -1,4 +1,8 @@
 module libfluxa_core {
   header "fluxa_engine.h"
   export *
+  explicit module DebugIPC {
+    header "fluxa_debug_ipc.h"
+    export *
+  }
 }

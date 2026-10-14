@@ -5,6 +5,9 @@ import Foundation
 #if canImport(libfluxa_core)
   import libfluxa_core
 #endif
+#if canImport(libfluxa_core.DebugIPC)
+  import libfluxa_core.DebugIPC
+#endif
 
 /// 仅编码 IPC 请求，不实现鉴权、规则匹配或内核生命周期决策。
 public struct NativeDebugRule: Encodable, Sendable {
@@ -47,7 +50,7 @@ public final class NativeDebugClient: @unchecked Sendable {
 
   public init(endpoint: String, credential: String, serverUID: UInt32,
               serverRequirement: String, lifetimeSeconds: UInt64) throws {
-    #if canImport(libfluxa_core) && os(macOS)
+    #if canImport(libfluxa_core.DebugIPC) && os(macOS)
       guard fluxa_engine_capabilities() & (1 << 26) != 0 else { throw NativeClientError.unavailable }
       let data = try JSONSerialization.data(withJSONObject: [
         "endpoint": endpoint, "credential": credential, "server_uid": serverUID,
@@ -63,7 +66,7 @@ public final class NativeDebugClient: @unchecked Sendable {
     #endif
   }
   deinit {
-    #if canImport(libfluxa_core) && os(macOS)
+    #if canImport(libfluxa_core.DebugIPC) && os(macOS)
       _ = fluxa_engine_destroy(handle)
     #endif
   }
@@ -87,7 +90,7 @@ public final class NativeDebugClient: @unchecked Sendable {
   private func command(_ request: [String: Any]) throws -> DebugReply {
     lock.lock()
     defer { lock.unlock() }
-    #if canImport(libfluxa_core) && os(macOS)
+    #if canImport(libfluxa_core.DebugIPC) && os(macOS)
       let data = try JSONSerialization.data(withJSONObject: request)
       let response = data.withUnsafeBytes {
         fluxa_engine_debug_ipc_command(handle, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
@@ -111,7 +114,7 @@ public final class NativeDebugClient: @unchecked Sendable {
       throw NativeClientError.unavailable
     #endif
   }
-  #if canImport(libfluxa_core) && os(macOS)
+  #if canImport(libfluxa_core.DebugIPC) && os(macOS)
     private static func boundaryFailure() throws -> NativeClientError {
       var bytes = Data(count: 2048)
       let length = bytes.withUnsafeMutableBytes {

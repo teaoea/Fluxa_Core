@@ -12,7 +12,7 @@ cp -R Notices/. "$framework/Resources/Notices/"
 cp LICESE.md "$framework/Resources/Notices/"
 # Cargo 的中间文件转为 framework 内无扩展名的静态二进制，不生成动态库。
 mv "$build_directory/release/liblibfluxa_core.a" "$framework/libfluxa_core"
-cp include/fluxa_engine.h "$framework/Headers/"
+cp include/fluxa_engine.h include/fluxa_debug_ipc.h "$framework/Headers/"
 sed 's/^module /framework module /' include/module.modulemap > "$framework/Modules/module.modulemap"
 cat > "$framework/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

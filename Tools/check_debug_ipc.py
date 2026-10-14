@@ -51,6 +51,16 @@ def main():
         run(["swiftc", "-I", "include", *sources, "Tests/ffi_debug_ipc.swift", "-Xlinker",
              str(target / "debug/liblibfluxa_core.a"), "-framework", "Security", "-framework",
              "CoreFoundation", "-o", str(swift)])
+        # 独立模拟已发布旧模块布局，证明不会引用它没有的新 ABI 声明。
+        legacy=directory / "legacy-headers"
+        legacy.mkdir()
+        shutil.copy2(ROOT / "include/fluxa_engine.h",legacy / "fluxa_engine.h")
+        (legacy / "module.modulemap").write_text('module libfluxa_core { header "fluxa_engine.h" export * }\n')
+        old_client=directory / "old-abi-client"
+        run(["swiftc","-I",str(legacy),*sources,"Tests/ffi_debug_unavailable.swift","-Xlinker",
+             str(target / "debug/liblibfluxa_core.a"),"-framework","Security","-framework",
+             "CoreFoundation","-o",str(old_client)])
+        run([str(old_client)])
         # 先证明普通业务 API 无法创建 Debug 授权，再运行固定代码哈希的签名联调。
         run([str(swift)])
         environment = os.environ.copy()
