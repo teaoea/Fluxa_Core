@@ -1,4 +1,4 @@
-//! H1 可运行示例：退役解析器释放后变更池范围，重新绑定且不复用历史地址。
+//! H1 可运行示例：旧引用仍保留时关闭会话并变更池范围，重新绑定且不复用历史地址。
 //! 仅验证 Rust 会话与映射，不开启系统 VPN，不请求 DNS 上游。
 use libfluxa_core::{
     dns::{Config, Query, Resolver, Server, fake_ip},
@@ -38,7 +38,8 @@ fn open(range: &str) -> (Arc<Resolver>, Arc<Manager>, Session) {
     .unwrap();
     (resolver, manager, session)
 }
-fn main() {
+#[tokio::main]
+async fn main() {
     let (old, manager, session) = open("198.18.0.0/16");
     let old_ip = old
         .allocate_fake_ip(Query {
@@ -48,8 +49,9 @@ fn main() {
         .unwrap()
         .addresses[0]
         .clone();
-    session.close().unwrap();
-    drop((session, manager, old));
+    session.close().await.unwrap();
+    let retained = (session, manager.network_snapshot().unwrap(), old.clone());
+    assert!(old.reverse_fake_ip(&old_ip).is_err());
     let (new, _manager, session) = open("198.18.0.0/15");
     let current = new
         .allocate_fake_ip(Query {
@@ -61,6 +63,7 @@ fn main() {
         .clone();
     assert_ne!(old_ip, current);
     assert!(new.reverse_fake_ip(&old_ip).unwrap().is_none());
-    session.close().unwrap();
+    session.close().await.unwrap();
+    assert!(retained.0.receive().is_err());
     println!("区间变更后重新绑定成功；旧地址 {old_ip} 未重新分配，新地址 {current}");
 }

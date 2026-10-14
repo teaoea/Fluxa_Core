@@ -76,7 +76,7 @@ async fn both_fake_families_restore_domain_and_use_real_dns_cache() {
             &*manager.read(opened.id, 1, 1000).await.unwrap().bytes,
             b"x"
         );
-        manager.close(opened.id).unwrap();
+        manager.close(opened.id).await.unwrap();
     }
     assert_eq!(fixture.count.load(Ordering::SeqCst), 1);
 }
@@ -104,7 +104,7 @@ async fn reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connectio
         &*manager.read(opened.id, 4, 1000).await.unwrap().bytes,
         b"live"
     );
-    manager.close(opened.id).unwrap();
+    manager.close(opened.id).await.unwrap();
     let next = target(&resolver, port, false).await;
     assert_ne!(next.address, original.address);
     let replacement = Resolver::new(settings).unwrap();
@@ -121,7 +121,7 @@ async fn reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connectio
         .unwrap()
         .id;
     let _peer = listener.accept().await.unwrap();
-    manager.close(id).unwrap();
+    manager.close(id).await.unwrap();
 }
 #[tokio::test]
 async fn unknown_mapping_and_rejected_policies_do_not_send_dns_or_connect() {

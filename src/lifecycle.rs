@@ -1,4 +1,21 @@
 //! 所有权集中在注册表；进程内句柄统一分配，跨实例也不复用。
+pub(crate) mod session;
+
+/// 内核自己的有界运行时；清理任务不依赖前端线程或外部对象释放。
+pub(crate) fn runtime() -> crate::error::Result<&'static tokio::runtime::Runtime> {
+    static RUNTIME: std::sync::OnceLock<crate::error::Result<tokio::runtime::Runtime>> =
+        std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|_| crate::error::Error::Internal)
+        })
+        .as_ref()
+        .map_err(|error| *error)
+}
 use std::{
     collections::BTreeMap,
     sync::atomic::{AtomicU64, Ordering},

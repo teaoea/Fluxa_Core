@@ -40,7 +40,7 @@ async fn tcp_duplex_half_close_and_eof_use_real_peer() {
     manager.shutdown_write(id, 1000).await.unwrap();
     let eof = manager.read(id, 64, 1000).await.unwrap();
     assert!(eof.eof && eof.bytes.is_empty());
-    manager.close(id).unwrap();
+    manager.close(id).await.unwrap();
     assert!(matches!(
         manager.read(id, 64, 1000).await,
         Err(Error::InvalidState)
@@ -92,7 +92,7 @@ async fn udp_keeps_datagram_boundaries_zero_length_and_rejects_truncation() {
         manager.shutdown_write(id, 1000).await,
         Err(Error::Unsupported)
     );
-    manager.close(id).unwrap();
+    manager.close(id).await.unwrap();
     server.await.unwrap();
 }
 
@@ -122,7 +122,7 @@ async fn read_timeout_recovers_and_close_cancels_blocked_io() {
     let reader = Arc::clone(&manager);
     let pending = tokio::spawn(async move { reader.read(id, 64, 60000).await });
     sleep(Duration::from_millis(10)).await;
-    manager.close(id).unwrap();
+    manager.close(id).await.unwrap();
     assert!(matches!(
         timeout(Duration::from_millis(500), pending)
             .await
@@ -189,7 +189,7 @@ async fn policy_and_invalid_targets_do_not_connect() {
         manager.write(id, &vec![0; MAX_BUFFER + 1], 1000).await,
         Err(Error::ResourceLimit)
     );
-    manager.stop().unwrap();
+    manager.stop().await.unwrap();
     assert_eq!(
         manager
             .open(address, Transport::Udp, Policy::Direct, 1000)
@@ -217,21 +217,21 @@ async fn session_limit_reclaims_resources_and_never_reuses_handles() {
             .await,
         Err(Error::ResourceLimit)
     );
-    manager.close(ids[0]).unwrap();
+    manager.close(ids[0]).await.unwrap();
     let newer = manager
         .open(address, Transport::Udp, Policy::Direct, 1000)
         .await
         .unwrap();
     assert!(newer > ids[63]);
-    assert_eq!(manager.close(ids[0]), Err(Error::InvalidState));
-    manager.close_all().unwrap();
-    manager.close_all().unwrap();
+    assert_eq!(manager.close(ids[0]).await, Err(Error::InvalidState));
+    manager.close_all().await.unwrap();
+    manager.close_all().await.unwrap();
     for _ in 0..100 {
         let id = manager
             .open(address, Transport::Udp, Policy::Direct, 1000)
             .await
             .unwrap();
-        manager.close(id).unwrap();
+        manager.close(id).await.unwrap();
     }
 }
 
@@ -272,7 +272,7 @@ async fn ipv6_tcp_and_udp_reach_real_loopback_peers() {
         &*manager.read(udp_id, 64, 1000).await.unwrap().bytes,
         b"ipv6-udp"
     );
-    manager.close_all().unwrap();
+    manager.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -306,7 +306,7 @@ async fn tcp_write_timeout_invalidates_connection_to_prevent_duplicate_retry() {
         manager.write(id, b"retry", 1000).await,
         Err(Error::Cancelled)
     );
-    manager.close(id).unwrap();
+    manager.close(id).await.unwrap();
 }
 
 #[tokio::test]

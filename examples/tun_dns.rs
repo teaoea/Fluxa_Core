@@ -62,6 +62,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let info = parse(&packet.bytes, 1500)?;
     let answer = Message::from_vec(&packet.bytes[packet.bytes.len() - info.payload_bytes..])?;
     println!("合成 DNS 响应：{:?}", answer.answers);
-    session.close()?;
+    session.close().await?;
     Ok(())
 }

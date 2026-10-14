@@ -49,7 +49,7 @@ async fn idle_expiry_cancels_blocked_read_and_releases_peer() {
         Err(Error::Cancelled)
     ));
     assert!(manager.status().unwrap().sessions.is_empty());
-    assert!(matches!(manager.close(id), Err(Error::InvalidState)));
+    assert!(matches!(manager.close(id).await, Err(Error::InvalidState)));
     let mut byte = [0];
     assert_eq!(
         timeout(Duration::from_secs(1), peer.read(&mut byte))
@@ -68,7 +68,7 @@ async fn idle_expiry_cancels_blocked_read_and_releases_peer() {
         .await
         .unwrap();
     assert_ne!(next, id);
-    manager.close(next).unwrap();
+    manager.close(next).await.unwrap();
 }
 
 #[tokio::test]
@@ -142,14 +142,14 @@ async fn quota_reconfiguration_preserves_live_connections_and_isolation() {
         Err(Error::InvalidInput)
     ));
     assert_eq!(manager.status().unwrap().revision, changed);
-    manager.close(first).unwrap();
+    manager.close(first).await.unwrap();
     assert!(matches!(
         manager
             .open(address, Transport::Udp, Policy::Direct, 1000)
             .await,
         Err(Error::ResourceLimit)
     ));
-    manager.close(second).unwrap();
+    manager.close(second).await.unwrap();
     let next = manager
         .open(address, Transport::Udp, Policy::Direct, 1000)
         .await
@@ -161,9 +161,9 @@ async fn quota_reconfiguration_preserves_live_connections_and_isolation() {
         .await
         .unwrap();
     assert_ne!(next, different);
-    assert!(matches!(other.close(next), Err(Error::InvalidState)));
-    manager.close_all().unwrap();
-    other.close_all().unwrap();
+    assert!(matches!(other.close(next).await, Err(Error::InvalidState)));
+    manager.close_all().await.unwrap();
+    other.close_all().await.unwrap();
 }
 
 #[tokio::test]
@@ -222,7 +222,7 @@ async fn atomic_network_replacement_keeps_snapshot_and_live_endpoint() {
             .bytes,
         b"old"
     );
-    manager.stop().unwrap();
+    manager.stop().await.unwrap();
     assert!(matches!(manager.status(), Err(Error::InvalidState)));
     assert!(matches!(
         manager.configure_limits(Limits::default()),
@@ -309,6 +309,6 @@ async fn in_flight_dns_retains_original_network_snapshot() {
     assert_eq!(status.sessions[0].revision, original);
     assert_eq!(status.sessions[0].idle_timeout_ms, 5000);
     assert_eq!(opened.decision.policy, Policy::Direct);
-    manager.close(opened.connection.id).unwrap();
+    manager.close(opened.connection.id).await.unwrap();
     upstream_task.await.unwrap();
 }

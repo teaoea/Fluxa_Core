@@ -87,7 +87,7 @@ async fn all_dns_transports_feed_real_tcp_and_reuse_cache() {
                 &*manager.read(opened.id, 1, 1000).await.unwrap().bytes,
                 b"x"
             );
-            manager.close(opened.id).unwrap();
+            manager.close(opened.id).await.unwrap();
         }
         assert_eq!(fixture.count.load(Ordering::SeqCst) - before, 1);
         peer.await.unwrap();
@@ -107,7 +107,7 @@ async fn family_fallback_and_udp_use_configured_records() {
     let opened = manager.connect(&resolver, request).await.unwrap();
     assert!(opened.address.starts_with("127.0.0.1:"));
     let _peer = listener.accept().await.unwrap();
-    manager.close(opened.id).unwrap();
+    manager.close(opened.id).await.unwrap();
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let opened = manager
         .connect(
@@ -125,7 +125,7 @@ async fn family_fallback_and_udp_use_configured_records() {
         &*manager.read(opened.id, 3, 1000).await.unwrap().bytes,
         b"udp"
     );
-    manager.close(opened.id).unwrap();
+    manager.close(opened.id).await.unwrap();
 }
 #[tokio::test]
 async fn rejected_policy_synthetic_and_negative_answers_never_connect() {
@@ -193,7 +193,7 @@ async fn total_deadline_and_close_all_cancel_pending_dns() {
     let pending =
         tokio::spawn(async move { pending_manager.connect(&pending_resolver, request).await });
     tokio::time::sleep(Duration::from_millis(20)).await;
-    manager.close_all().unwrap();
+    manager.close_all().await.unwrap();
     assert!(matches!(pending.await.unwrap(), Err(Error::Cancelled)));
 }
 
@@ -241,6 +241,6 @@ async fn explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns() {
     let opened = manager.connect(&resolver, request).await.unwrap();
     assert!(opened.address.starts_with("[::1]:"));
     let _peer = listener.accept().await.unwrap();
-    manager.close(opened.id).unwrap();
+    manager.close(opened.id).await.unwrap();
     assert_eq!(fixture.count.load(Ordering::SeqCst), 1);
 }

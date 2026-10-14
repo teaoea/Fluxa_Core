@@ -3,30 +3,33 @@
 mod config;
 pub mod fake_ip;
 pub mod observation;
+mod runtime;
 pub mod service;
 mod wire;
+use crate::lifecycle::session::{Authority, Operation, Phase};
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
 };
 pub use config::{Config, Server};
 use hickory_resolver::{
-    TokioResolver,
-    net::runtime::TokioRuntimeProvider,
+    Resolver as UpstreamResolver,
     net::{DnsError, NetError},
     proto::{
         dnssec::Proof,
         rr::{RData, RecordType},
     },
 };
+use runtime::ManagedRuntime;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     str::FromStr,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{RwLock, Semaphore};
+static METADATA_BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
 const MAX_CACHE: usize = 128;
 const MAX_RESULT_BYTES: usize = 16 * 1024;
 static CACHE_BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
@@ -66,13 +69,23 @@ struct Cached {
     _lease: ByteLease,
 }
 /// 所有上游显式配置；实例最多 16 个，每次查询有总期限，缓存不提高 TTL。
+struct Resources {
+    inner: Vec<UpstreamResolver<ManagedRuntime>>,
+    runtime: ManagedRuntime,
+    permit: tokio::sync::SemaphorePermit<'static>,
+}
 pub struct Resolver {
-    inner: Vec<TokioResolver>,
+    resources: RwLock<Option<Resources>>,
+    services: Mutex<Vec<Arc<service::Control>>>,
+    binding: Mutex<Option<Arc<Authority>>>,
+    authority: Arc<Authority>,
+    tls: Option<rustls::ClientConfig>,
+    anchors: Option<Arc<hickory_resolver::proto::dnssec::TrustAnchors>>,
+    _metadata: ByteLease,
     config: Config,
     fake_ip: Option<fake_ip::Table>,
     cache: Mutex<BTreeMap<(String, String), Cached>>,
     observation: std::sync::Arc<Mutex<Option<observation::Observation>>>,
-    _permit: tokio::sync::SemaphorePermit<'static>,
 }
 impl Resolver {
     pub fn new(config: Config) -> Result<Self> {
@@ -94,6 +107,10 @@ impl Resolver {
         anchors: Option<std::sync::Arc<hickory_resolver::proto::dnssec::TrustAnchors>>,
     ) -> Result<Self> {
         config.validate()?;
+        crate::lifecycle::runtime()?;
+        let metadata = METADATA_BUDGET.reserve(config.allocated_bytes()?)?;
+        let authority = Authority::new()?;
+        let runtime = ManagedRuntime::new(authority.clone());
         let permit = CLIENTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
         let mut inner = Vec::with_capacity(config.servers.len());
         for server in &config.servers {
@@ -107,9 +124,8 @@ impl Resolver {
             let (servers, mut options) = single.build()?;
             options.timeout =
                 Duration::from_millis((config.timeout_ms / config.servers.len() as u64).max(50));
-            let mut builder =
-                TokioResolver::builder_with_config(servers, TokioRuntimeProvider::default())
-                    .with_options(options);
+            let mut builder = UpstreamResolver::builder_with_config(servers, runtime.clone())
+                .with_options(options);
             if let Some(mut tls) = tls.clone() {
                 tls.alpn_protocols.clear();
                 builder = builder.with_tls_config(tls);
@@ -125,16 +141,106 @@ impl Resolver {
             .map(fake_ip::Table::new)
             .transpose()?;
         Ok(Self {
-            inner,
+            resources: RwLock::new(Some(Resources {
+                inner,
+                runtime,
+                permit,
+            })),
+            services: Mutex::new(Vec::new()),
+            binding: Mutex::new(None),
+            authority,
+            tls,
+            anchors,
+            _metadata: metadata,
             observation: observation::shared(&config)?,
             fake_ip,
             config,
             cache: Mutex::new(BTreeMap::new()),
-            _permit: permit,
         })
+    }
+    pub(crate) fn identity(&self) -> crate::lifecycle::session::Identity {
+        self.authority.identity()
+    }
+    /// 旧快照只能保留数据；查询、绑定和恢复必须验证仍有效的内核权限。
+    pub(crate) fn ensure_active(&self) -> Result<()> {
+        self.authority.check(self.authority.identity())?;
+        if let Some(owner) = self.binding_authority()? {
+            owner.check(owner.identity())?;
+        }
+        if let Some(table) = &self.fake_ip {
+            table.ensure_active()?;
+        }
+        Ok(())
+    }
+    pub(crate) fn binding_authority(&self) -> Result<Option<Arc<Authority>>> {
+        Ok(self.binding.lock().map_err(|_| Error::Internal)?.clone())
+    }
+    pub(crate) fn operation(&self) -> Result<Operation> {
+        self.ensure_active()?;
+        self.authority.enter(self.authority.identity())
+    }
+    pub(crate) fn with_active<T>(&self, commit: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.authority
+            .with_active(self.authority.identity(), commit)
+    }
+    pub(crate) async fn canceled(&self) {
+        self.authority.canceled().await;
+    }
+    pub(crate) fn is_closed(&self) -> Result<bool> {
+        Ok(self.authority.phase()? == Phase::Closed)
+    }
+    /// 新会话由内核从已验证元数据创建新代次，前端不能恢复旧对象权限。
+    pub(crate) fn replacement(&self) -> Result<Self> {
+        Self::build(self.config.clone(), self.tls.clone(), self.anchors.clone())
+    }
+    /// 撤销立即发生，清理任务由内核托管；调用方取消等待不会取消实际清理。
+    pub async fn close(self: &Arc<Self>) -> Result<()> {
+        if self.authority.revoke()? {
+            let own = self.clone();
+            crate::lifecycle::runtime()?.spawn(async move {
+                let result = own.cleanup().await;
+                let _ = crate::error::diagnostics::observe(
+                    own.authority.complete(result),
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                );
+            });
+        }
+        self.authority.wait_closed().await
+    }
+    pub(crate) fn register_service(&self, service: Arc<service::Control>) -> Result<()> {
+        self.with_active(|| {
+            let mut services = self.services.lock().map_err(|_| Error::Internal)?;
+            services.retain(|service| service.running());
+            if services.len() >= 4 {
+                return Err(Error::ResourceLimit);
+            }
+            services.push(service);
+            Ok(())
+        })
+    }
+    async fn cleanup(&self) -> Result<()> {
+        // 先取消监听与连接子任务，再等待在途查询，避免监听持有旧解析器延长资源占用。
+        let services = std::mem::take(&mut *self.services.lock().map_err(|_| Error::Internal)?);
+        for service in services {
+            service.stop().await?;
+        }
+        self.authority.wait_idle().await?;
+        let resources = self.resources.write().await.take();
+        if let Some(Resources {
+            inner,
+            runtime,
+            permit,
+        }) = resources
+        {
+            drop(inner);
+            runtime.stop().await?;
+            drop(permit);
+        }
+        Ok(())
     }
     /// 只读最近一次默认服务器解析；读取不会查询 DNS。缓存命中为 0 ms，合成映射不更新。
     pub fn last_query(&self) -> Result<Option<observation::Observation>> {
+        self.ensure_active()?;
         Ok(self
             .observation
             .lock()
@@ -150,28 +256,39 @@ impl Resolver {
         Ok(())
     }
     pub async fn serve(self: std::sync::Arc<Self>) -> Result<service::Service> {
+        self.ensure_active()?;
         let config = self.config.service.clone().ok_or(Error::InvalidState)?;
         service::Service::start(config, self).await
     }
     pub fn reverse_fake_ip(&self, address: &str) -> Result<Option<String>> {
+        self.ensure_active()?;
         self.fake_ip
             .as_ref()
             .ok_or(Error::Unsupported)?
             .reverse(address)
     }
     pub fn reset_fake_ip(&self) -> Result<()> {
+        self.ensure_active()?;
         self.fake_ip.as_ref().ok_or(Error::Unsupported)?.reset()
     }
     pub fn clear(&self) -> Result<()> {
+        self.ensure_active()?;
         self.cache.lock().map_err(|_| Error::Internal)?.clear();
         Ok(())
     }
     /// TUN 原始包无宿主代次；显式绑定后合成池同进程不复用旧地址。
-    pub(crate) fn bind_tun_fake_ip(&self) -> Result<()> {
-        if let Some(table) = &self.fake_ip {
-            table.bind_tun()?;
-        }
-        Ok(())
+    pub(crate) fn bind_tun_fake_ip(&self, owner: &Arc<Authority>) -> Result<()> {
+        self.with_active(|| {
+            let mut binding = self.binding.lock().map_err(|_| Error::Internal)?;
+            if binding.is_some() {
+                return Err(Error::InvalidState);
+            }
+            if let Some(table) = &self.fake_ip {
+                table.bind_tun(owner)?;
+            }
+            *binding = Some(owner.clone());
+            Ok(())
+        })
     }
     pub fn fake_ip_generation(&self) -> Option<u64> {
         self.fake_ip.as_ref().map(fake_ip::Table::generation)
@@ -182,6 +299,7 @@ impl Resolver {
             .is_some_and(|table| table.contains(address))
     }
     pub fn restore_fake_ip(&self, address: &str, generation: u64) -> Result<String> {
+        self.ensure_active()?;
         let table = self.fake_ip.as_ref().ok_or(Error::Unsupported)?;
         if generation != table.generation() {
             return Err(Error::InvalidState);
@@ -197,6 +315,7 @@ impl Resolver {
     }
     /// 只生成本地映射，排除项直接拒绝，不向上游查询。
     pub fn allocate_fake_ip(&self, query: Query) -> Result<Answer> {
+        self.ensure_active()?;
         let (name, kind) = validated_query(query)?;
         if !matches!(kind, RecordType::A | RecordType::AAAA) {
             return Err(Error::Unsupported);
@@ -231,6 +350,28 @@ impl Resolver {
         Ok(None)
     }
     async fn resolve_inner(&self, query: Query, synthetic: bool) -> Result<Answer> {
+        let _operation = self.operation()?;
+        let binding = self.binding_authority()?;
+        let _binding_operation = binding
+            .as_ref()
+            .map(|owner| owner.enter(owner.identity()))
+            .transpose()?;
+        tokio::select! {
+            biased;
+            _ = self.authority.canceled() => Err(Error::InvalidState),
+            result = self.resolve_allowed(query, synthetic) => {
+                self.ensure_active()?;
+                result
+            }
+        }
+    }
+    async fn resolve_allowed(&self, query: Query, synthetic: bool) -> Result<Answer> {
+        let guard = self.resources.read().await;
+        let resources = guard.as_ref().ok_or(Error::InvalidState)?;
+        let inner = &resources.inner;
+        if let Some(error) = resources.runtime.fault()? {
+            return Err(error);
+        }
         let (name, kind) = validated_query(query)?;
         let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
         if synthetic && let Some(answer) = self.synthetic_answer(&name, kind)? {
@@ -258,44 +399,55 @@ impl Resolver {
         } else {
             format!("{name}.")
         };
-        let attempt =
-            Duration::from_millis((self.config.timeout_ms / self.inner.len() as u64).max(50));
-        let lookup = tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
-            let mut last = Err(NetError::Timeout);
-            for (index, resolver) in self.inner.iter().enumerate() {
-                let attempt_started = Instant::now();
-                last = tokio::time::timeout(attempt, resolver.lookup(fqdn.clone(), kind))
-                    .await
-                    .unwrap_or(Err(NetError::Timeout));
-                if index == 0 {
-                    // 同步写入一条小统计，不创建后台任务；失败保留失败状态，不伪造零延迟成功。
-                    self.observe(
-                        attempt_started.elapsed().as_millis() as u64,
-                        false,
-                        last.is_ok()
-                            || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_)))),
-                    )?;
-                }
-                if last.is_ok() || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_))))
-                {
-                    break;
-                }
-                // DNSSEC 错误不以其他上游结果掩盖，防止验证失败被当成普通重试。
-                if self.config.dnssec && !matches!(&last, Err(NetError::Timeout)) {
-                    break;
-                }
-            }
-            // 保留统计锁等内核失败，与上游查询结果分层；不能误标为 DNS 超时。
-            Ok::<_, Error>(last)
-        })
-        .await
-        .map_err(|_| {
-            let _ = crate::error::diagnostics::observe(
-                self.observe(started.elapsed().as_millis() as u64, false, false),
-                crate::error::diagnostics::DiagnosticSite::DnsObservation,
-            );
-            Error::DnsTimeout
-        })??;
+        let attempt = Duration::from_millis((self.config.timeout_ms / inner.len() as u64).max(50));
+        let lookup = resources
+            .runtime
+            .guard(async {
+                tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
+                    let mut last = Err(NetError::Timeout);
+                    for (index, resolver) in inner.iter().enumerate() {
+                        let attempt_started = Instant::now();
+                        last = tokio::time::timeout(attempt, resolver.lookup(fqdn.clone(), kind))
+                            .await
+                            .unwrap_or(Err(NetError::Timeout));
+                        if index == 0 {
+                            // 同步写入一条小统计，不创建后台任务；失败保留失败状态，不伪造零延迟成功。
+                            self.observe(
+                                attempt_started.elapsed().as_millis() as u64,
+                                false,
+                                last.is_ok()
+                                    || matches!(
+                                        &last,
+                                        Err(NetError::Dns(DnsError::NoRecordsFound(_)))
+                                    ),
+                            )?;
+                        }
+                        if last.is_ok()
+                            || matches!(&last, Err(NetError::Dns(DnsError::NoRecordsFound(_))))
+                        {
+                            break;
+                        }
+                        // DNSSEC 错误不以其他上游结果掩盖，防止验证失败被当成普通重试。
+                        if self.config.dnssec && !matches!(&last, Err(NetError::Timeout)) {
+                            break;
+                        }
+                    }
+                    // 保留统计锁等内核失败，与上游查询结果分层；不能误标为 DNS 超时。
+                    Ok::<_, Error>(last)
+                })
+                .await
+                .map_err(|_| {
+                    let _ = crate::error::diagnostics::observe(
+                        self.observe(started.elapsed().as_millis() as u64, false, false),
+                        crate::error::diagnostics::DiagnosticSite::DnsObservation,
+                    );
+                    Error::DnsTimeout
+                })?
+            })
+            .await?;
+        if let Some(error) = resources.runtime.fault()? {
+            return Err(error);
+        }
         let mut answer = Answer {
             name,
             query_type: kind.to_string(),
@@ -468,6 +620,42 @@ fn validated_query(query: Query) -> Result<(String, RecordType)> {
         return Err(Error::Unsupported);
     }
     Ok((name, kind))
+}
+
+impl Drop for Resolver {
+    fn drop(&mut self) {
+        if let Err(error) = self.authority.revoke() {
+            crate::error::diagnostics::record(
+                error,
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
+        }
+        if let Some(Resources {
+            inner,
+            runtime,
+            permit,
+        }) = self.resources.get_mut().take()
+        {
+            let owner = self.authority.clone();
+            match crate::lifecycle::runtime() {
+                Ok(executor) => {
+                    executor.spawn(async move {
+                        drop(inner);
+                        let result = runtime.stop().await;
+                        drop(permit);
+                        let _ = crate::error::diagnostics::observe(
+                            owner.complete(result),
+                            crate::error::diagnostics::DiagnosticSite::Cleanup,
+                        );
+                    });
+                }
+                Err(error) => crate::error::diagnostics::record(
+                    error,
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                ),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

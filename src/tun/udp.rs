@@ -1,5 +1,6 @@
 //! 有界 UDP 数据包转发会话；不创建系统隧道，不处理 TCP 或分片；仅接管显式 DNS 端点。
 use super::{MAX_MTU, MIN_MTU, checksum, parse, pseudo_sum};
+use crate::lifecycle::session::Authority;
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
@@ -82,11 +83,12 @@ struct Key {
 }
 struct Flow {
     id: u64,
-    task: tokio::task::JoinHandle<()>,
+    task: tokio::task::AbortHandle,
 }
 struct State {
     closed: bool,
     flows: HashMap<Key, Flow>,
+    lease: Option<ByteLease>,
 }
 struct ConnectionLease {
     manager: Arc<Manager>,
@@ -96,13 +98,16 @@ struct ConnectionLease {
 impl Drop for ConnectionLease {
     fn drop(&mut self) {
         let _ = crate::error::diagnostics::observe(
-            self.manager.close(self.id),
+            self.manager.release_connection(self.id),
             crate::error::diagnostics::DiagnosticSite::Cleanup,
         );
     }
 }
 /// 每会话只允许一个提交在途；读返回包可并发，关闭不等待提交锁。
 pub struct Session {
+    inner: Arc<SessionInner>,
+}
+struct SessionInner {
     options: Options,
     manager: Arc<Manager>,
     dns: Option<Arc<crate::dns::Resolver>>,
@@ -111,17 +116,20 @@ pub struct Session {
     sender: mpsc::Sender<Result<Packet>>,
     receiver: Mutex<mpsc::Receiver<Result<Packet>>>,
     cancel: watch::Sender<bool>,
-    _lease: ByteLease,
+    authority: Arc<Authority>,
+    tasks: Mutex<tokio::task::JoinSet<()>>,
 }
-impl Session {
+impl SessionInner {
     pub fn new(manager: Arc<Manager>, options: Options) -> Result<Self> {
         options.validate()?;
+        crate::lifecycle::runtime()?;
+        let authority = Authority::new()?;
         let dns = if options.dns_endpoints.is_empty() {
             None
         } else {
             Some(
                 manager
-                    .network_snapshot()?
+                    .prepare_tun_snapshot()?
                     .resolver
                     .clone()
                     .ok_or(Error::InvalidState)?,
@@ -138,7 +146,7 @@ impl Session {
         }
         let lease = SESSIONS.reserve(1)?;
         if let Some(resolver) = &dns {
-            resolver.bind_tun_fake_ip()?;
+            resolver.bind_tun_fake_ip(&authority)?;
         }
         let (sender, receiver) = mpsc::channel(options.output_capacity);
         let (cancel, _) = watch::channel(false);
@@ -149,15 +157,25 @@ impl Session {
             state: Mutex::new(State {
                 closed: false,
                 flows: HashMap::new(),
+                lease: Some(lease),
             }),
             submit_lock: tokio::sync::Mutex::new(()),
             sender,
             receiver: Mutex::new(receiver),
             cancel,
-            _lease: lease,
+            authority,
+            tasks: Mutex::new(tokio::task::JoinSet::new()),
         })
     }
-    pub async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
+    async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
+        let _operation = self.authority.enter(self.authority.identity())?;
+        tokio::select! {
+            biased;
+            _ = self.authority.canceled() => Err(Error::Cancelled),
+            result = self.submit_inner(bytes, generation) => result,
+        }
+    }
+    async fn submit_inner(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
         let _submission = self
             .submit_lock
             .try_lock()
@@ -197,7 +215,11 @@ impl Session {
             state.flows.get(&key).map(|flow| flow.id)
         };
         // 一次捕获配置；不能在校验映射后再读取另一份解析器。
-        let snapshot = self.manager.network_snapshot()?;
+        let snapshot = Arc::new(
+            self.manager
+                .network_snapshot()?
+                .for_session(self.authority.clone()),
+        );
         if self.options.dns_endpoints.contains(&key.destination) {
             if generation.is_some() {
                 return Err(Error::InvalidInput);
@@ -274,13 +296,16 @@ impl Session {
                 return Err(Error::Cancelled);
             }
             let id = connection.id;
-            let task = tokio::spawn(receive_loop(
-                connection,
-                key,
-                self.options.clone(),
-                self.sender.clone(),
-                self.cancel.subscribe(),
-            ));
+            let task = self.tasks.lock().map_err(|_| Error::Internal)?.spawn_on(
+                receive_loop(
+                    connection,
+                    key,
+                    self.options.clone(),
+                    self.sender.clone(),
+                    self.cancel.subscribe(),
+                ),
+                crate::lifecycle::runtime()?.handle(),
+            );
             state.flows.insert(key, Flow { id, task });
             id
         };
@@ -299,7 +324,7 @@ impl Session {
         {
             flow.task.abort();
             let _ = crate::error::diagnostics::observe(
-                self.manager.close(flow.id),
+                self.manager.release_connection(flow.id),
                 crate::error::diagnostics::DiagnosticSite::Cleanup,
             );
         }
@@ -314,14 +339,16 @@ impl Session {
         if !snapshot
             .resolver
             .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(owned, current))
+            .is_some_and(|current| owned.identity() == current.identity())
         {
             return Err(Error::InvalidState);
         }
+        owned.ensure_active()?;
         Ok(owned)
     }
     /// 非阻塞取出一个包；异步网络错误同样返回，不能伪装为队列为空。
     pub fn receive(&self) -> Result<Option<Packet>> {
+        let _operation = self.authority.enter(self.authority.identity())?;
         if self.state.lock().map_err(|_| Error::Internal)?.closed {
             return Err(Error::InvalidState);
         }
@@ -336,31 +363,83 @@ impl Session {
             Err(mpsc::error::TryRecvError::Disconnected) => Err(Error::InvalidState),
         }
     }
-    pub fn close(&self) -> Result<()> {
-        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
-        state.closed = true;
-        self.cancel.send_replace(true);
-        for (_, flow) in state.flows.drain() {
-            let _ = crate::error::diagnostics::observe(
-                self.manager.close(flow.id),
-                crate::error::diagnostics::DiagnosticSite::Cleanup,
-            );
-            flow.task.abort();
+    fn request_close(self: &Arc<Self>) -> Result<()> {
+        if self.authority.revoke()? {
+            self.cancel.send_replace(true);
+            let own = self.clone();
+            crate::lifecycle::runtime()?.spawn(async move {
+                let result = own.cleanup().await;
+                let _ = crate::error::diagnostics::observe(
+                    own.authority.complete(result),
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                );
+            });
+        }
+        Ok(())
+    }
+    async fn cleanup(&self) -> Result<()> {
+        self.state.lock().map_err(|_| Error::Internal)?.closed = true;
+        self.tasks.lock().map_err(|_| Error::Internal)?.abort_all();
+        // 会话归属连接在内核注册表登记，不能只清理已经进入 Flow 表的连接。
+        self.manager.close_owned(self.authority.identity()).await?;
+        if let Some(resolver) = &self.dns {
+            resolver.close().await?;
+        }
+        self.authority.wait_idle().await?;
+        loop {
+            let result = std::future::poll_fn(|context| match self.tasks.lock() {
+                Ok(mut tasks) => tasks.poll_join_next(context).map(Ok),
+                Err(_) => std::task::Poll::Ready(Err(Error::Internal)),
+            })
+            .await?;
+            match result {
+                Some(result) => crate::error::diagnostics::observe_join(
+                    result,
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                ),
+                None => break,
+            }
         }
         let mut receiver = self.receiver.lock().map_err(|_| Error::Internal)?;
         receiver.close();
         while receiver.try_recv().is_ok() {}
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        state.flows.clear();
+        state.lease.take();
         Ok(())
+    }
+}
+impl Session {
+    pub fn new(manager: Arc<Manager>, options: Options) -> Result<Self> {
+        Ok(Self {
+            inner: Arc::new(SessionInner::new(manager, options)?),
+        })
+    }
+    pub async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
+        self.inner.submit(bytes, generation).await
+    }
+    pub fn receive(&self) -> Result<Option<Packet>> {
+        self.inner.receive()
+    }
+    pub(crate) fn same_identity(&self, other: &Self) -> bool {
+        self.inner.authority.identity() == other.inner.authority.identity()
+    }
+    /// 关闭由内核托管；重复或并发等待共享完成结果，旧对象引用不会阻止释放。
+    pub async fn close(&self) -> Result<()> {
+        self.inner.request_close()?;
+        self.inner.authority.wait_closed().await
     }
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        // 兜底仅提交关闭意图；明确 close().await 才能观察清理完成。
         let _ = crate::error::diagnostics::observe(
-            self.close(),
+            self.inner.request_close(),
             crate::error::diagnostics::DiagnosticSite::Cleanup,
         );
     }
 }
+
 async fn receive_loop(
     connection: ConnectionLease,
     key: Key,

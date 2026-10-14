@@ -107,7 +107,7 @@ async fn domain_match_skips_ip_rejection_in_both_orders() {
             .unwrap();
         let _peer = listener.accept().await.unwrap();
         assert_eq!(opened.decision.policy, Policy::Direct);
-        manager.close(opened.connection.id).unwrap();
+        manager.close(opened.connection.id).await.unwrap();
     }
     let opened = manager
         .connect_routed(&router(vec![allow]), Some(&resolver), target(port))
@@ -130,7 +130,7 @@ async fn domain_match_skips_ip_rejection_in_both_orders() {
             .bytes,
         b"x"
     );
-    manager.close(opened.connection.id).unwrap();
+    manager.close(opened.connection.id).await.unwrap();
 }
 #[tokio::test]
 async fn numeric_udp_skips_dns_and_direct_mode_preserves_rejection() {
@@ -177,7 +177,7 @@ async fn numeric_udp_skips_dns_and_direct_mode_preserves_rejection() {
             .bytes,
         b"udp"
     );
-    manager.close(opened.connection.id).unwrap();
+    manager.close(opened.connection.id).await.unwrap();
 }
 #[tokio::test]
 async fn mixed_address_policies_reject_before_any_candidate_is_dialed() {
@@ -246,7 +246,7 @@ async fn fake_ip_route_matches_restored_domain_and_real_cidr_with_generation() {
         .unwrap();
     assert_eq!(opened.decision.rule_index, Some(1));
     let _peer = listener.accept().await.unwrap();
-    manager.close(opened.connection.id).unwrap();
+    manager.close(opened.connection.id).await.unwrap();
     resolver.reset_fake_ip().unwrap();
     assert!(matches!(
         manager
@@ -312,6 +312,6 @@ async fn routed_dns_deadline_and_close_cancel_before_dial() {
     })
     .await
     .unwrap();
-    manager.close_all().unwrap();
+    manager.close_all().await.unwrap();
     assert!(matches!(task.await.unwrap(), Err(Error::Cancelled)));
 }

@@ -1,5 +1,5 @@
 //! 可安全交给 TLS/HTTP 的受管理 TCP 流；取消和资源所有权沿用共用连接。
-use super::{BoxStream, Connection, Family, Manager, RoutedTarget, Socket, State};
+use super::{Connection, Family, Manager, RoutedTarget, Socket, State};
 use crate::{
     error::{Error, Result},
     routing::{Target, Transport},
@@ -21,7 +21,7 @@ fn cancellation(connection: &Connection) -> Cancellation {
     })
 }
 pub struct ManagedStream {
-    stream: BoxStream,
+    stream: super::StreamSlot,
     connection: Arc<Connection>,
     owner: Weak<Mutex<State>>,
     id: u64,
@@ -62,9 +62,15 @@ impl AsyncRead for ManagedStream {
         cx: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        let _operation = self.connection.operation().map_err(io::Error::other)?;
         self.cancelled(cx, true)?;
         let before = buffer.filled().len();
-        let result = Pin::new(&mut self.stream).poll_read(cx, buffer);
+        let slot = self.stream.clone();
+        let mut stream = slot.lock().map_err(|_| io::Error::other(Error::Internal))?;
+        let stream = stream
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, Error::Cancelled))?;
+        let result = Pin::new(stream).poll_read(cx, buffer);
         match result {
             Poll::Ready(Ok(())) => Poll::Ready(self.account(buffer.filled().len() - before, false)),
             Poll::Ready(Err(error)) => {
@@ -81,8 +87,14 @@ impl AsyncWrite for ManagedStream {
         cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
+        let _operation = self.connection.operation().map_err(io::Error::other)?;
         self.cancelled(cx, false)?;
-        match Pin::new(&mut self.stream).poll_write(cx, bytes) {
+        let slot = self.stream.clone();
+        let mut stream = slot.lock().map_err(|_| io::Error::other(Error::Internal))?;
+        let stream = stream
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, Error::Cancelled))?;
+        match Pin::new(stream).poll_write(cx, bytes) {
             Poll::Ready(Ok(count)) => Poll::Ready(self.account(count, true).map(|()| count)),
             Poll::Ready(Err(error)) => {
                 self.connection.close();
@@ -92,12 +104,24 @@ impl AsyncWrite for ManagedStream {
         }
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let _operation = self.connection.operation().map_err(io::Error::other)?;
         self.cancelled(cx, false)?;
-        Pin::new(&mut self.stream).poll_flush(cx)
+        let slot = self.stream.clone();
+        let mut stream = slot.lock().map_err(|_| io::Error::other(Error::Internal))?;
+        let stream = stream
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, Error::Cancelled))?;
+        Pin::new(stream).poll_flush(cx)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let _operation = self.connection.operation().map_err(io::Error::other)?;
         self.cancelled(cx, false)?;
-        Pin::new(&mut self.stream).poll_shutdown(cx)
+        let slot = self.stream.clone();
+        let mut stream = slot.lock().map_err(|_| io::Error::other(Error::Internal))?;
+        let stream = stream
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionAborted, Error::Cancelled))?;
+        Pin::new(stream).poll_shutdown(cx)
     }
 }
 impl Drop for ManagedStream {
@@ -148,13 +172,19 @@ impl Manager {
         let result = (|| {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
             let connection = state.registry.get_mut(id).ok_or(Error::InvalidState)?;
-            // 私有转换发生在返回流之前，外部尚未取得句柄；额外所有者出现时明确失败。
-            let unique = Arc::get_mut(connection).ok_or(Error::InvalidState)?;
-            let socket = std::mem::replace(&mut unique.socket, Socket::Detached);
+            // Arc::get_mut 只用于独占修改 Rust 数据，不判断业务占用权。
+            // 身份和租约另由 Authority 裁决；真实流仍登记于内核资源槽。
+            let mut guard = connection.resources.lock().map_err(|_| Error::Internal)?;
+            let resources = guard.as_mut().ok_or(Error::InvalidState)?;
+            let resources = Arc::get_mut(resources).ok_or(Error::InvalidState)?;
+            let socket = std::mem::replace(&mut resources.socket, Socket::Detached);
             let Socket::Tcp { reader, writer } = socket else {
                 return Err(Error::Unsupported);
             };
-            let stream = reader.into_inner().unsplit(writer.into_inner());
+            let stream = Arc::new(Mutex::new(Some(
+                reader.into_inner().unsplit(writer.into_inner()),
+            )));
+            resources.detached = Some(stream.clone());
             Ok(ManagedStream {
                 stream,
                 owner: Arc::downgrade(&self.state),
@@ -166,10 +196,91 @@ impl Manager {
         })();
         if result.is_err() {
             let _ = crate::error::diagnostics::observe(
-                self.close(id),
+                self.close(id).await,
                 crate::error::diagnostics::DiagnosticSite::Cleanup,
             );
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    /// 外部持有流对象与旧快照，关闭仍应释放真实 TCP 并禁止恢复读写。
+    #[tokio::test]
+    async fn retained_stream_does_not_own_socket_after_session_close() {
+        use crate::{
+            dns::{Config, Resolver, Server, fake_ip},
+            routing::{Config as Routes, Mode, Router},
+            tun::udp::{Options, Session},
+        };
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+            time::{Duration, timeout},
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let manager = Arc::new(Manager::default());
+        let resolver = Arc::new(
+            Resolver::new(Config {
+                servers: vec![Server::Udp {
+                    address: "127.0.0.1:5353".into(),
+                }],
+                timeout_ms: 100,
+                dnssec: false,
+                service: None,
+                fake_ip: Some(fake_ip::Config {
+                    ipv4_range: "198.19.96.0/24".into(),
+                    ipv6_range: "fd00:cafe:198::/64".into(),
+                    capacity: 2,
+                    exclude: vec![],
+                }),
+            })
+            .unwrap(),
+        );
+        manager
+            .configure_network(
+                Some(resolver.clone()),
+                Some(Arc::new(
+                    Router::compile(Routes {
+                        mode: Mode::Direct,
+                        ..Routes::default()
+                    })
+                    .unwrap(),
+                )),
+                crate::outbound::Limits::default(),
+            )
+            .unwrap();
+        let options = Options {
+            dns_endpoints: vec!["192.0.2.53:53".parse().unwrap()],
+            ..Options::default()
+        };
+        let session = Session::new(manager.clone(), options.clone()).unwrap();
+        let snapshot = manager.network_snapshot().unwrap();
+        let mut stream = manager
+            .connect_stream("127.0.0.1", listener.local_addr().unwrap().port(), None)
+            .await
+            .unwrap();
+        let (mut remote, _) = listener.accept().await.unwrap();
+        stream.write_all(b"x").await.unwrap();
+        let mut bytes = [0];
+        assert_eq!(remote.read(&mut bytes).await.unwrap(), 1);
+        timeout(Duration::from_secs(2), session.close())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            timeout(Duration::from_secs(2), remote.read(&mut bytes))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        assert!(stream.write_all(b"revoked").await.is_err());
+        assert!(snapshot.resolver.as_ref().unwrap().clear().is_err());
+        let next = Session::new(manager.clone(), options).unwrap();
+        next.close().await.unwrap();
+        assert!(session.receive().is_err());
     }
 }

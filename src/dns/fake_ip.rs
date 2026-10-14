@@ -1,5 +1,6 @@
 //! 有界 Fake-IP 映射：分配后不自动复用地址，防止旧连接误指向新的域名。
 use super::normalize;
+use crate::lifecycle::session::{Authority, Operation, Phase};
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    sync::{Arc, LazyLock, Mutex, Weak},
+    sync::{Arc, LazyLock, Mutex},
 };
 // 代次仅在当前进程有效，耗尽后拒绝，不回绕复用旧令牌。
 
@@ -98,7 +99,7 @@ const HISTORY_BYTES: usize = MAX_IPV6_INTERVALS * 64;
 static TUN_POOLS: LazyLock<Mutex<Pools>> = LazyLock::new(|| Mutex::new(Pools::default()));
 struct Namespace {
     ranges: Ranges,
-    owner: Weak<()>,
+    owner: Arc<Authority>,
 }
 struct Pools {
     active: Vec<Namespace>,
@@ -121,11 +122,17 @@ fn overlaps(left: &Ranges, right: &Ranges) -> bool {
         || (left.ipv6 <= right.ipv6_end && right.ipv6 <= left.ipv6_end)
 }
 impl Pools {
-    fn prune(&mut self) {
-        self.active.retain(|pool| pool.owner.strong_count() != 0);
+    fn prune(&mut self) -> Result<()> {
+        for pool in &self.active {
+            pool.owner.phase()?;
+        }
+        self.active
+            .retain(|pool| pool.owner.phase() != Ok(Phase::Closed));
+        Ok(())
     }
-    fn namespace(&mut self, ranges: &Ranges) -> Result<Arc<()>> {
-        self.prune();
+    fn namespace(&mut self, ranges: &Ranges, owner: &Arc<Authority>) -> Result<Arc<Authority>> {
+        self.prune()?;
+        owner.check(owner.identity())?;
         if self
             .active
             .iter()
@@ -133,13 +140,12 @@ impl Pools {
         {
             return Err(Error::InvalidState);
         }
-        if let Some(owner) = self
+        if self
             .active
             .iter()
-            .find(|pool| pool.ranges == *ranges)
-            .and_then(|pool| pool.owner.upgrade())
+            .any(|pool| pool.owner.identity() == owner.identity())
         {
-            return Ok(owner);
+            return Err(Error::InvalidState);
         }
         if self.active.len() >= MAX_ACTIVE_POOLS {
             return Err(Error::ResourceLimit);
@@ -147,12 +153,11 @@ impl Pools {
         self.active
             .try_reserve(1)
             .map_err(|_| Error::ResourceLimit)?;
-        let owner = Arc::new(());
         self.active.push(Namespace {
             ranges: ranges.clone(),
-            owner: Arc::downgrade(&owner),
+            owner: owner.clone(),
         });
-        Ok(owner)
+        Ok(owner.clone())
     }
     fn used(&self, ranges: &Ranges, id: u32) -> bool {
         let offset = (ranges.ipv4 + id - IPV4_BASE) as usize;
@@ -200,8 +205,12 @@ impl Pools {
         self.ipv4[offset / u64::BITS as usize] |= 1 << (offset % u64::BITS as usize);
         Ok(())
     }
+    #[cfg(test)]
     fn allocate(&mut self, ranges: &Ranges, first: u32, tun: bool) -> Result<u32> {
-        self.prune();
+        self.prune()?;
+        self.allocate_active(ranges, first, tun)
+    }
+    fn allocate_active(&mut self, ranges: &Ranges, first: u32, tun: bool) -> Result<u32> {
         if !tun
             && self
                 .active
@@ -231,7 +240,7 @@ struct State {
     by_name: BTreeMap<String, u32>,
     by_id: BTreeMap<u32, Mapping>,
     cursor: u32,
-    namespace: Option<Arc<()>>,
+    namespace: Option<Arc<Authority>>,
 }
 pub struct Table {
     generation: u64,
@@ -252,10 +261,10 @@ impl Table {
     }
     /// 只在 TUN 会话显式启用；存活重叠池拒绝绑定，最后一个解析器释放后允许变更范围。
     /// 退役地址仍受历史记录保护；已有非 TUN 映射不能转换。
-    pub(crate) fn bind_tun(&self) -> Result<()> {
+    pub(crate) fn bind_tun(&self, owner: &Arc<Authority>) -> Result<()> {
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         if state.namespace.is_some() {
-            return Ok(());
+            return Err(Error::InvalidState);
         }
         if state.cursor != 0 {
             return Err(Error::InvalidState);
@@ -264,12 +273,33 @@ impl Table {
             TUN_POOLS
                 .lock()
                 .map_err(|_| Error::Internal)?
-                .namespace(&self.ranges)?,
+                .namespace(&self.ranges, owner)?,
         );
+        Ok(())
+    }
+    /// 快照仅保留控制对象；使用权始终核验内核登记的身份、代次和状态。
+    pub(crate) fn authority(&self) -> Result<Option<Arc<Authority>>> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .namespace
+            .clone())
+    }
+    fn operation(&self) -> Result<Option<Operation>> {
+        self.authority()?
+            .map(|owner| owner.enter(owner.identity()))
+            .transpose()
+    }
+    pub(crate) fn ensure_active(&self) -> Result<()> {
+        if let Some(owner) = self.authority()? {
+            owner.check(owner.identity())?;
+        }
         Ok(())
     }
     /// None 表示排除项，调用者应明确使用真实解析；排除域名按标签边界匹配。
     pub fn allocate(&self, name: &str, ipv6: bool) -> Result<Option<(String, bool)>> {
+        let _operation = self.operation()?;
         let name = normalize(name)?;
         if name == "."
             || name.parse::<IpAddr>().is_ok()
@@ -281,39 +311,48 @@ impl Table {
             return Ok(None);
         }
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
-        let (id, cached) = if let Some(id) = state.by_name.get(&name) {
-            (*id, true)
-        } else {
-            if state.by_id.len() >= self.config.capacity || state.cursor >= self.ranges.available {
-                return Err(Error::ResourceLimit);
-            }
-            // 两份最多 253 字节的域名与两个树节点、配额值合计预留 1 KiB。
-            let lease = BUDGET.reserve(1024)?;
-            let first = state.cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
-            let id = TUN_POOLS.lock().map_err(|_| Error::Internal)?.allocate(
-                &self.ranges,
-                first,
-                state.namespace.is_some(),
-            )?;
-            state.by_name.insert(name.clone(), id);
-            state.by_id.insert(
-                id,
-                Mapping {
-                    name,
-                    _lease: lease,
-                },
-            );
-            state.cursor = id;
-            (id, false)
-        };
-        Ok(Some((
-            if ipv6 {
-                Ipv6Addr::from(self.ranges.ipv6 + u128::from(id)).to_string()
+        // 租约核验及地址历史/映射提交处于同一内核操作范围。
+        let mut pools = TUN_POOLS.lock().map_err(|_| Error::Internal)?;
+        pools.prune()?;
+        let owner = state.namespace.clone();
+        let commit = || {
+            let (id, cached) = if let Some(id) = state.by_name.get(&name) {
+                (*id, true)
             } else {
-                Ipv4Addr::from(self.ranges.ipv4 + id).to_string()
-            },
-            cached,
-        )))
+                if state.by_id.len() >= self.config.capacity
+                    || state.cursor >= self.ranges.available
+                {
+                    return Err(Error::ResourceLimit);
+                }
+                // 两份最多 253 字节的域名与两个树节点、配额值合计预留 1 KiB。
+                let lease = BUDGET.reserve(1024)?;
+                let first = state.cursor.checked_add(1).ok_or(Error::ResourceLimit)?;
+                let id = pools.allocate_active(&self.ranges, first, state.namespace.is_some())?;
+                state.by_name.insert(name.clone(), id);
+                state.by_id.insert(
+                    id,
+                    Mapping {
+                        name,
+                        _lease: lease,
+                    },
+                );
+                state.cursor = id;
+                (id, false)
+            };
+            Ok(Some((
+                if ipv6 {
+                    Ipv6Addr::from(self.ranges.ipv6 + u128::from(id)).to_string()
+                } else {
+                    Ipv4Addr::from(self.ranges.ipv4 + id).to_string()
+                },
+                cached,
+            )))
+        };
+        if let Some(owner) = owner {
+            owner.with_active(owner.identity(), commit)
+        } else {
+            commit()
+        }
     }
     pub fn generation(&self) -> u64 {
         self.generation
@@ -329,6 +368,7 @@ impl Table {
         }
     }
     pub fn reverse(&self, address: &str) -> Result<Option<String>> {
+        let _operation = self.operation()?;
         if address.len() > 64 {
             return Err(Error::InvalidInput);
         }
@@ -346,6 +386,7 @@ impl Table {
     }
     /// 清除映射但不回退游标，旧地址不会在同一实例中分配给其他域名。
     pub fn reset(&self) -> Result<()> {
+        let _operation = self.operation()?;
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         state.by_name.clear();
         state.by_id.clear();
@@ -356,6 +397,14 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn retire(owner: &Authority) {
+        owner.revoke().unwrap();
+        owner.complete(Ok(())).unwrap();
+    }
+    fn bind(pools: &mut Pools, ranges: &Ranges) -> Arc<Authority> {
+        let owner = Authority::new().unwrap();
+        pools.namespace(ranges, &owner).unwrap()
+    }
     fn config(v4: &str, v6: &str) -> Ranges {
         Config {
             ipv4_range: v4.into(),
@@ -371,11 +420,15 @@ mod tests {
         let old = config("198.18.0.0/16", "fd00:1::/64");
         let new = config("198.18.0.0/15", "fd00:1::/64");
         let mut pools = Pools::default();
-        let owner = pools.namespace(&old).unwrap();
+        let owner = bind(&mut pools, &old);
         assert_eq!(pools.allocate(&old, 1, true).unwrap(), 1);
-        assert!(matches!(pools.namespace(&new), Err(Error::InvalidState)));
+        assert!(matches!(
+            pools.namespace(&new, &Authority::new().unwrap()),
+            Err(Error::InvalidState)
+        ));
+        retire(&owner);
         drop(owner);
-        let _new_owner = pools.namespace(&new).unwrap();
+        let _new_owner = bind(&mut pools, &new);
         assert_eq!(pools.allocate(&new, 1, true).unwrap(), 2);
         assert_eq!(pools.active.len(), 1);
     }
@@ -394,10 +447,11 @@ mod tests {
         let mut pools = Pools::default();
         for index in 0..40 {
             let ranges = config("198.18.0.0/16", &format!("fd00:{index:x}::/64"));
-            let owner = pools.namespace(&ranges).unwrap();
+            let owner = bind(&mut pools, &ranges);
+            retire(&owner);
             drop(owner);
         }
-        pools.prune();
+        pools.prune().unwrap();
         assert!(pools.active.is_empty());
         assert!(pools.ipv6.is_empty());
         assert!(pools.history_lease.is_none());
@@ -407,15 +461,20 @@ mod tests {
         let ranges = config("198.18.0.0/16", "fd00:4::/64");
         let larger = config("198.18.0.0/15", "fd00:4::/64");
         let mut pools = Pools::default();
-        let first = pools.namespace(&ranges).unwrap();
-        let second = pools.namespace(&ranges).unwrap();
-        assert!(Arc::ptr_eq(&first, &second));
+        let first = bind(&mut pools, &ranges);
+        let second = bind(&mut pools, &ranges);
+        assert_ne!(first.identity(), second.identity());
+        retire(&first);
         drop(first);
-        assert!(matches!(pools.namespace(&larger), Err(Error::InvalidState)));
+        assert!(matches!(
+            pools.namespace(&larger, &Authority::new().unwrap()),
+            Err(Error::InvalidState)
+        ));
         assert_eq!(pools.allocate(&ranges, 1, true).unwrap(), 1);
         assert_eq!(pools.allocate(&ranges, 1, true).unwrap(), 2);
+        retire(&second);
         drop(second);
-        assert!(pools.namespace(&larger).is_ok());
+        assert!(pools.namespace(&larger, &Authority::new().unwrap()).is_ok());
     }
     #[test]
     fn active_limit_is_reclaimed_and_concurrent_shared_allocations_are_unique() {
@@ -426,12 +485,19 @@ mod tests {
                 &format!("198.18.0.{}/30", index * 4),
                 &format!("fd00:{index:x}::/64"),
             );
-            owners.push(pools.namespace(&ranges).unwrap());
+            owners.push(bind(&mut pools, &ranges));
         }
         let extra = config("198.18.0.64/30", "fd00:100::/64");
-        assert!(matches!(pools.namespace(&extra), Err(Error::ResourceLimit)));
-        owners.pop();
-        assert!(pools.namespace(&extra).is_ok());
+        assert!(matches!(
+            pools.namespace(&extra, &Authority::new().unwrap()),
+            Err(Error::ResourceLimit)
+        ));
+        let retiring = owners.pop().unwrap();
+        retire(&retiring);
+        assert!(pools.namespace(&extra, &Authority::new().unwrap()).is_ok());
+        for owner in &owners {
+            retire(owner);
+        }
         drop(owners);
         let pools = Arc::new(Mutex::new(Pools::default()));
         let ranges = config("198.18.0.0/16", "fd00:6::/64");
@@ -440,8 +506,10 @@ mod tests {
                 let pools = pools.clone();
                 let ranges = ranges.clone();
                 std::thread::spawn(move || {
-                    let owner = pools.lock().unwrap().namespace(&ranges).unwrap();
+                    let own = Authority::new().unwrap();
+                    let owner = pools.lock().unwrap().namespace(&ranges, &own).unwrap();
                     let id = pools.lock().unwrap().allocate(&ranges, 1, true).unwrap();
+                    retire(&owner);
                     drop(owner);
                     id
                 })
@@ -454,7 +522,7 @@ mod tests {
         ids.sort_unstable();
         assert_eq!(ids, (1..=8).collect::<Vec<_>>());
         let mut pools = pools.lock().unwrap();
-        pools.prune();
+        pools.prune().unwrap();
         assert!(pools.active.is_empty());
     }
     #[test]

@@ -49,6 +49,36 @@ struct Engine {
     runtime_rules: Mutex<Option<crate::routing::background::Service>>,
 }
 impl Engine {
+    /// 关闭过程中保留登记项；并发关闭等待同一内核结果，新开启不能越过 Closing。
+    fn close_tun(&self) -> Result<(), Error> {
+        let current = self.tun_udp.lock().map_err(|_| Error::Internal)?.clone();
+        if let Some(session) = current {
+            let closing = session.clone();
+            run_network(async move { closing.close().await })?;
+            let mut slot = self.tun_udp.lock().map_err(|_| Error::Internal)?;
+            if slot
+                .as_ref()
+                .is_some_and(|active| active.same_identity(&session))
+            {
+                slot.take();
+            }
+        }
+        Ok(())
+    }
+    /// 不移走仍在关闭的监听对象；并发停止等待真实完成后再清除登记。
+    fn close_dns_service(&self) -> Result<crate::dns::service::Status, Error> {
+        let mut slot = self.dns_service.lock().map_err(|_| Error::Internal)?;
+        let mut status = slot
+            .as_ref()
+            .map(|service| service.status())
+            .unwrap_or_default();
+        if let Some(service) = slot.as_mut() {
+            runtime()?.block_on(service.stop())?;
+        }
+        slot.take();
+        status.running = false;
+        Ok(status)
+    }
     fn client(&self) -> Result<HttpsClient, Error> {
         let mut client = self.client.lock().map_err(|_| Error::Internal)?;
         if client.is_none() {
@@ -98,18 +128,9 @@ fn registry() -> &'static Mutex<Registry<Resource>> {
     REGISTRY.get_or_init(|| Mutex::new(Registry::default()))
 }
 fn runtime() -> Result<&'static Runtime, Error> {
-    static RUNTIME: OnceLock<Result<Runtime, Error>> = OnceLock::new();
-    RUNTIME
-        .get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .map_err(|_| Error::Internal)
-        })
-        .as_ref()
-        .map_err(|e| *e)
+    crate::lifecycle::runtime()
 }
+
 fn engine(handle: u64) -> Result<Arc<Engine>, Error> {
     match registry().lock().map_err(|_| Error::Internal)?.get(handle) {
         Some(Resource::Engine(engine)) => Ok(Arc::clone(engine)),
@@ -617,6 +638,22 @@ impl<T> Drop for NetworkTask<T> {
         self.0.abort();
     }
 }
+/// 同步 FFI 关闭不得嵌套启动 Tokio；无异步资源时可立即完成。
+/// Rust 异步线程存在待释放资源时返回状态错误，不能阻塞该线程或伪造关闭完成。
+fn finish_shutdown<F: std::future::Future<Output = Result<(), Error>>>(
+    future: F,
+) -> Result<(), Error> {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        let mut future = std::pin::pin!(future);
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(result) => result,
+            std::task::Poll::Pending => Err(Error::InvalidState),
+        }
+    } else {
+        runtime()?.block_on(future)
+    }
+}
 fn run_network<F, T>(future: F) -> Result<T, Error>
 where
     F: std::future::Future<Output = Result<T, Error>> + Send + 'static,
@@ -688,16 +725,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     if bytes.len() <= 256 {
         match serde_json::from_slice::<Command>(bytes) {
             Ok(Command::TunUdpClose) => {
-                if let Some(session) = engine.tun_udp.lock().map_err(|_| Error::Internal)?.take() {
-                    session.close()?;
-                }
+                engine.close_tun()?;
                 return Ok(Reply {
                     success: true,
                     ..Reply::default()
                 });
             }
             Ok(Command::OutboundClose { id }) => {
-                engine.outbound.close(id)?;
+                runtime()?.block_on(engine.outbound.close(id))?;
                 return Ok(Reply {
                     success: true,
                     ..Reply::default()
@@ -712,7 +747,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 });
             }
             Ok(Command::OutboundCloseAll) => {
-                engine.outbound.close_all()?;
+                runtime()?.block_on(engine.outbound.close_all())?;
                 return Ok(Reply {
                     success: true,
                     ..Reply::default()
@@ -1021,14 +1056,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::OutboundClose { id } => {
-            engine.outbound.close(id)?;
+            runtime()?.block_on(engine.outbound.close(id))?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
         }
         Command::OutboundCloseAll => {
-            engine.outbound.close_all()?;
+            runtime()?.block_on(engine.outbound.close_all())?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
@@ -1167,13 +1202,9 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::DnsClose => {
-            let service = engine
-                .dns_service
-                .lock()
-                .map_err(|_| Error::Internal)?
-                .take();
-            if let Some(mut service) = service {
-                runtime()?.block_on(service.stop())?;
+            engine.close_dns_service()?;
+            if let Some(resolver) = engine.outbound.network_snapshot()?.resolver.clone() {
+                run_network(async move { resolver.close().await })?;
             }
             engine.outbound.configure_dns(None)?;
             Ok(Reply {
@@ -1200,16 +1231,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::DnsServiceStop => {
-            let service = engine
-                .dns_service
-                .lock()
-                .map_err(|_| Error::Internal)?
-                .take();
-            let mut status = service.as_ref().map(|s| s.status()).unwrap_or_default();
-            if let Some(mut service) = service {
-                runtime()?.block_on(service.stop())?;
-            }
-            status.running = false;
+            let status = engine.close_dns_service()?;
             Ok(Reply {
                 success: true,
                 dns_service_status: Some(status),
@@ -1295,9 +1317,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::TunUdpClose => {
-            if let Some(session) = engine.tun_udp.lock().map_err(|_| Error::Internal)?.take() {
-                session.close()?;
-            }
+            engine.close_tun()?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
@@ -1509,18 +1529,34 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
         };
         if resource.is_some() {
             if let Some(Resource::Engine(engine)) = &resource {
-                if let Ok(mut session) = engine.tun_udp.lock()
-                    && let Some(session) = session.take()
-                {
-                    let _ = crate::error::diagnostics::observe(
-                        session.close(),
-                        crate::error::diagnostics::DiagnosticSite::Cleanup,
-                    );
+                if let Err(error) = engine.close_tun() {
+                    return error_status(error);
                 }
-                let _ = crate::error::diagnostics::observe(
-                    engine.outbound.stop(),
-                    crate::error::diagnostics::DiagnosticSite::Cleanup,
-                );
+                if let Err(error) = finish_shutdown(engine.outbound.stop()) {
+                    return error_status(error);
+                }
+                let dns = match engine.outbound.network_snapshot() {
+                    Ok(snapshot) => snapshot.resolver.clone(),
+                    Err(error) => return error_status(error),
+                };
+                if let Some(resolver) = dns
+                    && let Err(error) = finish_shutdown(resolver.close())
+                {
+                    return error_status(error);
+                }
+                if let Err(error) = engine.close_dns_service() {
+                    return error_status(error);
+                }
+                let closed_proxy = (|| {
+                    let mut proxy = engine.proxy.lock().map_err(|_| Error::Internal)?;
+                    if let Some(service) = proxy.take() {
+                        finish_shutdown(service.stop())?;
+                    }
+                    Ok::<_, Error>(())
+                })();
+                if let Err(error) = closed_proxy {
+                    return error_status(error);
+                }
             }
             drop(resource);
             OK

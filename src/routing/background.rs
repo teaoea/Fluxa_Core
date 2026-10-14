@@ -375,7 +375,7 @@ mod tests {
                 .bytes,
             b"x"
         );
-        manager.close(opened.connection.id).unwrap();
+        manager.close(opened.connection.id).await.unwrap();
         let before = std::fs::read(directory.join("runtime-rules.bin")).unwrap();
         let mut invalid = sources(Policy::Direct);
         invalid[0].rules[0].value = "invalid".into();

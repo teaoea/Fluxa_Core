@@ -81,8 +81,8 @@ async fn real_ipv4_ipv6_multiple_datagrams_and_empty_payload() {
                 );
             }
         }
-        session.close().unwrap();
-        session.close().unwrap();
+        session.close().await.unwrap();
+        session.close().await.unwrap();
         assert!(matches!(session.receive(), Err(Error::InvalidState)));
     }
 }
@@ -160,7 +160,7 @@ async fn bounded_flows_idle_reuse_backpressure_and_close_release_resources() {
     }
     tokio::time::sleep(Duration::from_millis(150)).await;
     session.submit(&second.bytes, None).await.unwrap();
-    session.close().unwrap();
+    session.close().await.unwrap();
     assert_eq!(
         session.submit(&first.bytes, None).await,
         Err(Error::InvalidState)
@@ -168,7 +168,7 @@ async fn bounded_flows_idle_reuse_backpressure_and_close_release_resources() {
     // 已关闭的会话只回收自己的连接，不停止共用出站管理器。
     let other = Session::new(manager, Options::default()).unwrap();
     other.submit(&first.bytes, None).await.unwrap();
-    other.close().unwrap();
+    other.close().await.unwrap();
 }
 #[tokio::test]
 async fn new_flows_use_new_rules_existing_flows_keep_snapshot() {
@@ -327,7 +327,7 @@ async fn fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_add
             .source,
         address.to_string()
     );
-    session.close().unwrap();
+    session.close().await.unwrap();
     resolver.reset_fake_ip().unwrap();
     let session = Session::new(manager, Options::default()).unwrap();
     assert!(
@@ -360,7 +360,7 @@ async fn oversize_response_is_an_error_and_drop_cancels_blocked_output() {
         .unwrap();
     socket.send_to(&vec![0; 1280], peer).await.unwrap();
     assert!(matches!(next(&session).await, Err(Error::ResourceLimit)));
-    session.close().unwrap();
+    session.close().await.unwrap();
     for _ in 0..40 {
         let session = Arc::new(
             Session::new(
@@ -388,7 +388,7 @@ async fn oversize_response_is_an_error_and_drop_cancels_blocked_output() {
                 tokio::task::yield_now().await;
             }
         });
-        session.close().unwrap();
+        session.close().await.unwrap();
         task.await.unwrap();
         drop(session);
         tokio::task::yield_now().await;

@@ -1,5 +1,11 @@
 # libfluxa_core 发布说明
 
+## 当前强制发布依据
+
+API、版本与正式发布以 [《API全生命周期管理》](API全生命周期管理.md) 为唯一权威规范。dev 禁止持有 crates.io 发布凭据、执行生产发布或上传正式 crate；crates.io 仅允许已审查的受保护 main 来源，经授权的受控流程发布。内核版本采用 SemVer；示例见 [版本说明](Versioning.md)。以下既往发布说明及核验记录保留为历史证据，不构成继续从 dev 正式发布或沿用旧版本递增规则的授权，亦不表示新发布守卫已经实现或验证。
+
+## 既往发布流程及记录
+
 Rust 包名与 Rust 库名均为 libfluxa_core，版本 0.3.0。对外 C ABI 的 fluxa_engine_ 前缀保留兼容；Swift 产品 FluxaEngine、FluxaCore 与 FluxaEngine.xcframework 名称不变，内部静态二进制为 libfluxa_core，无扩展名。
 
 crates.io 发布内容由 Cargo.toml 的 include 白名单限定：Rust 源码、C ABI 头、Rust 测试、测试例程和指定文档；不包含 Swift/App 源码、钥匙串、真实证书私钥、缓存或二进制。先执行 cargo package --list 与 cargo publish --dry-run --registry crates-io，再上传。凭据只通过 cargo login 或受保护环境变量配置，不写入仓库和聊天。
@@ -10,7 +16,7 @@ GitHub Release 用于 Apple 二进制下载；crates.io 用于 Rust 源码库，
 
 ## 版本与作者
 
-作者署名为可莉唯一的狗。版本使用 v主版本.次版本.修订号：初始 v0.0.0，新增功能递增次版本，bug 修复递增修订号；主版本发布使用 v1.0.0。Cargo/Swift 元数据不带 v，Git 标签和发布标题带 v。0.1.0 已经 crates.io 实际上传并确认索引；后续修改需要新版本，不能覆盖已发布版本。
+作者署名为可莉唯一的狗。后续版本递增遵循《API全生命周期管理》第四章，不再适用旧版本约定。Cargo/Swift 元数据不带 v，Git 标签和发布标题带 v。0.1.0 已经 crates.io 实际上传并确认索引；后续修改需要新版本，不能覆盖已发布版本。
 
 0.1.1 为 README 文档修订，移除客户端与开发流程说明，只保留网络内核介绍；网络实现与 0.1.0 相同。
 

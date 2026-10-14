@@ -37,6 +37,7 @@ impl Limits {
 #[derive(Clone, Default)]
 pub struct NetworkSnapshot {
     pub revision: u64,
+    pub(crate) session: Option<std::sync::Arc<crate::lifecycle::session::Authority>>,
     pub resolver: Option<Arc<Resolver>>,
     pub router: Option<Arc<Router>>,
     pub limits: Limits,
@@ -47,6 +48,26 @@ impl Manager {
         Ok(Arc::clone(
             &self.state.lock().map_err(|_| Error::Internal)?.network,
         ))
+    }
+    /// 已关闭的解析器只留下配置元数据；新会话由内核创建新权限和映射代次。
+    pub(crate) fn prepare_tun_snapshot(&self) -> Result<Arc<NetworkSnapshot>> {
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.stopped {
+            return Err(Error::InvalidState);
+        }
+        if let Some(resolver) = &state.network.resolver
+            && resolver.is_closed()?
+        {
+            let resolver = Arc::new(resolver.replacement()?);
+            state.network = Arc::new(NetworkSnapshot {
+                revision: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
+                resolver: Some(resolver),
+                session: None,
+                ..(*state.network).clone()
+            });
+        }
+        state.network.ensure_active()?;
+        Ok(state.network.clone())
     }
     /// 调用者先构造、验证 DNS 与路由；持锁一次提交，不暴露中间状态。
     pub fn configure_network(
@@ -78,6 +99,7 @@ impl Manager {
         }
         self.replace_network(|_| NetworkSnapshot {
             revision: 0,
+            session: None,
             resolver,
             router,
             limits,
@@ -140,8 +162,66 @@ impl Manager {
 }
 
 impl NetworkSnapshot {
+    pub(crate) fn for_session(&self, owner: Arc<crate::lifecycle::session::Authority>) -> Self {
+        Self {
+            session: Some(owner),
+            ..self.clone()
+        }
+    }
+    pub(crate) fn ensure_active(&self) -> Result<()> {
+        if let Some(owner) = &self.session {
+            owner.check(owner.identity())?;
+        }
+        if let Some(resolver) = &self.resolver {
+            resolver.ensure_active()?;
+        }
+        Ok(())
+    }
+    /// 正式出站也可能使用 TUN 绑定的解析器，连接归属必须包含该有效租约。
+    pub(crate) fn owner(&self) -> Result<Option<Arc<crate::lifecycle::session::Authority>>> {
+        let binding = self
+            .resolver
+            .as_ref()
+            .map(|resolver| resolver.binding_authority())
+            .transpose()?
+            .flatten();
+        if let (Some(session), Some(binding)) = (&self.session, &binding)
+            && session.identity() != binding.identity()
+        {
+            return Err(Error::InvalidState);
+        }
+        Ok(self.session.clone().or(binding))
+    }
+    /// 与会话撤销串行登记真实连接；Socket 建立后权限失效必须回滚，不能发布句柄。
+    pub(crate) fn commit<T>(&self, publish: impl FnOnce() -> Result<T>) -> Result<T> {
+        let binding = self
+            .resolver
+            .as_ref()
+            .map(|resolver| resolver.binding_authority())
+            .transpose()?
+            .flatten();
+        if let (Some(session), Some(binding)) = (&self.session, &binding)
+            && session.identity() != binding.identity()
+        {
+            return Err(Error::InvalidState);
+        }
+        let owner = self.session.as_ref().or(binding.as_ref());
+        let publish = || {
+            if let Some(resolver) = &self.resolver {
+                resolver.with_active(publish)
+            } else {
+                publish()
+            }
+        };
+        if let Some(owner) = owner {
+            owner.with_active(owner.identity(), publish)
+        } else {
+            publish()
+        }
+    }
     /// 共用出站在解析和拨号前执行协议保护，不从直连 API 绕过有效拦截。
     pub(crate) fn check_transport(&self, transport: crate::routing::Transport) -> Result<()> {
+        self.ensure_active()?;
         if let Some(router) = &self.router {
             router.check_transport(transport)?;
         }

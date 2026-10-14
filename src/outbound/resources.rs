@@ -121,7 +121,7 @@ impl Manager {
     pub(super) fn start_reaper(&self) -> Result<()> {
         let mut task = self.reaper.lock().map_err(|_| Error::Internal)?;
         if task.as_ref().is_none_or(JoinHandle::is_finished) {
-            *task = Some(tokio::spawn(reaper(Arc::downgrade(&self.state))));
+            *task = Some(crate::lifecycle::runtime()?.spawn(reaper(Arc::downgrade(&self.state))));
         }
         Ok(())
     }

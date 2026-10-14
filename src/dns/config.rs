@@ -38,6 +38,67 @@ pub struct Config {
     pub service: Option<super::service::Config>,
 }
 impl Config {
+    /// 直接计算被保存的配置分配容量，不为预算计算再分配；旧快照保留此租约。
+    pub(super) fn allocated_bytes(&self) -> Result<usize> {
+        let mut bytes = 4096usize;
+        let mut add = |value: usize| -> Result<()> {
+            bytes = bytes.checked_add(value).ok_or(Error::ResourceLimit)?;
+            Ok(())
+        };
+        add(self
+            .servers
+            .capacity()
+            .checked_mul(std::mem::size_of::<Server>())
+            .ok_or(Error::ResourceLimit)?)?;
+        for server in &self.servers {
+            match server {
+                Server::Udp { address } | Server::Tcp { address } => add(address.capacity())?,
+                Server::Dot {
+                    address,
+                    server_name,
+                } => {
+                    add(address.capacity())?;
+                    add(server_name.capacity())?;
+                }
+                Server::Doh { url, bootstrap } => {
+                    add(url.capacity())?;
+                    add(bootstrap.capacity())?;
+                }
+            }
+        }
+        if let Some(fake) = &self.fake_ip {
+            // Table 保存独立配置副本，计入两份字符串/容器容量。
+            for value in [&fake.ipv4_range, &fake.ipv6_range] {
+                add(value
+                    .capacity()
+                    .checked_mul(2)
+                    .ok_or(Error::ResourceLimit)?)?;
+            }
+            add(fake
+                .exclude
+                .capacity()
+                .checked_mul(std::mem::size_of::<String>() * 2)
+                .ok_or(Error::ResourceLimit)?)?;
+            for value in &fake.exclude {
+                add(value
+                    .capacity()
+                    .checked_mul(2)
+                    .ok_or(Error::ResourceLimit)?)?;
+            }
+        }
+        if let Some(service) = &self.service {
+            add(service.listen.capacity())?;
+            add(service
+                .allowed_clients
+                .capacity()
+                .checked_mul(std::mem::size_of::<String>())
+                .ok_or(Error::ResourceLimit)?)?;
+            for value in &service.allowed_clients {
+                add(value.capacity())?;
+            }
+        }
+        Ok(bytes)
+    }
     pub fn validate(&self) -> Result<()> {
         self.build().map(|_| ())
     }

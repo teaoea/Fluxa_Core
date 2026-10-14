@@ -128,7 +128,7 @@ async fn cancellation_interrupts_tls_and_plain_requests_and_releases_resources()
         })
         .await
         .unwrap();
-        fixture.network.close_all().unwrap();
+        fixture.network.close_all().await.unwrap();
         assert!(matches!(
             timeout(Duration::from_secs(2), request)
                 .await

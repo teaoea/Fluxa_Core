@@ -57,7 +57,7 @@ impl Manager {
             .await?
             .id
         };
-        self.close(id)?;
+        self.close(id).await?;
         Ok(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
     }
 
@@ -117,6 +117,7 @@ impl Manager {
         snapshot: std::sync::Arc<super::NetworkSnapshot>,
         hop: Option<SocketAddr>,
     ) -> Result<RoutedOpened> {
+        snapshot.ensure_active()?;
         let deadline = duration(request.timeout_ms)?;
         let mut metadata = request.target;
         router.check_transport(metadata.transport)?;
@@ -300,7 +301,7 @@ impl Manager {
             )
             .await?;
         let Some(decision) = decision else {
-            self.close(opened.id)?;
+            self.close(opened.id).await?;
             return Err(Error::Internal);
         };
         Ok(RoutedOpened {

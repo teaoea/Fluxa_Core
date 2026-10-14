@@ -157,12 +157,32 @@ impl Access {
 }
 pub struct Service {
     address: SocketAddr,
+    control: Arc<Control>,
+}
+/// 内核拥有的确定性关闭状态；外部 Service 仅提供受控停止意图和只读统计。
+pub(crate) struct Control {
     cancel: watch::Sender<bool>,
-    task: Option<JoinHandle<()>>,
+    task: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     stats: Arc<Stats>,
+}
+impl Control {
+    pub(crate) fn running(&self) -> bool {
+        self.stats.running.load(Ordering::Acquire)
+    }
+    pub(crate) async fn stop(&self) -> Result<()> {
+        self.cancel.send_replace(true);
+        let mut task = self.task.lock().await;
+        // 不提前移走 JoinHandle；等待者取消不应让其他关闭调用误报完成。
+        if let Some(worker) = task.as_mut() {
+            worker.await.map_err(|_| Error::Internal)?;
+        }
+        task.take();
+        Ok(())
+    }
 }
 impl Service {
     pub async fn start(config: Config, resolver: Arc<Resolver>) -> Result<Self> {
+        let _operation = resolver.operation()?;
         let (address, allowed) = config.build()?;
         let permit = SERVICES.try_acquire().map_err(|_| Error::ResourceLimit)?;
         let (tcp, udp) = bind_listeners(address).await?;
@@ -178,7 +198,8 @@ impl Service {
         });
         let (cancel, mut canceled) = watch::channel(false);
         let own_stats = stats.clone();
-        let task = tokio::spawn(async move {
+        let owner = resolver.clone();
+        let task = crate::lifecycle::runtime()?.spawn(async move {
             // 配额由工作任务持有，析构清理完成前不释放监听实例名额。
             let _permit = permit;
             let mut children = JoinSet::new();
@@ -226,33 +247,34 @@ impl Service {
             }
             own_stats.running.store(false, Ordering::Release);
         });
-        Ok(Self {
-            address,
+        let control = Arc::new(Control {
             cancel,
-            task: Some(task),
+            task: tokio::sync::Mutex::new(Some(task)),
             stats,
-        })
+        });
+        // 真实双协议绑定成功后登记；关闭竞争导致登记失败时等待回滚完成。
+        if let Err(error) = owner.register_service(control.clone()) {
+            control.stop().await?;
+            return Err(error);
+        }
+        Ok(Self { address, control })
     }
     pub fn status(&self) -> Status {
         Status {
-            running: self.stats.running.load(Ordering::Acquire),
+            running: self.control.stats.running.load(Ordering::Acquire),
             address: self.address.to_string(),
             port: self.address.port(),
-            queries: self.stats.queries.load(Ordering::Relaxed),
-            rejected: self.stats.rejected.load(Ordering::Relaxed),
+            queries: self.control.stats.queries.load(Ordering::Relaxed),
+            rejected: self.control.stats.rejected.load(Ordering::Relaxed),
         }
     }
     pub async fn stop(&mut self) -> Result<()> {
-        let _ = self.cancel.send(true);
-        if let Some(task) = self.task.take() {
-            task.await.map_err(|_| Error::Internal)?;
-        }
-        Ok(())
+        self.control.stop().await
     }
 }
 impl Drop for Service {
     fn drop(&mut self) {
-        let _ = self.cancel.send(true);
+        self.control.cancel.send_replace(true);
     }
 }
 /// TCP 分配的临时端口可能被独立 UDP socket 占用；只在自动端口下有界重选。

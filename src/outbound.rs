@@ -1,4 +1,5 @@
 //! 共用数字地址出站：TCP 字节流与连接式 UDP，拒绝和未实现代理不触网。
+use crate::lifecycle::session::{Authority, Identity, Operation};
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
@@ -62,10 +63,34 @@ enum Socket {
     },
 }
 type Dialed = (Socket, ByteLease, SocketAddr);
-struct Connection {
+type StreamSlot = Arc<Mutex<Option<BoxStream>>>;
+struct SocketResources {
     socket: Socket,
-    cancel: watch::Sender<bool>,
     _lease: ByteLease,
+    detached: Option<StreamSlot>,
+    // 真实 Socket 释放后才归还会话活动资源计数；引用计数不作为租约判据。
+    _session: Option<Operation>,
+}
+impl Drop for SocketResources {
+    fn drop(&mut self) {
+        if let Some(slot) = &self.detached {
+            match slot.lock() {
+                Ok(mut stream) => {
+                    stream.take();
+                }
+                Err(_) => crate::error::diagnostics::record(
+                    Error::Internal,
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                ),
+            }
+        }
+    }
+}
+struct Connection {
+    resources: Mutex<Option<Arc<SocketResources>>>,
+    authority: Arc<Authority>,
+    owner: Option<Arc<Authority>>,
+    cancel: watch::Sender<bool>,
     address: SocketAddr,
     transport: Transport,
     revision: u64,
@@ -74,8 +99,14 @@ struct Connection {
     quic_blocked: bool,
     quic: Mutex<crate::protocol::quic::Flow>,
 }
+// 字段按顺序释放：先归还真实 Socket 引用，再通知在途操作结束。
+struct SocketOperation {
+    resources: Arc<SocketResources>,
+    _operation: Operation,
+    _session: Option<Operation>,
+}
 impl Connection {
-    fn inspect_datagram(&self, bytes: &[u8]) -> Result<()> {
+    fn inspect_datagram(self: &Arc<Self>, bytes: &[u8]) -> Result<()> {
         if self
             .quic
             .lock()
@@ -89,8 +120,57 @@ impl Connection {
         Ok(())
     }
 
-    fn close(&self) {
-        self.cancel.send_replace(true);
+    fn operation(&self) -> Result<SocketOperation> {
+        if *self.cancel.borrow() {
+            return Err(Error::Cancelled);
+        }
+        let session = self
+            .owner
+            .as_ref()
+            .map(|owner| owner.enter(owner.identity()))
+            .transpose()?;
+        let operation = self.authority.enter(self.authority.identity())?;
+        let resources = self
+            .resources
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .as_ref()
+            .cloned()
+            .ok_or(Error::InvalidState)?;
+        Ok(SocketOperation {
+            resources,
+            _operation: operation,
+            _session: session,
+        })
+    }
+    fn close(self: &Arc<Self>) {
+        let result = self.request_close();
+        let _ = crate::error::diagnostics::observe(
+            result,
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
+    }
+    fn request_close(self: &Arc<Self>) -> Result<()> {
+        if self.authority.revoke()? {
+            self.cancel.send_replace(true);
+            let own = self.clone();
+            crate::lifecycle::runtime()?.spawn(async move {
+                let result = async {
+                    own.authority.wait_idle().await?;
+                    own.resources.lock().map_err(|_| Error::Internal)?.take();
+                    Ok(())
+                }
+                .await;
+                let _ = crate::error::diagnostics::observe(
+                    own.authority.complete(result),
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                );
+            });
+        }
+        Ok(())
+    }
+    async fn wait_closed(&self) -> Result<()> {
+        self.authority.wait_closed().await
     }
     async fn run<T>(
         &self,
@@ -204,6 +284,33 @@ impl Manager {
         quic_blocked: bool,
         future: impl std::future::Future<Output = Result<Dialed>>,
     ) -> Result<Opened> {
+        crate::lifecycle::runtime()?;
+        snapshot.ensure_active()?;
+        let owner = snapshot.owner()?;
+        let _session_operation = owner
+            .as_ref()
+            .map(|owner| owner.enter(owner.identity()))
+            .transpose()?;
+        let _dns_operation = snapshot
+            .resolver
+            .as_ref()
+            .map(|resolver| resolver.operation())
+            .transpose()?;
+        let revoked = async {
+            if let Some(owner) = &owner {
+                owner.canceled().await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        let dns_revoked = async {
+            if let Some(resolver) = &snapshot.resolver {
+                resolver.canceled().await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        let authority = Authority::new()?;
         self.start_reaper()?;
         let mut generation = self.generation.subscribe();
         let epoch = *generation.borrow();
@@ -213,6 +320,8 @@ impl Manager {
         let (socket, lease, address) = tokio::select! {
             biased;
             _ = generation.changed() => return Err(Error::Cancelled),
+            _ = revoked => return Err(Error::InvalidState),
+            _ = dns_revoked => return Err(Error::InvalidState),
             result = timeout(deadline, future) => result.map_err(|_| Error::NetworkTimeout)??,
         };
         resources::reap(&self.state)?;
@@ -229,21 +338,33 @@ impl Manager {
             Socket::Detached => return Err(Error::Internal),
         };
         let (cancel, _) = watch::channel(false);
-        let id = state
-            .registry
-            .create(Arc::new(Connection {
-                socket,
-                cancel,
-                _lease: lease,
-                address,
-                transport,
-                revision: snapshot.revision,
-                idle_timeout: Duration::from_millis(snapshot.limits.idle_timeout_ms),
-                usage: Mutex::new(resources::Usage::default()),
-                quic_blocked,
-                quic: Mutex::new(crate::protocol::quic::Flow::default()),
-            }))
-            .ok_or(Error::ResourceLimit)?;
+        let resource_lease = owner
+            .as_ref()
+            .map(|owner| owner.enter(owner.identity()))
+            .transpose()?;
+        let id = snapshot.commit(|| {
+            state
+                .registry
+                .create(Arc::new(Connection {
+                    resources: Mutex::new(Some(Arc::new(SocketResources {
+                        socket,
+                        _lease: lease,
+                        detached: None,
+                        _session: resource_lease,
+                    }))),
+                    authority,
+                    owner,
+                    cancel,
+                    address,
+                    transport,
+                    revision: snapshot.revision,
+                    idle_timeout: Duration::from_millis(snapshot.limits.idle_timeout_ms),
+                    usage: Mutex::new(resources::Usage::default()),
+                    quic_blocked,
+                    quic: Mutex::new(crate::protocol::quic::Flow::default()),
+                }))
+                .ok_or(Error::ResourceLimit)
+        })?;
         Ok(Opened {
             id,
             address: address.to_string(),
@@ -263,14 +384,15 @@ impl Manager {
             return Err(Error::ResourceLimit);
         }
         let connection = self.connection(id)?;
-        let tcp = matches!(&connection.socket, Socket::Tcp { .. });
+        let operation = connection.operation()?;
+        let tcp = matches!(&operation.resources.socket, Socket::Tcp { .. });
         if !tcp {
             connection.inspect_datagram(bytes)?;
         }
-        let framed = matches!(&connection.socket, Socket::ProxyUdp { .. });
+        let framed = matches!(&operation.resources.socket, Socket::ProxyUdp { .. });
         let result = connection
             .run(milliseconds, async {
-                match &connection.socket {
+                match &operation.resources.socket {
                     Socket::Tcp { writer, .. } => {
                         writer.lock().await.write_all(bytes).await?;
                         Ok(bytes.len())
@@ -299,7 +421,7 @@ impl Manager {
         {
             connection.close();
         }
-        if matches!(&connection.socket, Socket::ProxyUdp {socket} if socket.failed()) {
+        if matches!(&operation.resources.socket, Socket::ProxyUdp {socket} if socket.failed()) {
             connection.close();
         }
         if let Ok(length) = result {
@@ -312,16 +434,17 @@ impl Manager {
             return Err(Error::InvalidInput);
         }
         let connection = self.connection(id)?;
+        let operation = connection.operation()?;
         let result = connection
             .run(milliseconds, async {
                 let udp = matches!(
-                    &connection.socket,
+                    &operation.resources.socket,
                     Socket::Udp { .. } | Socket::ProxyUdp { .. }
                 );
                 let capacity = if udp { MAX_BUFFER } else { maximum };
                 let lease = BUFFERS.reserve(capacity)?;
                 let mut bytes = Zeroizing::new(vec![0; capacity]);
-                let length = match &connection.socket {
+                let length = match &operation.resources.socket {
                     Socket::Tcp { reader, .. } => reader.lock().await.read(&mut bytes).await?,
                     Socket::Detached => return Err(Error::Unsupported),
                     Socket::ProxyUdp { socket } => socket.receive(&mut bytes).await?,
@@ -346,16 +469,17 @@ impl Manager {
                 })
             })
             .await;
-        if matches!(&connection.socket, Socket::ProxyUdp {socket} if socket.failed()) {
+        if matches!(&operation.resources.socket, Socket::ProxyUdp {socket} if socket.failed()) {
             connection.close();
         }
         result
     }
     pub async fn shutdown_write(&self, id: u64, milliseconds: u64) -> Result<()> {
         let connection = self.connection(id)?;
+        let operation = connection.operation()?;
         connection
             .run(milliseconds, async {
-                match &connection.socket {
+                match &operation.resources.socket {
                     Socket::Tcp { writer, .. } => {
                         writer.lock().await.shutdown().await?;
                         Ok(())
@@ -367,7 +491,49 @@ impl Manager {
             })
             .await
     }
-    pub fn close(&self, id: u64) -> Result<()> {
+    fn revoke_owned(&self, owner: Identity) -> Result<Vec<Arc<Connection>>> {
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        let keys: Vec<_> = state
+            .registry
+            .iter()
+            .filter(|(_, connection)| {
+                connection
+                    .owner
+                    .as_ref()
+                    .is_some_and(|authority| authority.identity() == owner)
+            })
+            .map(|(id, _)| id)
+            .collect();
+        let connections: Vec<_> = keys
+            .into_iter()
+            .filter_map(|id| state.registry.take(id))
+            .collect();
+        for connection in &connections {
+            connection.request_close()?;
+        }
+        Ok(connections)
+    }
+    pub(crate) async fn close_owned(&self, owner: Identity) -> Result<()> {
+        let connections = self.revoke_owned(owner)?;
+        for connection in connections {
+            connection.wait_closed().await?;
+        }
+        Ok(())
+    }
+    /// 内部幂等取消请求；真实完成仍由独立内核清理任务登记。
+    pub(crate) fn release_connection(&self, id: u64) -> Result<()> {
+        let connection = self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .registry
+            .take(id);
+        if let Some(connection) = connection {
+            connection.request_close()?;
+        }
+        Ok(())
+    }
+    pub async fn close(&self, id: u64) -> Result<()> {
         let connection = self
             .state
             .lock()
@@ -375,16 +541,16 @@ impl Manager {
             .registry
             .take(id)
             .ok_or(Error::InvalidState)?;
-        connection.close();
-        Ok(())
+        connection.request_close()?;
+        connection.wait_closed().await
     }
-    pub fn close_all(&self) -> Result<()> {
-        self.clear(false)
+    pub async fn close_all(&self) -> Result<()> {
+        self.clear(false).await
     }
-    pub fn stop(&self) -> Result<()> {
-        self.clear(true)
+    pub async fn stop(&self) -> Result<()> {
+        self.clear(true).await
     }
-    fn clear(&self, stop: bool) -> Result<()> {
+    async fn clear(&self, stop: bool) -> Result<()> {
         let connections = {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
             state.stopped |= stop;
@@ -394,18 +560,33 @@ impl Manager {
             self.generation.send_replace(next);
             state.registry.take_all()
         };
+        for connection in &connections {
+            connection.request_close()?;
+        }
         for connection in connections {
-            connection.close();
+            connection.wait_closed().await?;
         }
         Ok(())
     }
 }
 impl Drop for Manager {
     fn drop(&mut self) {
-        let _ = crate::error::diagnostics::observe(
-            self.stop(),
-            crate::error::diagnostics::DiagnosticSite::Cleanup,
-        );
+        let connections = match self.state.lock() {
+            Ok(mut state) => {
+                state.stopped = true;
+                state.registry.take_all()
+            }
+            Err(_) => {
+                crate::error::diagnostics::record(
+                    Error::Internal,
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                );
+                Vec::new()
+            }
+        };
+        for connection in connections {
+            connection.close();
+        }
         if let Ok(task) = self.reaper.get_mut()
             && let Some(task) = task.take()
         {

@@ -176,7 +176,7 @@ async fn fake_packet_resolves_real_and_returns_original_synthetic_endpoint() {
         session.submit(&new_packet.bytes, None).await,
         Err(Error::InvalidState)
     ));
-    session.close().unwrap();
+    session.close().await.unwrap();
 }
 #[tokio::test]
 async fn resolver_replacement_rejects_old_generation_even_same_ranges() {
@@ -287,7 +287,7 @@ async fn endpoint_validation_cancellation_and_ordinary_forwarding() {
         })
     };
     tokio::time::sleep(Duration::from_millis(10)).await;
-    session.close().unwrap();
+    session.close().await.unwrap();
     assert!(matches!(pending.await.unwrap(), Err(Error::Cancelled)));
     assert!(session.receive().is_err());
     let (_, session) = setup(resolver(upstream.port, true), 1);
@@ -381,7 +381,7 @@ async fn mapping_quota_wrong_owner_udp_block_and_restart() {
         Err(Error::Rejected)
     ));
     let (manager, session) = setup(resolver(upstream.port, true), 1);
-    session.close().unwrap();
+    session.close().await.unwrap();
     manager
         .configure_dns(Some(resolver(upstream.port, true)))
         .unwrap();
@@ -411,7 +411,7 @@ async fn reopened_same_pool_never_reuses_old_synthetic_address() {
         .await
         .unwrap();
     let old_ip = answer(&old).answers[0].data.to_string();
-    old.close().unwrap();
+    old.close().await.unwrap();
     drop(old);
     let (_, new) = setup(resolver(upstream.port, true), 1);
     new.submit(

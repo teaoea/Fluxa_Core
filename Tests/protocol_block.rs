@@ -106,7 +106,7 @@ async fn datagram_guard_is_shared_and_existing_connection_keeps_snapshot() {
         .await
         .unwrap();
     peer.recv(&mut data).await.unwrap();
-    manager.close_all().unwrap();
+    manager.close_all().await.unwrap();
     assert!(manager.status().unwrap().sessions.is_empty());
 }
 #[tokio::test]
@@ -218,6 +218,6 @@ async fn incoming_quic_and_explicit_router_are_guarded() {
         manager.read(opened.connection.id, 64, 500).await.err(),
         Some(Error::Rejected)
     );
-    manager.close_all().unwrap();
+    manager.close_all().await.unwrap();
     assert!(manager.status().unwrap().sessions.is_empty());
 }
