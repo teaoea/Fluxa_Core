@@ -7,3 +7,5 @@
 App 使用固定远程 Swift 包和经校验的静态二进制；未完成能力明确拒绝。文档及测试不代表系统 VPN 或全部目标平台已验收。
 
 GeoIP 修复包 v2.4.1：可选 `geoip_url` 只接受用户明确的 MMDB HTTPS 来源；未配置返回 WARN + Disabled，已配置失败返回 2401–2409，合法未匹配是非错误。使用与接口迁移见 [GeoIP.md](Documentation/GeoIP.md)，可运行示例为 `cargo run --example geoip_configuration`。本包不修改 App。
+
+H1 修复包 v2.4.2：退役 Fake-IP 池不再阻止重叠区间变更或永久占用存活池额度；继续保护历史地址不被新 TUN 映射复用。可运行示例：`cargo run --example fake_ip_reconfigure`，审查见 [H1 生命周期修复](Documentation/H1-FakeIP生命周期修复.md)。本次不修改 App。

@@ -61,6 +61,25 @@ struct TunDNSFFICheck {
       try client.close()
       try rejected { try client.submit(target) }
     }
+    // H1：每轮释放真实内核句柄，再更改 IPv4/IPv6 池；历史配置不占用存活额度。
+    var retiredAddresses = Set<Data>()
+    for index in 0 ..< 20 {
+      let changedDNS = DNSConfiguration(
+        servers: dns.servers,
+        fakeIP: FakeIPConfiguration(
+          ipv4Range: index % 2 == 0 ? "198.18.0.0/16" : "198.18.0.0/15",
+          ipv6Range: "fd00:198:\(String(index + 100, radix: 16))::/64"
+        )
+      )
+      let client = try NativeTunUDPClient(
+        routing: routing, dns: changedDNS, dnsEndpoints: ["192.0.2.53:53"]
+      )
+      try client.submit(packet(address: [192, 0, 2, 53], port: 53,
+                               body: question("connect.ipv4only.example.test")))
+      let response = try wait(client)
+      precondition(retiredAddresses.insert(Data(response.suffix(4))).inserted)
+      try client.close()
+    }
     let real = try NativeTunUDPClient(
       routing: routing,
       dns: DNSConfiguration(servers: dns.servers),
@@ -70,7 +89,7 @@ struct TunDNSFFICheck {
     let realResponse = try wait(real)
     precondition(Array(realResponse.suffix(4)) == [192, 0, 2, 44])
     try real.close()
-    print("TUN DNS/Fake-IP 真实 Swift FFI：DNS 返回包、自动所属代次、实际 UDP 转发、替换拒绝及 40 次释放通过")
+    print("TUN DNS/Fake-IP 真实 Swift FFI：DNS 返回包、自动所属代次、实际 UDP 转发、替换拒绝及 40 次释放、20 次重叠池变更通过")
   }
 
   static func wait(_ client: NativeTunUDPClient) throws -> Data {
