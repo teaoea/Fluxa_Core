@@ -1780,7 +1780,7 @@ mod tests {
     }
     #[test]
     fn invalid_internal_error_encoding_does_not_become_no_error() {
-        set_last_error(ErrorInfo::new(ErrorCode::ConfigUnknownField));
+        set_last_error(ErrorInfo::new(ErrorCode::ResourceBudgetExceeded));
         let mut bytes = [0; crate::error::MAX_ERROR_BYTES];
         // SAFETY: 独占固定数组在整个同步复制期间可写。
         let count = unsafe { fluxa_engine_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };

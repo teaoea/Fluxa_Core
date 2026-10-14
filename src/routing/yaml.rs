@@ -12,10 +12,10 @@ const MAX_NODES: usize = 3_000_000;
 const MAX_DEPTH: usize = 32;
 impl de::Error for Error {
     fn unknown_field(field: &str, _: &'static [&'static str]) -> Self {
-        FieldName::new(field).map_or(Self::InvalidInput, Self::ConfigUnknownField)
+        Self::ConfigUnknownField(FieldName::new(field))
     }
     fn duplicate_field(field: &'static str) -> Self {
-        FieldName::new(field).map_or(Self::InvalidInput, Self::ConfigDuplicateField)
+        Self::ConfigDuplicateField(FieldName::new(field))
     }
 
     fn custom<T: std::fmt::Display>(_: T) -> Self {
@@ -129,9 +129,7 @@ impl<'de> MapAccess<'de> for Mapping<'_, '_> {
             return Err(Error::ResourceLimit);
         }
         if !self.keys.insert(key.clone()) {
-            return Err(
-                FieldName::new(&key).map_or(Error::InvalidInput, Error::ConfigDuplicateField)
-            );
+            return Err(Error::ConfigDuplicateField(FieldName::new(&key)));
         }
         self.pending_value = true;
         if key == "payload_yaml" {
@@ -349,5 +347,22 @@ impl Writer {
     }
     pub(super) fn finish(self) -> String {
         self.output
+    }
+}
+
+#[cfg(test)]
+mod error_context_tests {
+    use super::*;
+    #[test]
+    fn duplicate_unsafe_identifier_keeps_its_real_classification() {
+        for key in ["abcdefghijklmnopqrstuvwxyzabcdefg", "隐私字段", "bad.field"] {
+            let input = format!("{key}: 1\n{key}: 2\n");
+            let error = decode::<Value>(&input).unwrap_err();
+            assert_eq!(error, Error::ConfigDuplicateField(None));
+            assert_eq!(
+                serde_json::to_string(&error.public_info()).unwrap(),
+                r#"{"code":2003,"params":{"field":null}}"#
+            );
+        }
     }
 }

@@ -280,16 +280,16 @@
     "detail": "严格配置反序列化遇到未声明字段；字段名只接受有界 ASCII 标识。",
     "trigger": "serde unknown_field 类型回调，不解析错误字符串。",
     "effect": "拒绝整个输入，保留原有效配置。",
-    "params": "field：必填 ASCII 标识字符串，1–32 字节；不接受路径、配置正文或任意对象",
+    "params": "field：必填，ASCII 标识字符串 1–32 字节或 null（安全省略）；不接受路径、配置正文或任意对象",
     "parameters": [
       {
         "name": "field",
         "kind": "ascii_identifier",
         "required": true,
-        "nullable": false,
+        "nullable": true,
         "minimum": 1,
         "maximum": 32,
-        "meaning": "失败的字段名，不含字段值",
+        "meaning": "失败的字段名，不含字段值；null 表示安全省略",
         "safety": "只接受 ASCII 字母、数字及下划线"
       }
     ],
@@ -304,16 +304,16 @@
     "detail": "同一 YAML 映射出现重复字段，不允许后项覆盖前项。",
     "trigger": "Mapping::next_key_seed 检测字段重复。",
     "effect": "拒绝整个输入，不部分接受。",
-    "params": "field：必填 ASCII 标识字符串，1–32 字节；不接受路径、配置正文或任意对象",
+    "params": "field：必填，ASCII 标识字符串 1–32 字节或 null（安全省略）；不接受路径、配置正文或任意对象",
     "parameters": [
       {
         "name": "field",
         "kind": "ascii_identifier",
         "required": true,
-        "nullable": false,
+        "nullable": true,
         "minimum": 1,
         "maximum": 32,
-        "meaning": "失败的字段名，不含字段值",
+        "meaning": "失败的字段名，不含字段值；null 表示安全省略",
         "safety": "只接受 ASCII 字母、数字及下划线"
       }
     ],

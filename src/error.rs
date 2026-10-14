@@ -145,10 +145,10 @@ impl ErrorCode {
                 name: "field",
                 kind: "ascii_identifier",
                 required: true,
-                nullable: false,
+                nullable: true,
                 minimum: 1,
                 maximum: 32,
-                meaning: "失败的字段名，不含字段值",
+                meaning: "失败的字段名，不含字段值；null 表示安全省略",
                 safety: "只接受 ASCII 字母、数字及下划线",
             }],
             Self::ConfigUnsupportedVersion => &[
@@ -245,7 +245,7 @@ impl ErrorCode {
     pub const fn params_schema(self) -> &'static str {
         match self {
             Self::ConfigUnknownField | Self::ConfigDuplicateField => {
-                "field：必填 ASCII 标识字符串，1–32 字节；不接受路径、配置正文或任意对象"
+                "field：必填，ASCII 标识字符串 1–32 字节或 null（安全省略）；不接受路径、配置正文或任意对象"
             }
             Self::ConfigUnsupportedVersion => "actual：必填 u32；expected：必填且为 1",
             Self::DebugInvalidLifetime => {
@@ -398,7 +398,21 @@ impl Serialize for ErrorInfo {
         }
         let mut object = serializer.serialize_struct("ErrorInfo", 2)?;
         object.serialize_field("code", &self.code.value())?;
-        if self.code == ErrorCode::DebugInvalidLifetime {
+        if matches!(
+            self.code,
+            ErrorCode::ConfigUnknownField | ErrorCode::ConfigDuplicateField
+        ) {
+            #[derive(Serialize)]
+            struct Field {
+                field: Option<FieldName>,
+            }
+            object.serialize_field(
+                "params",
+                &Field {
+                    field: self.params.field,
+                },
+            )?;
+        } else if self.code == ErrorCode::DebugInvalidLifetime {
             #[derive(Serialize)]
             struct Lifetime {
                 actual: Option<u64>,
@@ -536,7 +550,7 @@ impl ErrorInfo {
         let p = self.params;
         match self.code {
             ErrorCode::ConfigUnknownField | ErrorCode::ConfigDuplicateField => {
-                p.field.is_some() && p.actual.is_none() && p.limit.is_none() && p.expected.is_none()
+                p.actual.is_none() && p.limit.is_none() && p.expected.is_none()
             }
             ErrorCode::ConfigUnsupportedVersion => {
                 p.field.is_none()
@@ -598,9 +612,9 @@ pub enum Error {
     /// YAML 事件语法不合法。
     ConfigYamlSyntax,
     /// 未声明的配置字段，安全字段名有界。
-    ConfigUnknownField(FieldName),
+    ConfigUnknownField(Option<FieldName>),
     /// 同一配置映射重复字段。
-    ConfigDuplicateField(FieldName),
+    ConfigDuplicateField(Option<FieldName>),
     /// 不支持的规则来源配置版本。
     ConfigUnsupportedVersion(u32),
     /// 缺失或越界的调试生命周期，单位秒。
@@ -672,7 +686,7 @@ impl Error {
         let mut info = ErrorInfo::new(self.code());
         match self {
             Self::ConfigUnknownField(field) | Self::ConfigDuplicateField(field) => {
-                info.params.field = Some(field)
+                info.params.field = field
             }
             Self::ConfigUnsupportedVersion(actual) => {
                 info.params.actual = Some(actual as u64);

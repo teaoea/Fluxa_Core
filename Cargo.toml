@@ -137,3 +137,11 @@ path = "Tests/tun_dns.rs"
 [[test]]
 name = "error_contract"
 path = "Tests/error_contract.rs"
+
+[[test]]
+name = "geoip_fixture"
+path = "Tests/geoip_fixture.rs"
+
+[[test]]
+name = "service_pipeline"
+path = "Tests/service_pipeline.rs"

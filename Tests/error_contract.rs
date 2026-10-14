@@ -482,7 +482,6 @@ fn typed_context_is_required_bounded_and_specific_to_code() {
     use libfluxa_core::error::FieldName;
     for invalid in [
         r#"{"code":2002,"params":{}}"#,
-        r#"{"code":2002,"params":{"field":null}}"#,
         r#"{"code":2002,"params":{"field":"../../secret"}}"#,
         r#"{"code":2002,"params":{"field":"abcdefghijklmnopqrstuvwxyzabcdefg"}}"#,
         r#"{"code":2002,"params":{"field":"debug","field":"other"}}"#,
@@ -504,8 +503,8 @@ fn typed_context_is_required_bounded_and_specific_to_code() {
         );
     }
     for error in [
-        Error::ConfigUnknownField(FieldName::new("debug").unwrap()),
-        Error::ConfigDuplicateField(FieldName::new("format_version").unwrap()),
+        Error::ConfigUnknownField(Some(FieldName::new("debug").unwrap())),
+        Error::ConfigDuplicateField(Some(FieldName::new("format_version").unwrap())),
         Error::ConfigUnsupportedVersion(2),
         Error::DebugInvalidLifetime(None),
         Error::DebugInvalidLifetime(Some(0)),
@@ -520,7 +519,7 @@ fn typed_context_is_required_bounded_and_specific_to_code() {
         assert!(bytes.len() <= libfluxa_core::error::MAX_ERROR_BYTES);
         assert_eq!(ErrorInfo::from_json(&bytes).unwrap(), info);
     }
-    assert!(serde_json::to_vec(&ErrorInfo::new(ErrorCode::ConfigUnknownField)).is_err());
+    assert!(serde_json::to_vec(&ErrorInfo::new(ErrorCode::ResourceBudgetExceeded)).is_err());
 }
 #[test]
 fn debug_closed_and_yaml_syntax_return_real_failures() {
@@ -535,4 +534,25 @@ fn debug_closed_and_yaml_syntax_return_real_failures() {
     );
     let result = GenerationInput::from_yaml("format_version: \"unterminated");
     assert_eq!(result.err().unwrap(), Error::ConfigYamlSyntax);
+}
+
+#[test]
+fn safety_filter_preserves_unknown_and_duplicate_classification() {
+    use libfluxa_core::routing::runtime::GenerationInput;
+    for key in ["abcdefghijklmnopqrstuvwxyzabcdefg", "隐私字段", "bad.field"] {
+        let input = format!("format_version: 1\nsettings: {{}}\nsources: []\n{key}: true\n");
+        let error = GenerationInput::from_yaml(&input).err().unwrap();
+        assert_eq!(error.code().value(), 2002);
+        let bytes = serde_json::to_vec(&error.public_info()).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&bytes).unwrap(),
+            r#"{"code":2002,"params":{"field":null}}"#
+        );
+        assert_eq!(ErrorInfo::from_json(&bytes).unwrap(), error.public_info());
+    }
+    let error = Error::ConfigDuplicateField(None);
+    assert_eq!(
+        serde_json::to_string(&error.public_info()).unwrap(),
+        r#"{"code":2003,"params":{"field":null}}"#
+    );
 }
