@@ -21,7 +21,10 @@ impl ByteBudget {
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 used.checked_add(bytes).filter(|total| *total <= self.limit)
             })
-            .map_err(|_| Error::ResourceLimit)?;
+            .map_err(|_| Error::ResourceBudgetExceeded {
+                actual: bytes as u64,
+                limit: self.limit as u64,
+            })?;
         Ok(ByteLease {
             budget: self,
             bytes,

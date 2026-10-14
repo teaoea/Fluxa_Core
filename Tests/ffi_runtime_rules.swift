@@ -62,7 +62,7 @@ struct RuntimeRulesFFICheck {
         sources: [NativeRuleSource(id: "invalid", layer: .local, rules: [invalid])]
       )
       preconditionFailure("无效更新必须拒绝")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     let after = try Data(contentsOf: directory.appendingPathComponent("runtime-rules.bin"))
     precondition(before == after)
     let retained = try client.status()
@@ -107,7 +107,7 @@ struct RuntimeRulesFFICheck {
     do {
       _ = try subscription.validateRules(yaml: "payload: [domain,example.com]", policy: .direct)
       preconditionFailure("小写类型必须拒绝")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
   }
 
   static func checkSharedSnapshot(_ client: NativeRuntimeRulesClient) throws {
@@ -159,7 +159,7 @@ struct RuntimeRulesFFICheck {
     do {
       _ = try await client.update(inputFile: input)
       preconditionFailure("重复 YAML 键必须拒绝")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     let retained = try client.status()
     precondition(retained.version == 4)
   }
@@ -196,7 +196,7 @@ struct RuntimeRulesFFICheck {
     do {
       _ = try await client.update(inputFile: input)
       preconditionFailure("后台重复 YAML 键必须拒绝")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     let retained = try client.status()
     precondition(retained.version == 5)
     let updated = try await client.update(

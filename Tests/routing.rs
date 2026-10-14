@@ -330,7 +330,7 @@ fn limits_and_last_owner_return_global_budget() {
             rules: vec![rule(Match::DomainSuffix, &labels, Policy::Direct); 100000],
             ..Config::default()
         }),
-        Err(Error::ResourceLimit)
+        Err(Error::ResourceBudgetExceeded { actual, limit:536_870_912 }) if actual>536_870_912
     ));
     assert!(Router::compile(Config::default()).is_ok());
 }

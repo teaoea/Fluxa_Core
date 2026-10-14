@@ -56,7 +56,7 @@ struct TunUDPFFICheck {
   static func rejected(_ action: () throws -> Void) throws {
     do { try action()
       preconditionFailure("应明确拒绝")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
   }
 
   /// 独立生成 RFC IPv4 UDP 向量，不使用被测 Rust 编码器。

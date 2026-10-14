@@ -6,7 +6,7 @@ use crate::mitm::{
     capture::{Capture, CaptureStore},
 };
 use crate::{
-    error::{Error, ErrorCode, ErrorInfo, LegacyAbiStatus, NO_ERROR_CODE},
+    error::{AbiStatus, Error, ErrorCode, ErrorInfo, NO_ERROR_CODE},
     http::{Header, MAX_BODY},
     https::HttpsClient,
     lifecycle::Registry,
@@ -24,10 +24,10 @@ use std::{
 use tokio::runtime::Runtime;
 use zeroize::Zeroizing;
 
-const OK: i32 = LegacyAbiStatus::Success.value();
-const INVALID_HANDLE: i32 = LegacyAbiStatus::InvalidHandle.value();
-const UNSUPPORTED: i32 = LegacyAbiStatus::Unsupported.value();
-const INTERNAL_ERROR: i32 = LegacyAbiStatus::Internal.value();
+const OK: i32 = AbiStatus::Success.value();
+const INVALID_HANDLE: i32 = ErrorCode::InvalidHandle.value() as i32;
+const UNSUPPORTED: i32 = ErrorCode::Unsupported.value() as i32;
+const INTERNAL_ERROR: i32 = ErrorCode::Internal.value() as i32;
 const MAX_JSON: usize = 12 * 1024 * 1024;
 const MAX_OUTPUT: usize = 24 * 1024 * 1024;
 const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
@@ -555,11 +555,10 @@ impl From<crate::outbound::RoutedOpened> for Reply {
     }
 }
 impl Reply {
-    fn failure(error: Error, legacy_text: bool) -> Self {
+    fn failure(error: Error) -> Self {
         set_last_error(error.public_info());
         Self {
-            // v2 只返回整数错误对象，不格式化自然语言；v1 保留旧诊断文本。
-            error: legacy_text.then(|| error.to_string()),
+            // 所有命令提供机器错误；文本仅作诊断，不参与分类。
             error_info: Some(error.public_info()),
             ..Self::default()
         }
@@ -567,7 +566,7 @@ impl Reply {
 }
 impl From<Error> for Reply {
     fn from(error: Error) -> Self {
-        Self::failure(error, true)
+        Self::failure(error)
     }
 }
 // 每线程单独保存同步 ABI 的最后失败，不持有业务对象；查询不会清除结果。
@@ -584,6 +583,10 @@ fn boundary_error(code: ErrorCode) -> u64 {
     set_last_error(ErrorInfo::new(code));
     0
 }
+fn boundary_failure(error: Error) -> u64 {
+    set_last_error(error.public_info());
+    0
+}
 fn error_status(error: Error) -> i32 {
     set_last_error(error.public_info());
     tun_status(error)
@@ -593,6 +596,25 @@ impl Drop for BusyGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
     }
+}
+/// 大型 DNS/路由 future 在有界 Rust 工作线程轮询，不消耗宿主 GCD 的小栈。
+/// 命令请求配额仍约束任务数；同步等到结果，异常退出时中止子任务，不能脱离所有者。
+struct NetworkTask<T>(tokio::task::JoinHandle<Result<T, Error>>);
+impl<T> Drop for NetworkTask<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+fn run_network<F, T>(future: F) -> Result<T, Error>
+where
+    F: std::future::Future<Output = Result<T, Error>> + Send + 'static,
+    T: Send + 'static,
+{
+    let executor = runtime()?;
+    let mut task = NetworkTask(executor.spawn(future));
+    executor
+        .block_on(&mut task.0)
+        .map_err(|_| Error::Internal)?
 }
 // 将大型异步 future 的构造隔离到独立栈帧，避免增加每个 FFI 请求的调用栈占用。
 #[inline(never)]
@@ -851,7 +873,8 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             ..Reply::default()
         }),
         Command::OutboundRoute(target) => {
-            let opened = runtime()?.block_on(engine.outbound.connect_configured(target))?;
+            let outbound = engine.outbound.clone();
+            let opened = run_network(async move { outbound.connect_configured(target).await })?;
             Ok(Reply::from(opened))
         }
         Command::OutboundFakeIp {
@@ -872,12 +895,16 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         }
         Command::OutboundConnectFakeIp(target) => {
             target.policy.check_support()?;
-            let opened = runtime()?.block_on(engine.outbound.connect_configured_fake_ip(target))?;
+            let outbound = engine.outbound.clone();
+            let opened =
+                run_network(async move { outbound.connect_configured_fake_ip(target).await })?;
             Ok(Reply::from(opened))
         }
         Command::OutboundConnect(target) => {
             target.policy.check_support()?;
-            let opened = runtime()?.block_on(engine.outbound.connect_configured_domain(target))?;
+            let outbound = engine.outbound.clone();
+            let opened =
+                run_network(async move { outbound.connect_configured_domain(target).await })?;
             Ok(Reply::from(opened))
         }
         Command::OutboundOpen {
@@ -1386,7 +1413,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 // 安全条件：导出符号具有唯一前缀，固定宽度值类型不共享 Rust 对象地址。
 #[unsafe(no_mangle)]
 pub extern "C" fn fluxa_engine_abi_version() -> u32 {
-    1
+    2
 }
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
@@ -1459,12 +1486,13 @@ pub extern "C" fn fluxa_engine_start(handle: u64) -> i32 {
             UNSUPPORTED
         }
         Err(error) => {
-            set_last_error(if error == Error::InvalidState {
+            let info = if error == Error::InvalidState {
                 ErrorInfo::new(ErrorCode::InvalidHandle)
             } else {
                 error.public_info()
-            });
-            INVALID_HANDLE
+            };
+            set_last_error(info);
+            i32::from(info.code.value())
         }
     }))
     .unwrap_or_else(|_| {
@@ -1478,7 +1506,7 @@ pub extern "C" fn fluxa_engine_start(handle: u64) -> i32 {
 /// 调用方必须保证 input 在整个调用期间指向 length 个可读字节且没有并发写入。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fluxa_engine_command(handle: u64, input: *const u8, length: usize) -> u64 {
-    // SAFETY: 此入口沿用调用方的输入借用契约，旧 JSON 结构保持不变。
+    // SAFETY: 此入口沿用调用方的输入借用契约，失败统一提供分段代码与受限上下文。
     unsafe { command_boundary(handle, input, length, false) }
 }
 /// 与 v1 共用命令执行及预算流程，显式选择新增结构化错误字段。
@@ -1493,7 +1521,12 @@ pub unsafe extern "C" fn fluxa_engine_command_v2(
     // SAFETY: 输入借用在调用期间有效，不保存指针。
     unsafe { command_boundary(handle, input, length, true) }
 }
-unsafe fn command_boundary(handle: u64, input: *const u8, length: usize, structured: bool) -> u64 {
+unsafe fn command_boundary(
+    handle: u64,
+    input: *const u8,
+    length: usize,
+    reject_invalid_handle: bool,
+) -> u64 {
     clear_last_error();
     catch_unwind(AssertUnwindSafe(|| {
         if input.is_null() || length == 0 {
@@ -1506,7 +1539,7 @@ unsafe fn command_boundary(handle: u64, input: *const u8, length: usize, structu
         let bytes = unsafe { std::slice::from_raw_parts(input, length) };
         let mut output = match OutputReservation::new(output_limit(bytes)) {
             Ok(output) => output,
-            Err(error) => return boundary_error(error.code()),
+            Err(error) => return boundary_failure(error),
         };
         let handle_error = engine(handle).err().map(|error| {
             if error == Error::InvalidState {
@@ -1515,26 +1548,19 @@ unsafe fn command_boundary(handle: u64, input: *const u8, length: usize, structu
                 error.public_info()
             }
         });
-        if structured && let Some(info) = handle_error {
+        if reject_invalid_handle && let Some(info) = handle_error {
             set_last_error(info);
             return 0;
         }
         let result = command(handle, bytes);
-        // v1 保持先查句柄、再解析命令的原顺序；只有实际句柄失败才细分为 1018。
+        // 先查句柄再解析命令的原顺序不变；无效句柄明确返回统一代码 1201。
         let invalid_handle_result = matches!(result, Err(Error::InvalidState))
             && handle_error.is_some_and(|info| info.code == ErrorCode::InvalidHandle);
-        let mut reply = result.unwrap_or_else(|error| Reply::failure(error, !structured));
-        if !structured {
-            if invalid_handle_result {
-                set_last_error(ErrorInfo::new(ErrorCode::InvalidHandle));
-            }
-            reply.error_info = None;
-            if let Some(job) = &mut reply.runtime_rules_job {
-                job.error_info = None;
-            }
-            if let Some(capture) = &mut reply.capture {
-                capture.error_info = None;
-            }
+        let mut reply = result.unwrap_or_else(Reply::failure);
+        if invalid_handle_result {
+            let info = ErrorInfo::new(ErrorCode::InvalidHandle);
+            set_last_error(info);
+            reply.error_info = Some(info);
         }
         if let Err(error) = serde_json::to_writer(&mut output, &reply) {
             let code = if error.io_error_kind().is_some() {
@@ -1546,7 +1572,7 @@ unsafe fn command_boundary(handle: u64, input: *const u8, length: usize, structu
         }
         match output.finish() {
             Ok(handle) => handle,
-            Err(error) => boundary_error(error.code()),
+            Err(error) => boundary_failure(error),
         }
     }))
     .unwrap_or_else(|_| boundary_error(ErrorCode::Internal))
@@ -1568,9 +1594,24 @@ pub unsafe extern "C" fn fluxa_engine_last_error_copy(output: *mut u8, capacity:
     let Some(info) = LAST_ERROR.get() else {
         return 0;
     };
-    let bytes = info.code.json_bytes();
+    let mut buffer = [0u8; crate::error::MAX_ERROR_BYTES];
+    let mut writer = std::io::Cursor::new(buffer.as_mut_slice());
+    let result = serde_json::to_writer(&mut writer, &info);
+    let length = writer.position() as usize;
+    let bytes = if result.is_ok() {
+        &buffer[..length]
+    } else {
+        // 编码异常仍返回失败对象，不能用零伪装成没有错误；原失败留在受控诊断。
+        crate::error::diagnostics::record_code(
+            info.code,
+            crate::error::diagnostics::DiagnosticSite::Abi,
+        );
+        ErrorCode::SerializationFailed
+            .json_bytes()
+            .expect("无上下文的固定编码失败契约")
+    };
     if !output.is_null() && capacity >= bytes.len() {
-        // SAFETY: 源为只读静态字节；目标有效性由调用方契约保证，长度已检查。
+        // SAFETY: 源在同步复制期间有效；已检查容量，目标可写性由宿主保证。
         unsafe {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len());
         }
@@ -1620,29 +1661,30 @@ pub unsafe extern "C" fn fluxa_engine_buffer_copy(
 }
 /// TUN 二进制接口专用状态码；不包含节点凭据或流量正文。
 fn tun_status(error: Error) -> i32 {
-    error.legacy_tun_status().value()
+    i32::from(error.code().value())
 }
 fn udp_session(handle: u64) -> Result<Arc<crate::tun::udp::Session>, i32> {
     engine(handle)
         .map_err(|error| {
-            set_last_error(if error == Error::InvalidState {
+            let info = if error == Error::InvalidState {
                 ErrorInfo::new(ErrorCode::InvalidHandle)
             } else {
                 error.public_info()
-            });
-            LegacyAbiStatus::InvalidHandle.value()
+            };
+            set_last_error(info);
+            i32::from(info.code.value())
         })?
         .tun_udp
         .lock()
         .map_err(|_| {
             set_last_error(Error::Internal.public_info());
-            LegacyAbiStatus::Internal.value()
+            ErrorCode::Internal.value() as i32
         })?
         .as_ref()
         .map(Arc::clone)
         .ok_or_else(|| {
             set_last_error(Error::InvalidState.public_info());
-            LegacyAbiStatus::InvalidState.value()
+            ErrorCode::InvalidState.value() as i32
         })
 }
 /// 同步提交一个完整 UDP/IP 包；generation=0 表示不提供 Fake-IP 代次。
@@ -1669,7 +1711,7 @@ pub unsafe extern "C" fn fluxa_engine_tun_submit(
         match runtime().and_then(|runtime| {
             runtime.block_on(session.submit(bytes, (generation != 0).then_some(generation)))
         }) {
-            Ok(()) => LegacyAbiStatus::Success.value(),
+            Ok(()) => AbiStatus::Success.value(),
             Err(error) => error_status(error),
         }
     }))
@@ -1697,12 +1739,12 @@ pub unsafe extern "C" fn fluxa_engine_tun_receive(handle: u64, output: *mut u64)
             Ok(value) => value,
             Err(error) => {
                 set_last_error(error.public_info());
-                return LegacyAbiStatus::ResourceLimit.value();
+                return i32::from(error.code().value());
             }
         };
         match session.receive() {
             Ok(Some(packet)) => {
-                // 保留具体失败；响应发布内部错误不能被合并为资源不足，旧状态仍兼容。
+                // 保留具体失败；响应发布内部错误不能被合并为资源不足，数值失败也使用四位代码。
                 let result = std::io::Write::write_all(&mut reservation, &packet.bytes)
                     .map_err(Error::from)
                     .and_then(|()| reservation.finish());
@@ -1712,15 +1754,15 @@ pub unsafe extern "C" fn fluxa_engine_tun_receive(handle: u64, output: *mut u64)
                         unsafe {
                             *output = handle;
                         }
-                        LegacyAbiStatus::Success.value()
+                        AbiStatus::Success.value()
                     }
                     Err(error) => {
                         set_last_error(error.public_info());
-                        LegacyAbiStatus::ResourceLimit.value()
+                        i32::from(error.code().value())
                     }
                 }
             }
-            Ok(None) => LegacyAbiStatus::Empty.value(),
+            Ok(None) => AbiStatus::Empty.value(),
             Err(error) => error_status(error),
         }
     }))
@@ -1736,6 +1778,16 @@ mod tests {
         let count = unsafe { fluxa_engine_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };
         (count != 0).then(|| ErrorInfo::from_json(&bytes[..count]).unwrap())
     }
+    #[test]
+    fn invalid_internal_error_encoding_does_not_become_no_error() {
+        set_last_error(ErrorInfo::new(ErrorCode::ConfigUnknownField));
+        let mut bytes = [0; crate::error::MAX_ERROR_BYTES];
+        // SAFETY: 独占固定数组在整个同步复制期间可写。
+        let count = unsafe { fluxa_engine_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };
+        let info = ErrorInfo::from_json(&bytes[..count]).unwrap();
+        assert_eq!(info.code, ErrorCode::SerializationFailed);
+        clear_last_error();
+    }
     #[tokio::test]
     async fn error_protocol_is_thread_local_and_success_clears_stale_error() {
         let _gate = TEST_GATE.lock().await;
@@ -1750,10 +1802,7 @@ mod tests {
             assert!(last_info().is_none());
             assert_eq!(fluxa_engine_start(0), INVALID_HANDLE);
             assert_eq!(last_info().unwrap().code, ErrorCode::InvalidHandle);
-            assert_eq!(
-                fluxa_engine_last_error_code(),
-                ErrorCode::InvalidHandle.value()
-            );
+            assert_eq!(fluxa_engine_last_error_code(), 1201);
         });
         thread.join().unwrap();
         assert_eq!(last_info().unwrap().code, ErrorCode::InvalidInput);
@@ -1765,7 +1814,7 @@ mod tests {
         let reply: serde_json::Value =
             serde_json::from_slice(&buffer(output).unwrap().bytes).unwrap();
         assert_eq!(reply["success"], false);
-        assert_eq!(reply["error_info"]["code"], 1013);
+        assert_eq!(reply["error_info"]["code"], 1002);
         assert_eq!(fluxa_engine_destroy(output), OK);
         assert!(last_info().is_none());
         assert_eq!(fluxa_engine_destroy(handle), OK);
@@ -1841,7 +1890,7 @@ mod tests {
             let reply: serde_json::Value =
                 serde_json::from_slice(&buffer(output.0).unwrap().bytes).unwrap();
             assert_eq!(reply["success"], false);
-            assert!(reply.get("error_info").is_none());
+            assert_eq!(reply["error_info"]["code"], expected.value());
         }
     }
     #[test]
@@ -2027,18 +2076,18 @@ mod tests {
                 Some(OUTPUT.reserve(MAX_OUTPUT_MEMORY).unwrap())
             } else {
                 for _ in 0..63 {
-                    buffers.push(store(vec![1]).unwrap());
+                    buffers.push(TestHandle(store(vec![1]).unwrap()));
                 }
                 None
             };
             let mut output = 123;
             // SAFETY: output 对齐、可写且调用期间独占，不跨语言保存地址。
             let status = unsafe { fluxa_engine_tun_receive(handle, &mut output) };
-            assert_eq!(status, 5);
+            assert_eq!(status, if exhaust_memory { 8002 } else { 8001 });
             assert_eq!(output, 0);
             drop(memory);
             if let Some(buffer) = buffers.pop() {
-                fluxa_engine_destroy(buffer);
+                assert_eq!(buffer.release(), OK);
             }
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
             loop {
@@ -2056,7 +2105,7 @@ mod tests {
             drop(packet);
             fluxa_engine_destroy(output);
             for buffer in buffers {
-                fluxa_engine_destroy(buffer);
+                assert_eq!(buffer.release(), OK);
             }
             fluxa_engine_destroy(handle);
         }

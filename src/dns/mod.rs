@@ -504,6 +504,6 @@ mod error_semantics_tests {
             .await
             .unwrap_err();
         assert_eq!(error, Error::Internal);
-        assert_eq!(error.code().value(), 1014);
+        assert_eq!(error.code().value(), 9901);
     }
 }

@@ -227,7 +227,7 @@ struct OutboundFFICheck {
     var excluded = false
     do {
       _ = try client.fakeIP(domain: "connect.example.test")
-    } catch NativeClientError.rejected {
+    } catch NativeClientError.kernel, NativeClientError.rejected {
       excluded = true
     }
     precondition(excluded)

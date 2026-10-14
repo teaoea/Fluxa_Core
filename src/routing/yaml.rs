@@ -1,5 +1,5 @@
 //! 有界 YAML 事件直接反序列化：不构造整份中间 JSON 树，先检查深度和重复键。
-use crate::error::{Error, Result};
+use crate::error::{Error, FieldName, Result};
 use serde::de::{self, DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
 use std::{collections::HashSet, str::Chars};
@@ -11,6 +11,13 @@ pub(super) const MAX_BYTES: usize = 32 * 1024 * 1024;
 const MAX_NODES: usize = 3_000_000;
 const MAX_DEPTH: usize = 32;
 impl de::Error for Error {
+    fn unknown_field(field: &str, _: &'static [&'static str]) -> Self {
+        FieldName::new(field).map_or(Self::InvalidInput, Self::ConfigUnknownField)
+    }
+    fn duplicate_field(field: &'static str) -> Self {
+        FieldName::new(field).map_or(Self::InvalidInput, Self::ConfigDuplicateField)
+    }
+
     fn custom<T: std::fmt::Display>(_: T) -> Self {
         Self::InvalidInput
     }
@@ -28,7 +35,10 @@ impl Decoder<'_> {
             return Ok(event);
         }
         let limit = std::mem::replace(&mut self.scalar_limit, 1024);
-        let (event, _) = self.parser.next_token().map_err(|_| Error::InvalidInput)?;
+        let (event, _) = self
+            .parser
+            .next_token()
+            .map_err(|_| Error::ConfigYamlSyntax)?;
         self.nodes += 1;
         if self.nodes > MAX_NODES {
             return Err(Error::ResourceLimit);
@@ -119,7 +129,9 @@ impl<'de> MapAccess<'de> for Mapping<'_, '_> {
             return Err(Error::ResourceLimit);
         }
         if !self.keys.insert(key.clone()) {
-            return Err(Error::InvalidInput);
+            return Err(
+                FieldName::new(&key).map_or(Error::InvalidInput, Error::ConfigDuplicateField)
+            );
         }
         self.pending_value = true;
         if key == "payload_yaml" {

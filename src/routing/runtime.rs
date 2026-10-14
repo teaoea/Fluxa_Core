@@ -48,7 +48,10 @@ impl GenerationInput {
             sources: raw.sources,
             _memory: None,
         };
-        if value.format_version != 1 || value.sources.len() > MAX_SOURCES {
+        if value.format_version != 1 {
+            return Err(Error::ConfigUnsupportedVersion(value.format_version));
+        }
+        if value.sources.len() > MAX_SOURCES {
             return Err(Error::InvalidInput);
         }
         validate_settings(&value.settings)?;

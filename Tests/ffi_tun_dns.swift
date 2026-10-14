@@ -87,7 +87,7 @@ struct TunDNSFFICheck {
   static func rejected(_ operation: () throws -> Void) throws {
     do { try operation()
       preconditionFailure("必须明确拒绝")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
   }
 
   static func question(_ name: String) -> Data {

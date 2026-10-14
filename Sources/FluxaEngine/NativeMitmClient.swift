@@ -1,6 +1,6 @@
 import Foundation
 #if canImport(FluxaCore)
-import FluxaCore
+  import FluxaCore
 #endif
 
 /// 仅给平台安全存储使用，包含私钥，禁止导出为用户分享文件或加入日志。
@@ -27,7 +27,9 @@ public struct NativeCapture: Decodable, Sendable {
   public let intercepted: Bool
   public let durationMilliseconds: UInt64
   public let error: String?
+  public let errorInfo: NativeKernelError?
   enum CodingKeys: String, CodingKey {
+    case errorInfo = "error_info"
     case id, method, url, status, intercepted, error
     case requestHeaders = "request_headers"
     case responseHeaders = "response_headers"

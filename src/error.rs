@@ -7,9 +7,14 @@ macro_rules! define_codes {
         $detail:literal, $trigger:literal, $effect:literal, $source:literal)),+ $(,)?) => {
         #[repr(u16)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        /// 四位代码按类别分段；固定值显式登记，不通过枚举位置推导。
         pub enum ErrorCode {
             $($(#[$doc])* $variant = $id),+
         }
+        const _: () = {
+            $(assert!($id >= 1000 && $id <= 9999 && $id % 100 != 0);
+              assert!(stringify!($id).len() == 4 && stringify!($id).as_bytes()[0] != b'0');)+
+        };
         impl Serialize for ErrorCode {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
                 serializer.serialize_u16(self.value())
@@ -32,15 +37,16 @@ macro_rules! define_codes {
             pub const fn from_value(value: u16) -> Option<Self> {
                 match value { $($id => Some(Self::$variant)),+, _ => None }
             }
-            /// 固定错误 JSON，不进行堆分配或调用可能失败的序列化器。
-            pub const fn json_bytes(self) -> &'static [u8] {
-                match self { $(Self::$variant => concat!("{\"code\":", stringify!($id), ",\"params\":{}}").as_bytes()),+ }
+            /// 无参数错误的固定 JSON；必填上下文代码返回 None，不制造无效错误对象。
+            pub const fn json_bytes(self) -> Option<&'static [u8]> {
+                if matches!(self, Self::ConfigUnknownField | Self::ConfigDuplicateField | Self::ConfigUnsupportedVersion | Self::DebugInvalidLifetime | Self::ResourceBudgetExceeded) { return None; }
+                match self { $(Self::$variant => Some(concat!("{\"code\":", stringify!($id), ",\"params\":{}}").as_bytes())),+ }
             }
             pub const fn contract(self) -> ErrorContract {
                 match self { $(Self::$variant => ErrorContract {
                     code: $id, name: $name, category: $category, modules: Self::$variant.modules(), detail: $detail,
                     trigger: $trigger, effect: $effect, source: $source,
-                    params: "{}（不接受任何参数键）", status: "有效",
+                    params: Self::$variant.params_schema(), parameters:Self::$variant.parameters(), status: "有效",
                 }),+ }
             }
         }
@@ -57,52 +63,222 @@ pub struct ErrorContract {
     pub trigger: &'static str,
     pub effect: &'static str,
     pub params: &'static str,
+    pub parameters: &'static [ParameterSchema],
     pub source: &'static str,
     pub status: &'static str,
+}
+/// 机器可读参数契约；范围、可空性和安全要求均必须同步验证。
+#[derive(Debug, Serialize)]
+pub struct ParameterSchema {
+    pub name: &'static str,
+    pub kind: &'static str,
+    pub required: bool,
+    pub nullable: bool,
+    pub minimum: u64,
+    pub maximum: u64,
+    pub meaning: &'static str,
+    pub safety: &'static str,
 }
 define_codes! {
     /// 请求、配置或规则未满足类型、格式、范围及完整性约束；现有通用类别不能声称具体字段错误。
     InvalidInput => (1001, "无效输入", "INPUT", "请求、配置或规则未满足类型、格式、范围及完整性约束；现有通用类别不能声称具体字段错误。", "解析、字段校验、规则或协议帧校验拒绝输入。", "当前操作返回失败；原子配置提交在校验成功前不替换有效快照。", "src/routing/yaml.rs decode；src/routing/runtime.rs；src/protocol/config.rs"),
     /// 显式配置上游的单次或总期限耗尽，未取得符合要求的 DNS 结果。
-    DnsTimeout => (1002, "DNS 查询超时", "DNS", "显式配置上游的单次或总期限耗尽，未取得符合要求的 DNS 结果。", "Resolver::resolve 的超时或 NetError::Timeout 分支。", "返回 DNS 失败，出站不能把此结果转换成直连成功。", "src/dns/mod.rs Resolver::resolve"),
+    DnsTimeout => (5001, "DNS 查询超时", "DNS", "显式配置上游的单次或总期限耗尽，未取得符合要求的 DNS 结果。", "Resolver::resolve 的超时或 NetError::Timeout 分支。", "返回 DNS 失败，出站不能把此结果转换成直连成功。", "src/dns/mod.rs Resolver::resolve"),
     /// 上游响应、解析结果或地址结果不满足要求；合法 NXDOMAIN 可作为负响应返回，不必属于此错误。
-    DnsResponse => (1003, "DNS 响应失败", "DNS", "上游响应、解析结果或地址结果不满足要求；合法 NXDOMAIN 可作为负响应返回，不必属于此错误。", "DNS 上游非成功状态、非允许负响应、无可用目标地址。", "拒绝当前解析或依赖该结果的连接；不冒充规则拒绝。", "src/dns/mod.rs Resolver::resolve；src/outbound/resolution.rs"),
+    DnsResponse => (5002, "DNS 响应失败", "DNS", "上游响应、解析结果或地址结果不满足要求；合法 NXDOMAIN 可作为负响应返回，不必属于此错误。", "DNS 上游非成功状态、非允许负响应、无可用目标地址。", "拒绝当前解析或依赖该结果的连接；不冒充规则拒绝。", "src/dns/mod.rs Resolver::resolve；src/outbound/resolution.rs"),
     /// 启用 DNSSEC 的查询未通过验证或其验证查询失败，不保证底层只发生签名错误。
-    DnsValidation => (1004, "DNS 验证失败", "DNS", "启用 DNSSEC 的查询未通过验证或其验证查询失败，不保证底层只发生签名错误。", "Resolver 的 DNSSEC 失败分支。", "返回失败，不降级为未验证 DNS 成功。", "src/dns/mod.rs Resolver::resolve"),
+    DnsValidation => (5003, "DNS 验证失败", "DNS", "启用 DNSSEC 的查询未通过验证或其验证查询失败，不保证底层只发生签名错误。", "Resolver 的 DNSSEC 失败分支。", "返回失败，不降级为未验证 DNS 成功。", "src/dns/mod.rs Resolver::resolve"),
     /// 当前域名被排除或未生成 Fake-IP，不能作为已分配的合成地址使用。
-    FakeIpUnavailable => (1005, "未生成合成地址", "DNS", "当前域名被排除或未生成 Fake-IP，不能作为已分配的合成地址使用。", "allocate_fake_ip 的 synthetic_answer 返回 None。", "明确拒绝本次合成请求；不制造地址或映射。", "src/dns/mod.rs Resolver::allocate_fake_ip"),
+    FakeIpUnavailable => (5004, "未生成合成地址", "DNS", "当前域名被排除或未生成 Fake-IP，不能作为已分配的合成地址使用。", "allocate_fake_ip 的 synthetic_answer 返回 None。", "明确拒绝本次合成请求；不制造地址或映射。", "src/dns/mod.rs Resolver::allocate_fake_ip"),
     /// 资源预算、并发槽位、数量、缓冲区容量或安全计数器耗尽；不是普通规则未命中。
-    ResourceLimit => (1006, "资源上限", "RESOURCE", "资源预算、并发槽位、数量、缓冲区容量或安全计数器耗尽；不是普通规则未命中。", "ByteBudget::reserve、try_reserve、长度数量检查或 checked 运算失败。", "拒绝超限操作，释放临时所有权；不会为继续执行绕过上限。", "src/budget.rs ByteBudget::reserve；src/lifecycle.rs Registry::create；src/ffi.rs OutputReservation"),
+    ResourceLimit => (8001, "资源上限", "RESOURCE", "资源预算、并发槽位、数量、缓冲区容量或安全计数器耗尽；不是普通规则未命中。", "ByteBudget::reserve、try_reserve、长度数量检查或 checked 运算失败。", "拒绝超限操作，释放临时所有权；不会为继续执行绕过上限。", "src/budget.rs ByteBudget::reserve；src/lifecycle.rs Registry::create；src/ffi.rs OutputReservation"),
     /// 现有类别覆盖网络连接、读写以及持久化文件 I/O；它不专指远端拒绝，不应被解读为规则 REJECT。
-    Network => (1007, "连接或读写失败", "IO", "现有类别覆盖网络连接、读写以及持久化文件 I/O；它不专指远端拒绝，不应被解读为规则 REJECT。", "io::Error 转换或网络及文件操作的 map_err 分支。", "当前 I/O 操作失败；事务文件未成功提交时不发布新快照。", "src/error.rs From<io::Error>；src/routing/store.rs；src/outbound/stream.rs"),
+    Network => (6001, "连接或读写失败", "IO", "现有类别覆盖网络连接、读写以及持久化文件 I/O；它不专指远端拒绝，不应被解读为规则 REJECT。", "io::Error 转换或网络及文件操作的 map_err 分支。", "当前 I/O 操作失败；事务文件未成功提交时不发布新快照。", "src/error.rs From<io::Error>；src/routing/store.rs；src/outbound/stream.rs"),
     /// TCP、TLS 外层连接或数据读写的既定操作期限耗尽；DNS 专用超时使用另一代码。
-    NetworkTimeout => (1008, "网络操作超时", "NETWORK", "TCP、TLS 外层连接或数据读写的既定操作期限耗尽；DNS 专用超时使用另一代码。", "网络 timeout 分支。", "终止或拒绝本次操作，保留既定取消与清理流程。", "src/outbound/execution.rs；src/outbound/stream.rs；src/https.rs"),
+    NetworkTimeout => (6002, "网络操作超时", "IO", "TCP、TLS 外层连接或数据读写的既定操作期限耗尽；DNS 专用超时使用另一代码。", "网络 timeout 分支。", "终止或拒绝本次操作，保留既定取消与清理流程。", "src/outbound/execution.rs；src/outbound/stream.rs；src/https.rs"),
     /// 取消令牌、关闭或提交前取消阻止操作继续；不表示成功完成。
-    Cancelled => (1009, "操作已取消", "LIFECYCLE", "取消令牌、关闭或提交前取消阻止操作继续；不表示成功完成。", "出站取消分支、规则任务取消检查或 TUN 关闭取消。", "返回取消；已提交结果的回滚规则仍按原事务约定。", "src/outbound/stream.rs；src/routing/store.rs；src/tun/udp.rs"),
+    Cancelled => (9002, "操作已取消", "LIFECYCLE", "取消令牌、关闭或提交前取消阻止操作继续；不表示成功完成。", "出站取消分支、规则任务取消检查或 TUN 关闭取消。", "返回取消；已提交结果的回滚规则仍按原事务约定。", "src/outbound/stream.rs；src/routing/store.rs；src/tun/udp.rs"),
     /// TLS 握手、TLS 记录或上游证书校验未满足协议要求。
-    Tls => (1010, "TLS 握手或校验失败", "TLS", "TLS 握手、TLS 记录或上游证书校验未满足协议要求。", "TLS 连接、协议或记录处理拒绝底层结果。", "终止 TLS 操作，不降级明文或跳过证书验证。", "src/https.rs；src/protocol/inner_tls.rs；src/protocol/stream.rs"),
+    Tls => (7001, "TLS 握手或校验失败", "TLS", "TLS 握手、TLS 记录或上游证书校验未满足协议要求。", "TLS 连接、协议或记录处理拒绝底层结果。", "终止 TLS 操作，不降级明文或跳过证书验证。", "src/https.rs；src/protocol/inner_tls.rs；src/protocol/stream.rs"),
     /// 证书、私钥、CA 材料或 REALITY 密钥协商材料无效；与常规上游在线 TLS 验证失败区分。
-    Certificate => (1011, "证书或密钥无效", "TLS", "证书、私钥、CA 材料或 REALITY 密钥协商材料无效；与常规上游在线 TLS 验证失败区分。", "Authority 导入、签发、私钥解析失败，或 REALITY 密钥协商的共享密钥不具贡献性。", "拒绝该证书或密钥协商操作，不产生伪造成功的 Authority 或可用安全连接。", "src/mitm/authority.rs Authority；src/protocol/reality.rs hello"),
+    Certificate => (7002, "证书或密钥无效", "TLS", "证书、私钥、CA 材料或 REALITY 密钥协商材料无效；与常规上游在线 TLS 验证失败区分。", "Authority 导入、签发、私钥解析失败，或 REALITY 密钥协商的共享密钥不具贡献性。", "拒绝该证书或密钥协商操作，不产生伪造成功的 Authority 或可用安全连接。", "src/mitm/authority.rs Authority；src/protocol/reality.rs hello"),
     /// 会话关闭、缺少所需资源、代次不符、版本竞争或独占文件锁忙；现有通用类别不承诺具体状态子原因。
-    InvalidState => (1012, "状态不允许操作", "STATE", "会话关闭、缺少所需资源、代次不符、版本竞争或独占文件锁忙；现有通用类别不承诺具体状态子原因。", "状态、所有者、版本或锁占用检查失败。", "拒绝当前操作；不会继续使用未取得或已失效的对象。", "src/routing/store.rs；src/routing/debug.rs Session；src/dns/mod.rs restore_fake_ip"),
+    InvalidState => (9001, "状态不允许操作", "LIFECYCLE", "会话关闭、缺少所需资源、代次不符、版本竞争或独占文件锁忙；现有通用类别不承诺具体状态子原因。", "状态、所有者、版本或锁占用检查失败。", "拒绝当前操作；不会继续使用未取得或已失效的对象。", "src/routing/store.rs；src/routing/debug.rs Session；src/dns/mod.rs restore_fake_ip"),
     /// 协议、配置版本或请求能力不在当前实现范围；不表示能够自动替换成直连。
-    Unsupported => (1013, "能力不支持", "CAPABILITY", "协议、配置版本或请求能力不在当前实现范围；不表示能够自动替换成直连。", "支持范围校验、未实现功能入口或版本检查。", "明确拒绝，不伪造成功或静默能力降级。", "src/ffi.rs Command::TunStart；src/routing/cache.rs load；src/protocol/config.rs"),
+    Unsupported => (1002, "能力不支持", "INPUT", "协议、配置版本或请求能力不在当前实现范围；不表示能够自动替换成直连。", "支持范围校验、未实现功能入口或版本检查。", "明确拒绝，不伪造成功或静默能力降级。", "src/ffi.rs Command::TunStart；src/routing/cache.rs load；src/protocol/config.rs"),
     /// 锁中毒、运行时创建、任务 panic 或不能成立的内部状态；不吸收已知输入、资源及网络错误。
-    Internal => (1014, "内部状态错误", "INTERNAL", "锁中毒、运行时创建、任务 panic 或不能成立的内部状态；不吸收已知输入、资源及网络错误。", "锁错误、运行时或内部一致性失败以及 FFI panic 隔离。", "返回失败或边界状态，不继续处理失效的内部状态。", "src/ffi.rs runtime；src/routing/background.rs；各模块锁转换"),
+    Internal => (9901, "内部状态错误", "INTERNAL", "锁中毒、运行时创建、任务 panic 或不能成立的内部状态；不吸收已知输入、资源及网络错误。", "锁错误、运行时或内部一致性失败以及 FFI panic 隔离。", "返回失败或边界状态，不继续处理失效的内部状态。", "src/ffi.rs runtime；src/routing/background.rs；各模块锁转换"),
     /// 脚本执行失败，或结果不符合要求的 JSON/输出约束。
-    Script => (1015, "脚本执行或输出失败", "SCRIPT", "脚本执行失败，或结果不符合要求的 JSON/输出约束。", "脚本引擎或脚本结果解析验证失败。", "终止该脚本处理；按原请求管线返回错误，不擅自 Continue。", "src/script.rs；src/traffic_script.rs；src/rewrite.rs"),
+    Script => (1301, "脚本执行或输出失败", "SCRIPT", "脚本执行失败，或结果不符合要求的 JSON/输出约束。", "脚本引擎或脚本结果解析验证失败。", "终止该脚本处理；按原请求管线返回错误，不擅自 Continue。", "src/script.rs；src/traffic_script.rs；src/rewrite.rs"),
     /// 受限脚本执行超过既定时间预算。
-    ScriptTimeout => (1016, "脚本执行超时", "SCRIPT", "受限脚本执行超过既定时间预算。", "脚本中断或超时判定。", "返回超时，不忽略超时后继续当作成功结果。", "src/script.rs"),
+    ScriptTimeout => (1302, "脚本执行超时", "SCRIPT", "受限脚本执行超过既定时间预算。", "脚本中断或超时判定。", "返回超时，不忽略超时后继续当作成功结果。", "src/script.rs"),
     /// 规则策略主动拒绝执行；这是策略结果，不是网络连接拒绝或执行故障。
-    Rejected => (1017, "策略主动拒绝", "POLICY", "规则策略主动拒绝执行；这是策略结果，不是网络连接拒绝或执行故障。", "执行路由、传输拦截或规则策略为 Reject。", "阻止该请求或数据发送；纯规则匹配仍可成功返回 Reject 决策。", "src/outbound/execution.rs validate_decision；src/routing.rs check_transport；src/rewrite.rs"),
+    Rejected => (1101, "策略主动拒绝", "POLICY", "规则策略主动拒绝执行；这是策略结果，不是网络连接拒绝或执行故障。", "执行路由、传输拦截或规则策略为 Reject。", "阻止该请求或数据发送；纯规则匹配仍可成功返回 Reject 决策。", "src/outbound/execution.rs validate_decision；src/routing.rs check_transport；src/rewrite.rs"),
     /// C ABI 值句柄不存在、类型不符或已释放；不包含对象地址。
-    InvalidHandle => (1018, "无效 ABI 句柄", "ABI", "C ABI 值句柄不存在、类型不符或已释放；不包含对象地址。", "ABI 在注册表查找所需类型失败。", "拒绝访问该对象，不解析为另一个对象。", "src/ffi.rs engine、udp_session、destroy"),
+    InvalidHandle => (1201, "无效 ABI 句柄", "ABI", "C ABI 值句柄不存在、类型不符或已释放；不包含对象地址。", "ABI 在注册表查找所需类型失败。", "拒绝访问该对象，不解析为另一个对象。", "src/ffi.rs engine、udp_session、destroy"),
     /// 已执行操作的响应不能按既定协议编码；不保证当前业务操作未发生，不能盲目重试。
-    SerializationFailed => (1019, "响应序列化失败", "ABI", "已执行操作的响应不能按既定协议编码；不保证当前业务操作未发生，不能盲目重试。", "serde_json::to_writer 的非预算序列化错误。", "不返回成功响应；释放未发布响应句柄，并记录边界失败。", "src/ffi.rs fluxa_engine_command"),
+    SerializationFailed => (1202, "响应序列化失败", "ABI", "已执行操作的响应不能按既定协议编码；不保证当前业务操作未发生，不能盲目重试。", "serde_json::to_writer 的非预算序列化错误。", "不返回成功响应；释放未发布响应句柄，并记录边界失败。", "src/ffi.rs fluxa_engine_command"),
     /// XUDP 报文的会话、标志或来源不符合已绑定目标约束；不表示命中规则 REJECT。
-    ProtocolViolation => (1020, "代理协议约束违反", "PROTOCOL", "XUDP 返回报文的会话、标志或来源违反单目标绑定约束，不能作为合法报文交付。", "decode 检测非零会话、未知标志或返回来源不等于绑定目标。", "拒绝报文并终止该失败连接；不放宽验证，也不声称规则 REJECT。", "src/protocol/datagram.rs decode"),
+    ProtocolViolation => (1401, "代理协议约束违反", "PROTOCOL", "XUDP 返回报文的会话、标志或来源违反单目标绑定约束，不能作为合法报文交付。", "decode 检测非零会话、未知标志或返回来源不等于绑定目标。", "拒绝报文并终止该失败连接；不放宽验证，也不声称规则 REJECT。", "src/protocol/datagram.rs decode"),
+    /// YAML 事件解析器拒绝语法，未构造有效配置。
+    ConfigYamlSyntax => (2001, "YAML 语法错误", "CONFIG", "YAML 事件解析器拒绝语法，未构造有效配置。", "Parser::next_token 返回解析错误。", "拒绝本次配置；不发布部分产物。", "src/routing/yaml.rs Decoder::next"),
+    /// 严格配置反序列化遇到未声明字段；字段名只接受有界 ASCII 标识。
+    ConfigUnknownField => (2002, "未知配置字段", "CONFIG", "严格配置反序列化遇到未声明字段；字段名只接受有界 ASCII 标识。", "serde unknown_field 类型回调，不解析错误字符串。", "拒绝整个输入，保留原有效配置。", "src/routing/yaml.rs de::Error::unknown_field"),
+    /// 同一 YAML 映射出现重复字段，不允许后项覆盖前项。
+    ConfigDuplicateField => (2003, "重复配置字段", "CONFIG", "同一 YAML 映射出现重复字段，不允许后项覆盖前项。", "Mapping::next_key_seed 检测字段重复。", "拒绝整个输入，不部分接受。", "src/routing/yaml.rs Mapping::next_key_seed"),
+    /// GenerationInput 声明的格式版本不是当前支持的版本 1。
+    ConfigUnsupportedVersion => (2004, "规则来源配置版本不支持", "CONFIG", "GenerationInput 声明的格式版本不是当前支持的版本 1。", "GenerationInput::from_yaml 检查 format_version。", "拒绝该来源配置，不放宽解析规则。", "src/routing/runtime.rs GenerationInput::from_yaml"),
+    /// 调试规则生命周期缺失、为零或超过 3600 秒。
+    DebugInvalidLifetime => (4001, "非法调试生命周期", "DEBUG", "调试规则生命周期缺失、为零或超过 3600 秒。", "Session::replace_at 逐条校验生命周期。", "拒绝整次替换，原调试方案保持有效。", "src/routing/debug.rs Session::replace_at"),
+    /// 已经关闭的调试会话不允许替换、清空或读取状态。
+    DebugSessionClosed => (4002, "调试会话已关闭", "DEBUG", "已经关闭的调试会话不允许替换、清空或读取状态。", "Session 的 closed 状态检查。", "拒绝操作，不重新开启会话。", "src/routing/debug.rs Session"),
+    /// 申请量超过静态预算，或当前占用加申请量溢出或超过限额。
+    ResourceBudgetExceeded => (8002, "预算准入失败", "RESOURCE", "申请量超过静态预算，或当前占用加申请量溢出或超过限额。", "ByteBudget::reserve 原子准入失败。", "不增加预算占用，不构造租约。", "src/budget.rs ByteBudget::reserve"),
+    /// 操作系统明确返回 ConnectionRefused；与规则主动拒绝区分。
+    NetworkConnectRefused => (6003, "连接被远端拒绝", "IO", "操作系统明确返回 ConnectionRefused；与规则主动拒绝区分。", "Error::classify_io 的类型化 I/O kind 检查。", "当前连接失败，不转换为策略 REJECT 或成功。", "src/error.rs Error::classify_io"),
+
 }
 impl ErrorCode {
+    pub const fn parameters(self) -> &'static [ParameterSchema] {
+        match self {
+            Self::ConfigUnknownField | Self::ConfigDuplicateField => &[ParameterSchema {
+                name: "field",
+                kind: "ascii_identifier",
+                required: true,
+                nullable: false,
+                minimum: 1,
+                maximum: 32,
+                meaning: "失败的字段名，不含字段值",
+                safety: "只接受 ASCII 字母、数字及下划线",
+            }],
+            Self::ConfigUnsupportedVersion => &[
+                ParameterSchema {
+                    name: "actual",
+                    kind: "u32",
+                    required: true,
+                    nullable: false,
+                    minimum: 0,
+                    maximum: u32::MAX as u64,
+                    meaning: "实际来源配置版本，必须不等于 1",
+                    safety: "固定宽度整数",
+                },
+                ParameterSchema {
+                    name: "expected",
+                    kind: "u32",
+                    required: true,
+                    nullable: false,
+                    minimum: 1,
+                    maximum: 1,
+                    meaning: "支持的格式版本",
+                    safety: "固定为 1",
+                },
+            ],
+            Self::DebugInvalidLifetime => &[
+                ParameterSchema {
+                    name: "actual",
+                    kind: "u64",
+                    required: true,
+                    nullable: true,
+                    minimum: 0,
+                    maximum: u64::MAX,
+                    meaning: "实际生命周期；null 表示缺失，只接受 0 或大于 3600",
+                    safety: "不包含规则正文",
+                },
+                ParameterSchema {
+                    name: "limit",
+                    kind: "u64",
+                    required: true,
+                    nullable: false,
+                    minimum: 3600,
+                    maximum: 3600,
+                    meaning: "生命周期上限，单位秒",
+                    safety: "固定为 3600",
+                },
+            ],
+            Self::ResourceBudgetExceeded => &[
+                ParameterSchema {
+                    name: "actual",
+                    kind: "u64",
+                    required: true,
+                    nullable: false,
+                    minimum: 0,
+                    maximum: u64::MAX,
+                    meaning: "本次申请量；单位与预算一致，不声称进程 RSS",
+                    safety: "不包含地址、配置或对象标识",
+                },
+                ParameterSchema {
+                    name: "limit",
+                    kind: "u64",
+                    required: true,
+                    nullable: false,
+                    minimum: 0,
+                    maximum: u64::MAX,
+                    meaning: "该预算的静态限额",
+                    safety: "固定宽度整数",
+                },
+            ],
+            Self::ConfigYamlSyntax
+            | Self::InvalidInput
+            | Self::Unsupported
+            | Self::DnsTimeout
+            | Self::DnsResponse
+            | Self::DnsValidation
+            | Self::FakeIpUnavailable
+            | Self::ResourceLimit
+            | Self::Network
+            | Self::NetworkTimeout
+            | Self::Cancelled
+            | Self::Tls
+            | Self::Certificate
+            | Self::InvalidState
+            | Self::Internal
+            | Self::Script
+            | Self::ScriptTimeout
+            | Self::Rejected
+            | Self::InvalidHandle
+            | Self::SerializationFailed
+            | Self::ProtocolViolation
+            | Self::DebugSessionClosed
+            | Self::NetworkConnectRefused => &[],
+        }
+    }
+    pub const fn params_schema(self) -> &'static str {
+        match self {
+            Self::ConfigUnknownField | Self::ConfigDuplicateField => {
+                "field：必填 ASCII 标识字符串，1–32 字节；不接受路径、配置正文或任意对象"
+            }
+            Self::ConfigUnsupportedVersion => "actual：必填 u32；expected：必填且为 1",
+            Self::DebugInvalidLifetime => {
+                "actual：必填 u64 或 null（缺失）；limit：必填且为 3600；只允许缺失、0 或超限的失败值"
+            }
+            Self::ResourceBudgetExceeded => {
+                "actual：必填 u64，申请量；limit：必填 u64，预算上限；准入因并发占用也可能失败"
+            }
+            Self::ConfigYamlSyntax
+            | Self::InvalidInput
+            | Self::Unsupported
+            | Self::DnsTimeout
+            | Self::DnsResponse
+            | Self::DnsValidation
+            | Self::FakeIpUnavailable
+            | Self::ResourceLimit
+            | Self::Network
+            | Self::NetworkTimeout
+            | Self::Cancelled
+            | Self::Tls
+            | Self::Certificate
+            | Self::InvalidState
+            | Self::Internal
+            | Self::Script
+            | Self::ScriptTimeout
+            | Self::Rejected
+            | Self::InvalidHandle
+            | Self::SerializationFailed
+            | Self::ProtocolViolation
+            | Self::DebugSessionClosed
+            | Self::NetworkConnectRefused => "{}（不接受任何参数键）",
+        }
+    }
     /// 实际产生或传播该类别的 Rust 模块；不是协议分类名称。
     pub const fn modules(self) -> &'static str {
         match self {
@@ -130,124 +306,283 @@ impl ErrorCode {
             Self::InvalidHandle => "ffi",
             Self::SerializationFailed => "ffi",
             Self::ProtocolViolation => "protocol::datagram",
+            Self::ConfigYamlSyntax | Self::ConfigUnknownField | Self::ConfigDuplicateField => {
+                "routing::yaml"
+            }
+            Self::ConfigUnsupportedVersion => "routing::runtime",
+            Self::DebugInvalidLifetime | Self::DebugSessionClosed => "routing::debug",
+            Self::ResourceBudgetExceeded => "budget",
+            Self::NetworkConnectRefused => "error、outbound",
         }
     }
 }
-/// 当前没有允许公开的动态参数；私钥、Token、路径、配置和底层文本不能通过此类型发送。
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ErrorParams {}
-/// 稳定结构化失败；code 与 params 必填。未知字段、代码、参数拒绝解析。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// 字段名仅保留 ASCII 标识，不公开任意原文；固定 32 字节，无堆分配。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldName {
+    bytes: [u8; 32],
+    len: u8,
+}
+impl FieldName {
+    pub fn new(value: &str) -> Option<Self> {
+        if value.is_empty()
+            || value.len() > 32
+            || !value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return None;
+        }
+        let mut bytes = [0; 32];
+        bytes[..value.len()].copy_from_slice(value.as_bytes());
+        Some(Self {
+            bytes,
+            len: value.len() as u8,
+        })
+    }
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..usize::from(self.len)]).expect("构造器保证 ASCII")
+    }
+}
+impl Serialize for FieldName {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+impl<'de> Deserialize<'de> for FieldName {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        struct Field;
+        impl serde::de::Visitor<'_> for Field {
+            type Value = FieldName;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("1–32 字节 ASCII 字段标识")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<FieldName, E> {
+                FieldName::new(v).ok_or_else(|| E::custom("字段标识不符合安全限制"))
+            }
+        }
+        deserializer.deserialize_str(Field)
+    }
+}
+/// 上下文按错误代码校验；没有自由 JSON 对象、敏感原文或无界字符串。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ErrorParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<FieldName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected: Option<u64>,
+}
+/// 固定上下文值，不分配堆内存；code 与 params 作为一个整体校验。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ErrorInfo {
     pub code: ErrorCode,
     pub params: ErrorParams,
 }
-impl<'de> Deserialize<'de> for ErrorParams {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
-        struct Empty;
-        impl<'de> serde::de::Visitor<'de> for Empty {
-            type Value = ErrorParams;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("空参数对象")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> std::result::Result<Self::Value, A::Error> {
-                if map.next_key::<serde::de::IgnoredAny>()?.is_some() {
-                    return Err(serde::de::Error::custom("错误参数不允许任何键"));
-                }
-                Ok(ErrorParams {})
-            }
+impl Serialize for ErrorInfo {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        if !self.valid() {
+            return Err(serde::ser::Error::custom("错误代码与参数不一致"));
         }
-        // 必须是对象；不能把空数组、null 或其他类型当作有效参数。
-        deserializer.deserialize_map(Empty)
+        let mut object = serializer.serialize_struct("ErrorInfo", 2)?;
+        object.serialize_field("code", &self.code.value())?;
+        if self.code == ErrorCode::DebugInvalidLifetime {
+            #[derive(Serialize)]
+            struct Lifetime {
+                actual: Option<u64>,
+                limit: u64,
+            }
+            object.serialize_field(
+                "params",
+                &Lifetime {
+                    actual: self.params.actual,
+                    limit: 3600,
+                },
+            )?;
+        } else {
+            object.serialize_field("params", &self.params)?;
+        }
+        object.end()
     }
+}
+/// 只接受对象，避免 derive 结构体反序列化同时接受位置数组。
+fn object_only<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> std::result::Result<T, D::Error> {
+    struct Object<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Object<T> {
+        type Value = T;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("结构化对象")
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            self,
+            map: A,
+        ) -> std::result::Result<T, A::Error> {
+            T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+        }
+    }
+    d.deserialize_map(Object(std::marker::PhantomData))
 }
 impl<'de> Deserialize<'de> for ErrorInfo {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
-        enum Key {
-            Code,
-            Params,
+        // 区分缺失与显式 null；防止可选字段把缺失的必填参数悄悄接受。
+        fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+            d: D,
+        ) -> std::result::Result<Option<Option<T>>, D::Error> {
+            Ok(Some(Option::<T>::deserialize(d)?))
         }
-        impl<'de> Deserialize<'de> for Key {
-            fn deserialize<D: serde::Deserializer<'de>>(
-                deserializer: D,
-            ) -> std::result::Result<Self, D::Error> {
-                struct Keys;
-                impl serde::de::Visitor<'_> for Keys {
-                    type Value = Key;
-                    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        f.write_str("已登记错误字段")
-                    }
-                    fn visit_str<E: serde::de::Error>(
-                        self,
-                        key: &str,
-                    ) -> std::result::Result<Key, E> {
-                        match key {
-                            "code" => Ok(Key::Code),
-                            "params" => Ok(Key::Params),
-                            _ => Err(E::custom("未知错误字段")),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(Keys)
-            }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Params {
+            #[serde(default, deserialize_with = "present")]
+            field: Option<Option<FieldName>>,
+            #[serde(default, deserialize_with = "present")]
+            actual: Option<Option<u64>>,
+            #[serde(default, deserialize_with = "present")]
+            limit: Option<Option<u64>>,
+            #[serde(default, deserialize_with = "present")]
+            expected: Option<Option<u64>>,
         }
-        struct Fields;
-        impl<'de> serde::de::Visitor<'de> for Fields {
-            type Value = ErrorInfo;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("整数错误对象")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> std::result::Result<ErrorInfo, A::Error> {
-                let (mut code, mut params) = (None, None);
-                while let Some(key) = map.next_key::<Key>()? {
-                    match key {
-                        Key::Code => {
-                            if code.is_some() {
-                                return Err(serde::de::Error::custom("重复 code 字段"));
-                            }
-                            code = Some(map.next_value()?);
-                        }
-                        Key::Params => {
-                            if params.is_some() {
-                                return Err(serde::de::Error::custom("重复 params 字段"));
-                            }
-                            params = Some(map.next_value()?);
-                        }
-                    }
-                }
-                Ok(ErrorInfo {
-                    code: code.ok_or_else(|| serde::de::Error::custom("缺少 code 字段"))?,
-                    params: params.ok_or_else(|| serde::de::Error::custom("缺少 params 字段"))?,
-                })
-            }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            code: ErrorCode,
+            #[serde(deserialize_with = "object_only")]
+            params: Params,
         }
-        // 强制对象格式，保持机器协议的类型约束，不接受位置数组替代字段。
-        deserializer.deserialize_map(Fields)
+        let wire: Wire = object_only(deserializer)?;
+        let p = wire.params;
+        let shape = (
+            p.field.is_some(),
+            p.actual.is_some(),
+            p.limit.is_some(),
+            p.expected.is_some(),
+        );
+        let expected = match wire.code {
+            ErrorCode::ConfigUnknownField | ErrorCode::ConfigDuplicateField => {
+                (true, false, false, false)
+            }
+            ErrorCode::ConfigUnsupportedVersion => (false, true, false, true),
+            ErrorCode::DebugInvalidLifetime | ErrorCode::ResourceBudgetExceeded => {
+                (false, true, true, false)
+            }
+            ErrorCode::ConfigYamlSyntax
+            | ErrorCode::InvalidInput
+            | ErrorCode::Unsupported
+            | ErrorCode::DnsTimeout
+            | ErrorCode::DnsResponse
+            | ErrorCode::DnsValidation
+            | ErrorCode::FakeIpUnavailable
+            | ErrorCode::ResourceLimit
+            | ErrorCode::Network
+            | ErrorCode::NetworkTimeout
+            | ErrorCode::Cancelled
+            | ErrorCode::Tls
+            | ErrorCode::Certificate
+            | ErrorCode::InvalidState
+            | ErrorCode::Internal
+            | ErrorCode::Script
+            | ErrorCode::ScriptTimeout
+            | ErrorCode::Rejected
+            | ErrorCode::InvalidHandle
+            | ErrorCode::SerializationFailed
+            | ErrorCode::ProtocolViolation
+            | ErrorCode::DebugSessionClosed
+            | ErrorCode::NetworkConnectRefused => (false, false, false, false),
+        };
+        let info = Self {
+            code: wire.code,
+            params: ErrorParams {
+                field: p.field.flatten(),
+                actual: p.actual.flatten(),
+                limit: p.limit.flatten(),
+                expected: p.expected.flatten(),
+            },
+        };
+        if shape != expected || !info.valid() {
+            return Err(serde::de::Error::custom("错误代码与参数不一致"));
+        }
+        Ok(info)
     }
 }
 impl ErrorInfo {
     pub const fn new(code: ErrorCode) -> Self {
         Self {
             code,
-            params: ErrorParams {},
+            params: ErrorParams {
+                field: None,
+                actual: None,
+                limit: None,
+                expected: None,
+            },
         }
     }
-    /// 输入长度在解析前限制；不存在动态参数或递归错误链。
+    pub fn valid(&self) -> bool {
+        let p = self.params;
+        match self.code {
+            ErrorCode::ConfigUnknownField | ErrorCode::ConfigDuplicateField => {
+                p.field.is_some() && p.actual.is_none() && p.limit.is_none() && p.expected.is_none()
+            }
+            ErrorCode::ConfigUnsupportedVersion => {
+                p.field.is_none()
+                    && p.limit.is_none()
+                    && p.expected == Some(1)
+                    && p.actual.is_some_and(|v| v <= u64::from(u32::MAX) && v != 1)
+            }
+            ErrorCode::DebugInvalidLifetime => {
+                p.field.is_none()
+                    && p.expected.is_none()
+                    && p.limit == Some(3600)
+                    && p.actual.is_none_or(|v| v == 0 || v > 3600)
+            }
+            ErrorCode::ResourceBudgetExceeded => {
+                p.field.is_none() && p.expected.is_none() && p.actual.is_some() && p.limit.is_some()
+            }
+            ErrorCode::ConfigYamlSyntax
+            | ErrorCode::InvalidInput
+            | ErrorCode::Unsupported
+            | ErrorCode::DnsTimeout
+            | ErrorCode::DnsResponse
+            | ErrorCode::DnsValidation
+            | ErrorCode::FakeIpUnavailable
+            | ErrorCode::ResourceLimit
+            | ErrorCode::Network
+            | ErrorCode::NetworkTimeout
+            | ErrorCode::Cancelled
+            | ErrorCode::Tls
+            | ErrorCode::Certificate
+            | ErrorCode::InvalidState
+            | ErrorCode::Internal
+            | ErrorCode::Script
+            | ErrorCode::ScriptTimeout
+            | ErrorCode::Rejected
+            | ErrorCode::InvalidHandle
+            | ErrorCode::SerializationFailed
+            | ErrorCode::ProtocolViolation
+            | ErrorCode::DebugSessionClosed
+            | ErrorCode::NetworkConnectRefused => p == ErrorParams::default(),
+        }
+    }
     pub fn from_json(bytes: &[u8]) -> crate::error::Result<Self> {
         if bytes.len() > MAX_ERROR_BYTES {
-            return Err(crate::error::Error::ResourceLimit);
+            return Err(Error::ResourceLimit);
         }
-        serde_json::from_slice(bytes).map_err(|_| crate::error::Error::InvalidInput)
+        serde_json::from_slice(bytes).map_err(|_| Error::InvalidInput)
     }
 }
 /// 错误对象仅包含两个固定字段，512 字节上限同时用于 ABI 固定缓冲区。
@@ -260,6 +595,26 @@ pub mod diagnostics;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
+    /// YAML 事件语法不合法。
+    ConfigYamlSyntax,
+    /// 未声明的配置字段，安全字段名有界。
+    ConfigUnknownField(FieldName),
+    /// 同一配置映射重复字段。
+    ConfigDuplicateField(FieldName),
+    /// 不支持的规则来源配置版本。
+    ConfigUnsupportedVersion(u32),
+    /// 缺失或越界的调试生命周期，单位秒。
+    DebugInvalidLifetime(Option<u64>),
+    /// 已关闭的调试会话。
+    DebugSessionClosed,
+    /// 原子预算申请失败；只保存申请量及限额。
+    ResourceBudgetExceeded {
+        actual: u64,
+        limit: u64,
+    },
+    /// 操作系统明确拒绝连接，不是规则 REJECT。
+    NetworkConnectRefused,
+
     InvalidInput,
     DnsTimeout,
     DnsResponse,
@@ -284,6 +639,14 @@ impl Error {
     /// 每个现有内部类别穷尽映射；不解析 Display 文本，不以枚举索引推导代码。
     pub const fn code(self) -> ErrorCode {
         match self {
+            Self::ConfigYamlSyntax => ErrorCode::ConfigYamlSyntax,
+            Self::ConfigUnknownField(_) => ErrorCode::ConfigUnknownField,
+            Self::ConfigDuplicateField(_) => ErrorCode::ConfigDuplicateField,
+            Self::ConfigUnsupportedVersion(_) => ErrorCode::ConfigUnsupportedVersion,
+            Self::DebugInvalidLifetime(_) => ErrorCode::DebugInvalidLifetime,
+            Self::DebugSessionClosed => ErrorCode::DebugSessionClosed,
+            Self::ResourceBudgetExceeded { .. } => ErrorCode::ResourceBudgetExceeded,
+            Self::NetworkConnectRefused => ErrorCode::NetworkConnectRefused,
             Self::InvalidInput => ErrorCode::InvalidInput,
             Self::DnsTimeout => ErrorCode::DnsTimeout,
             Self::DnsResponse => ErrorCode::DnsResponse,
@@ -306,12 +669,60 @@ impl Error {
     }
     /// Rust 调用方取得结构化错误，不改变原 Result 的失败语义。
     pub const fn public_info(self) -> ErrorInfo {
-        ErrorInfo::new(self.code())
+        let mut info = ErrorInfo::new(self.code());
+        match self {
+            Self::ConfigUnknownField(field) | Self::ConfigDuplicateField(field) => {
+                info.params.field = Some(field)
+            }
+            Self::ConfigUnsupportedVersion(actual) => {
+                info.params.actual = Some(actual as u64);
+                info.params.expected = Some(1);
+            }
+            Self::DebugInvalidLifetime(actual) => {
+                info.params.actual = actual;
+                info.params.limit = Some(3600);
+            }
+            Self::ResourceBudgetExceeded { actual, limit } => {
+                info.params.actual = Some(actual);
+                info.params.limit = Some(limit);
+            }
+            Self::ConfigYamlSyntax
+            | Self::DebugSessionClosed
+            | Self::NetworkConnectRefused
+            | Self::InvalidInput
+            | Self::DnsTimeout
+            | Self::DnsResponse
+            | Self::DnsValidation
+            | Self::FakeIpUnavailable
+            | Self::ResourceLimit
+            | Self::Network
+            | Self::NetworkTimeout
+            | Self::Cancelled
+            | Self::Tls
+            | Self::Certificate
+            | Self::InvalidState
+            | Self::Unsupported
+            | Self::Internal
+            | Self::Script
+            | Self::ScriptTimeout
+            | Self::Rejected
+            | Self::ProtocolViolation => (),
+        }
+        info
     }
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::ConfigYamlSyntax => "YAML 语法不合法",
+            Self::ConfigUnknownField(_) => "配置包含未知字段",
+            Self::ConfigDuplicateField(_) => "配置包含重复字段",
+            Self::ConfigUnsupportedVersion(_) => "规则来源配置版本不支持",
+            Self::DebugInvalidLifetime(_) => "调试生命周期必须为 1–3600 秒",
+            Self::DebugSessionClosed => "调试会话已关闭",
+            Self::ResourceBudgetExceeded { .. } => "预算准入失败",
+            Self::NetworkConnectRefused => "连接被远端拒绝",
+
             Self::FakeIpUnavailable => "当前域名未生成 Fake-IP 映射，请检查配置及排除项",
             Self::DnsTimeout => "DNS 查询超时",
             Self::DnsValidation => "DNSSEC 验证或验证查询失败",
@@ -341,6 +752,7 @@ impl Error {
     fn classify_io(error: &io::Error) -> Self {
         let mut mapped = match error.kind() {
             io::ErrorKind::TimedOut => Self::NetworkTimeout,
+            io::ErrorKind::ConnectionRefused => Self::NetworkConnectRefused,
             // 系统明确报告内存不足时归入资源失败，不能误标成普通连接错误。
             io::ErrorKind::OutOfMemory => Self::ResourceLimit,
             _ => Self::Network,
@@ -412,62 +824,18 @@ mod tls_mapping_tests {
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// ABI v1 历史返回状态集中保存；它是兼容层，不是新整数错误协议的类别或优先级。
-/// 成功与队列空不是错误；细分原因读取 ErrorCode，不用旧合并状态猜测。
+/// 成功和队列空是非错误状态；全部失败返回 ErrorCode 的四位整数。
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LegacyAbiStatus {
-    /// 操作成功；不表示后台尽力清理没有诊断。
+pub enum AbiStatus {
+    /// 操作成功，不属于错误代码。
     Success = 0,
-    /// 旧 ABI 句柄不允许访问。
-    InvalidHandle = 1,
-    /// 旧 ABI 请求能力未支持。
-    Unsupported = 2,
-    /// 旧 ABI 内部状态失败。
-    Internal = 3,
-    /// 旧 TUN 输入不合法。
-    InvalidInput = 4,
-    /// 旧 TUN 资源或响应配额不足。
-    ResourceLimit = 5,
-    /// 旧 TUN 会话或资源状态不允许操作。
-    InvalidState = 6,
-    /// 旧 TUN 操作取消。
-    Cancelled = 7,
-    /// 旧 TUN 合并的网络、DNS、TLS 或处理失败；新协议不丢失细分类别。
-    ProcessingFailed = 8,
-    /// 旧 TUN 的拒绝；新协议区分策略拒绝与 XUDP 协议约束违反。
-    Rejected = 9,
-    /// 旧 TUN 合并的 DNS 与网络超时；新协议保留原错误类别。
-    Timeout = 10,
-    /// 接收队列暂时为空，不是执行错误。
+    /// 接收队列暂时为空，不属于错误代码。
     Empty = 11,
 }
-impl LegacyAbiStatus {
+impl AbiStatus {
     pub const fn value(self) -> i32 {
         self as i32
-    }
-}
-impl Error {
-    /// 仅兼容旧数值协议；新的代码始终使用 code() 的唯一权威映射。
-    pub const fn legacy_tun_status(self) -> LegacyAbiStatus {
-        match self {
-            Self::Unsupported => LegacyAbiStatus::Unsupported,
-            Self::Internal => LegacyAbiStatus::Internal,
-            Self::InvalidInput => LegacyAbiStatus::InvalidInput,
-            Self::ResourceLimit => LegacyAbiStatus::ResourceLimit,
-            Self::InvalidState => LegacyAbiStatus::InvalidState,
-            Self::Cancelled => LegacyAbiStatus::Cancelled,
-            Self::Rejected | Self::ProtocolViolation => LegacyAbiStatus::Rejected,
-            Self::NetworkTimeout | Self::DnsTimeout => LegacyAbiStatus::Timeout,
-            Self::Network
-            | Self::DnsResponse
-            | Self::DnsValidation
-            | Self::FakeIpUnavailable
-            | Self::Tls
-            | Self::Certificate
-            | Self::Script
-            | Self::ScriptTimeout => LegacyAbiStatus::ProcessingFailed,
-        }
     }
 }
 /// 零只表示同线程目前没有失败，不登记为一个错误代码。

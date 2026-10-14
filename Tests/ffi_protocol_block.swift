@@ -21,14 +21,14 @@ struct ProtocolBlockFFICheck {
     packet.append(Data(repeating: 0, count: 17))
     do { try client.write(packet, id: opened.id)
       throw NativeClientError.boundary
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     if let path = ProcessInfo.processInfo.environment["FLUXA_QUIC_PACKET_BIN"] {
       let input = try Data(contentsOf: URL(fileURLWithPath: path))
       guard input.count == 1200 else { throw NativeClientError.boundary }
       let actual = try client.openRouted(target)
       do { try client.write(input, id: actual.id)
         throw NativeClientError.boundary
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
     }
     try client.closeAll()
     for _ in 0 ..< 40 {

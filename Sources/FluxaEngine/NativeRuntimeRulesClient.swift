@@ -81,7 +81,9 @@ public struct NativeRuntimeRulesJob: Decodable, Sendable {
   public let version: UInt64?
   public let directorySynced: Bool?
   public let error: String?
+  public let errorInfo: NativeKernelError?
   enum CodingKeys: String, CodingKey {
+    case errorInfo = "error_info"
     case id, phase, version, error
     case directorySynced = "directory_synced"
   }
@@ -145,7 +147,7 @@ public final class NativeRuntimeRulesClient: Sendable {
   public func update(inputFile: URL) async throws -> NativeRuntimeRulesSummary {
     let job =
       try await Task
-      .detached(priority: .utility) { try self.beginUpdate(inputFile: inputFile) }.value
+        .detached(priority: .utility) { try self.beginUpdate(inputFile: inputFile) }.value
     return try await waitForJob(id: job.id)
   }
 

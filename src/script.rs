@@ -166,7 +166,10 @@ mod tests {
         let leases: Vec<_> = (0..4).map(|_| HEAPS.reserve(MAX_HEAP).unwrap()).collect();
         assert_eq!(
             execute("input=>input", &Json::Null),
-            Err(Error::ResourceLimit)
+            Err(Error::ResourceBudgetExceeded {
+                actual: MAX_HEAP as u64,
+                limit: (4 * MAX_HEAP) as u64
+            })
         );
         drop(leases);
         assert_eq!(execute("input=>input", &Json::Null).unwrap(), Json::Null);

@@ -64,8 +64,8 @@ v2.2.1 修复普通 API 与 TUN 地址池的交叉复用，历史地址退役、
 
 ## 统一整数错误协议
 
-错误类型与公开代码集中在 `src/error.rs`；代码是显式固定的 `u16`，每项有中文注释，不按枚举顺序推导，不用字符串识别。`Error::public_info()` 返回 2 字节固定对象；JSON 中 code 是整数，params 当前为空对象。完整语义、源码、Schema、兼容性及实际后果见 [错误代码查询表](错误代码查询表.md)。
+错误类型与公开代码集中在 `src/error.rs`；代码是显式固定的 `u16`，每项有中文注释，不按枚举顺序推导，不用字符串识别。`Error::public_info()` 返回无堆分配的有界上下文对象；JSON 中 code 为四位整数，前两位类别、后两位具体错误。必需上下文按登记 Schema 提供，不能全部置空。完整语义、源码、Schema、兼容性及实际后果见 [错误代码查询表](错误代码查询表.md)。
 
-C ABI v1 数值与旧 JSON 保持兼容；`fluxa_engine_command_v2` 显式返回结构化字段，`fluxa_engine_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
+按用户要求全部已有接口统一新方案，ABI 版本为 2，旧错误编号不再兼容；command 与 `fluxa_engine_command_v2` 均返回结构化字段，`fluxa_engine_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
 
-运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，审查边界见 [ErrorSystemReview.md](ErrorSystemReview.md)。开发强制遵循 [错误体系规范](Rust网络代理内核统一错误代码体系设计、实现与审查.md)。
+运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，审查边界见 [ErrorReworkReview.md](ErrorReworkReview.md)。开发强制遵循 [错误体系规范](错误代码体系设计.md)。

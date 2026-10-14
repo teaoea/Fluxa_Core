@@ -25,7 +25,7 @@ struct DNSServiceFFICheck {
     do {
       try server.configure(configuration)
       preconditionFailure("监听期间不能静默替换配置")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     try checkClients(port: started.port)
     let status = try server.serviceStatus()
     precondition(status.running && status.queries >= 4)
@@ -82,7 +82,7 @@ struct DNSServiceFFICheck {
     do {
       _ = try downstream.query(name: "fake.test")
       preconditionFailure("关闭后端口不应继续服务")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     try downstream.close()
   }
 

@@ -20,6 +20,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             row.status
         ));
     }
+    document.push_str("\n## 参数 Schema 明细\n\n| 代码 | 参数 | 类型 | 必填 | 可空 | 最小值或长度 | 最大值或长度 | 业务含义 | 安全限制 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    for row in &contracts {
+        for p in row.parameters {
+            document.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                row.code,
+                p.name,
+                p.kind,
+                p.required,
+                p.nullable,
+                p.minimum,
+                p.maximum,
+                p.meaning,
+                p.safety
+            ));
+        }
+    }
     match std::env::args().nth(1).as_deref() {
         Some("--write") => {
             std::fs::write("Documentation/error-codes.json", json)?;

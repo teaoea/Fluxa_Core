@@ -1,18 +1,34 @@
 import Foundation
 #if canImport(FluxaCore)
-import FluxaCore
+  import FluxaCore
 #endif
 #if canImport(libfluxa_core)
-import libfluxa_core
+  import libfluxa_core
 #endif
+
+/// 直接保留内核整数协议及上下文，不根据错误文本推断类型。
+public struct NativeKernelError: Error, Decodable, Sendable {
+  public let code: UInt16
+  public let params: NativeKernelErrorParams
+}
+
+/// 参数来自受限 Schema，不保存任意 JSON 或完整底层错误链。
+public struct NativeKernelErrorParams: Decodable, Sendable {
+  public let field: String?
+  public let actual: UInt64?
+  public let limit: UInt64?
+  public let expected: UInt64?
+}
 
 public enum NativeClientError: LocalizedError {
   case unavailable, boundary, rejected(String)
+  case kernel(NativeKernelError)
   public var errorDescription: String? {
     switch self {
     case .unavailable: "此平台尚未链接所需的 Rust 引擎能力。"
     case .boundary: "Rust FFI 响应无效或超过资源上限。"
     case let .rejected(message): message
+    case let .kernel(error): "内核错误代码：\(error.code)"
     }
   }
 }
@@ -41,6 +57,7 @@ struct NativeCommandReply: Decodable {
   let scriptResultJSON: String?
   let success: Bool
   let error: String?
+  let errorInfo: NativeKernelError?
   let status: Int?
   let headers: [NativeHeader]
   let body: String
@@ -54,6 +71,7 @@ struct NativeCommandReply: Decodable {
   enum CodingKeys: String, CodingKey {
     case success, error, status, headers, body, geoip, address
     case port, capture
+    case errorInfo = "error_info"
     case subscriptionRulesCount = "subscription_rules_count"
     case subscriptionRules = "subscription_rules"
     case subscriptionSchedule = "subscription_schedule"
@@ -88,20 +106,20 @@ final class NativeCommandClient: Sendable {
 
   init(requiredCapabilities: UInt64) throws {
     #if canImport(libfluxa_core)
-    guard fluxa_engine_abi_version() == 1,
-          fluxa_engine_capabilities() & requiredCapabilities == requiredCapabilities
-    else { throw NativeClientError.unavailable }
-    let value = fluxa_engine_create()
-    guard value != 0 else { throw NativeClientError.boundary }
-    handle = value
+      guard fluxa_engine_abi_version() == 2,
+            fluxa_engine_capabilities() & requiredCapabilities == requiredCapabilities
+      else { throw NativeClientError.unavailable }
+      let value = fluxa_engine_create()
+      guard value != 0 else { throw NativeClientError.boundary }
+      handle = value
     #else
-    throw NativeClientError.unavailable
+      throw NativeClientError.unavailable
     #endif
   }
 
   deinit {
     #if canImport(libfluxa_core)
-    _ = fluxa_engine_destroy(handle)
+      _ = fluxa_engine_destroy(handle)
     #endif
   }
 
@@ -130,56 +148,76 @@ final class NativeCommandClient: Sendable {
   /// 数据面只传二进制，借用限于同步调用，不经过 JSON 或 Base64。
   func submitTunPacket(_ packet: Data, mappingGeneration: UInt64?) throws {
     #if canImport(libfluxa_core)
-    guard !packet.isEmpty, packet.count <= 9000 else { throw NativeClientError.boundary }
-    let status = packet.withUnsafeBytes {
-      fluxa_engine_tun_submit(
-        handle,
-        $0.bindMemory(to: UInt8.self).baseAddress,
-        $0.count,
-        mappingGeneration ?? 0
-      )
-    }
-    try checkTunStatus(status)
+      guard !packet.isEmpty, packet.count <= 9000 else { throw NativeClientError.boundary }
+      let status = packet.withUnsafeBytes {
+        fluxa_engine_tun_submit(
+          handle,
+          $0.bindMemory(to: UInt8.self).baseAddress,
+          $0.count,
+          mappingGeneration ?? 0
+        )
+      }
+      try checkTunStatus(status)
     #else
-    throw NativeClientError.unavailable
+      throw NativeClientError.unavailable
     #endif
   }
 
   func receiveTunPacket() throws -> Data? {
     #if canImport(libfluxa_core)
-    var buffer: UInt64 = 0
-    let status = fluxa_engine_tun_receive(handle, &buffer)
-    if status == 11 {
-      return nil
-    }
-    try checkTunStatus(status)
-    guard buffer != 0 else { throw NativeClientError.boundary }
-    defer { _ = fluxa_engine_destroy(buffer) }
-    let length = fluxa_engine_buffer_length(buffer)
-    guard length > 0, length <= 9000 else { throw NativeClientError.boundary }
-    var packet = Data(count: length)
-    let copied = packet.withUnsafeMutableBytes {
-      fluxa_engine_buffer_copy(buffer, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
-    }
-    guard copied == length else { throw NativeClientError.boundary }
-    return packet
+      var buffer: UInt64 = 0
+      let status = fluxa_engine_tun_receive(handle, &buffer)
+      if status == 11 {
+        return nil
+      }
+      try checkTunStatus(status)
+      guard buffer != 0 else { throw NativeClientError.boundary }
+      defer { _ = fluxa_engine_destroy(buffer) }
+      let length = fluxa_engine_buffer_length(buffer)
+      guard length > 0, length <= 9000 else { throw NativeClientError.boundary }
+      var packet = Data(count: length)
+      let copied = packet.withUnsafeMutableBytes {
+        fluxa_engine_buffer_copy(buffer, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
+      }
+      guard copied == length else { throw NativeClientError.boundary }
+      return packet
     #else
-    throw NativeClientError.unavailable
+      throw NativeClientError.unavailable
     #endif
   }
 
+  #if canImport(libfluxa_core)
+    /// 在失败的同步线程、后续 ABI 操作前读取；固定 512 字节上限。
+    private func readKernelError() throws -> NativeKernelError? {
+      var bytes = Data(count: 512)
+      let length = bytes.withUnsafeMutableBytes {
+        fluxa_engine_last_error_copy($0.bindMemory(to: UInt8.self).baseAddress, $0.count)
+      }
+      if length == 0 {
+        return nil
+      }
+      guard length <= bytes.count else { throw NativeClientError.boundary }
+      return try JSONDecoder().decode(NativeKernelError.self, from: bytes.prefix(length))
+    }
+  #endif
+
   private func checkTunStatus(_ status: Int32) throws {
     guard status != 0 else { return }
+    #if canImport(libfluxa_core)
+      if let info = try readKernelError() {
+        throw NativeClientError.kernel(info)
+      }
+    #endif
     let message = switch status {
-    case 1: "TUN 引擎句柄无效。"
-    case 2: "TUN 请求的协议或出站尚未支持。"
-    case 4: "TUN 数据包不合法。"
-    case 5: "TUN 超过资源或并发上限。"
-    case 6: "TUN 会话未打开或已关闭。"
-    case 7: "TUN 操作已取消。"
-    case 8: "TUN 网络或 DNS 处理失败。"
-    case 9: "TUN 请求被规则拒绝。"
-    case 10: "TUN 网络操作超时。"
+    case 1201: "TUN 引擎句柄无效。"
+    case 1002: "TUN 请求的协议或出站尚未支持。"
+    case 1001: "TUN 数据包不合法。"
+    case 8001, 8002: "TUN 超过资源或并发上限。"
+    case 9001: "TUN 会话未打开或已关闭。"
+    case 9002: "TUN 操作已取消。"
+    case 5002, 5003, 5004, 6001, 6003: "TUN 网络或 DNS 处理失败。"
+    case 1101: "TUN 请求被规则拒绝。"
+    case 5001, 6002: "TUN 网络操作超时。"
     default: "TUN 内部资源错误。"
     }
     throw NativeClientError.rejected(message)
@@ -187,27 +225,39 @@ final class NativeCommandClient: Sendable {
 
   func command(_ command: [String: Any]) throws -> NativeCommandReply {
     #if canImport(libfluxa_core)
-    let request = try JSONSerialization.data(withJSONObject: command)
-    guard request.count <= 12 * 1024 * 1024 else { throw NativeClientError.boundary }
-    // 借用范围覆盖整个同步调用；Rust 不保存 Swift 缓冲区指针。
-    let responseHandle = request.withUnsafeBytes {
-      fluxa_engine_command(handle, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
-    }
-    guard responseHandle != 0 else { throw NativeClientError.boundary }
-    defer { _ = fluxa_engine_destroy(responseHandle) }
-    let length = fluxa_engine_buffer_length(responseHandle)
-    guard length > 0, length <= 24 * 1024 * 1024 else { throw NativeClientError.boundary }
-    var bytes = Data(count: length)
-    // 目标由 Swift 拥有，容量准确，复制结束后不保留任何借用。
-    let copied = bytes.withUnsafeMutableBytes {
-      fluxa_engine_buffer_copy(responseHandle, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
-    }
-    guard copied == length else { throw NativeClientError.boundary }
-    let reply = try JSONDecoder().decode(NativeCommandReply.self, from: bytes)
-    guard reply.success else { throw NativeClientError.rejected(reply.error ?? "Rust 请求失败。") }
-    return reply
+      let request = try JSONSerialization.data(withJSONObject: command)
+      guard request.count <= 12 * 1024 * 1024 else { throw NativeClientError.boundary }
+      // 借用范围覆盖整个同步调用；Rust 不保存 Swift 缓冲区指针。
+      let responseHandle = request.withUnsafeBytes {
+        fluxa_engine_command(handle, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
+      }
+      guard responseHandle != 0 else {
+        if let info = try readKernelError() {
+          throw NativeClientError.kernel(info)
+        }
+        throw NativeClientError.boundary
+      }
+      defer { _ = fluxa_engine_destroy(responseHandle) }
+      let length = fluxa_engine_buffer_length(responseHandle)
+      guard length > 0, length <= 24 * 1024 * 1024 else { throw NativeClientError.boundary }
+      var bytes = Data(count: length)
+      // 目标由 Swift 拥有，容量准确，复制结束后不保留任何借用。
+      let copied = bytes.withUnsafeMutableBytes {
+        fluxa_engine_buffer_copy(
+          responseHandle,
+          $0.bindMemory(to: UInt8.self).baseAddress,
+          $0.count
+        )
+      }
+      guard copied == length else { throw NativeClientError.boundary }
+      let reply = try JSONDecoder().decode(NativeCommandReply.self, from: bytes)
+      guard reply.success else {
+        guard let info = reply.errorInfo else { throw NativeClientError.boundary }
+        throw NativeClientError.kernel(info)
+      }
+      return reply
     #else
-    throw NativeClientError.unavailable
+      throw NativeClientError.unavailable
     #endif
   }
 }

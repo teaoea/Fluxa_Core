@@ -91,7 +91,7 @@ impl Session {
             let seconds = row
                 .lifetime_seconds
                 .filter(|v| (1..=MAX_LIFETIME_SECONDS).contains(v))
-                .ok_or(Error::InvalidInput)?;
+                .ok_or(Error::DebugInvalidLifetime(row.lifetime_seconds))?;
             let expires_at = unix_now.checked_add(seconds).ok_or(Error::InvalidInput)?;
             let deadline = now
                 .checked_add(Duration::from_secs(seconds))
@@ -126,7 +126,7 @@ impl Session {
         });
         let mut state = self.state.write().map_err(|_| Error::Internal)?;
         if state.closed {
-            return Err(Error::InvalidState);
+            return Err(Error::DebugSessionClosed);
         }
         state.active = if compiled
             .entries
@@ -143,7 +143,7 @@ impl Session {
     pub fn clear(&self) -> Result<()> {
         let mut state = self.state.write().map_err(|_| Error::Internal)?;
         if state.closed {
-            return Err(Error::InvalidState);
+            return Err(Error::DebugSessionClosed);
         }
         state.active = None;
         Ok(())
@@ -157,7 +157,7 @@ impl Session {
     pub fn status(&self) -> Result<Status> {
         let mut state = self.state.write().map_err(|_| Error::Internal)?;
         if state.closed {
-            return Err(Error::InvalidState);
+            return Err(Error::DebugSessionClosed);
         }
         let result = Self::status_of(&state, Instant::now())?;
         // 到期即不再匹配；下一次 API 访问释放会话持有的全过期方案。

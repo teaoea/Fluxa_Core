@@ -8,8 +8,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let error = Error::ResourceLimit;
     let info = error.public_info();
     assert_eq!(info.code, ErrorCode::ResourceLimit);
-    assert_eq!(info.code.value(), 1006);
-    assert_eq!(std::mem::size_of_val(&info), 2);
+    assert_eq!(info.code.value(), 8001);
+    assert!(std::mem::size_of_val(&info) <= 128);
     println!("{}", serde_json::to_string(&info)?);
     // 旧结构体字面量新增这一项；成功时填 None，失败填真实 Error 的结构化对象。
     let job = Job {
@@ -28,8 +28,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut capture = Capture::new();
     capture.error = Some(Error::Rejected.to_string());
     capture.error_info = Some(Error::Rejected.public_info());
-    let decoded = ErrorInfo::from_json(info.code.json_bytes())?;
+    let decoded = ErrorInfo::from_json(info.code.json_bytes().expect("无参数错误有固定 JSON"))?;
     assert_eq!(decoded, info);
+    let failure = Error::DebugInvalidLifetime(None).public_info();
+    assert_eq!(
+        serde_json::to_string(&failure)?,
+        r#"{"code":4001,"params":{"actual":null,"limit":3600}}"#
+    );
+    assert_eq!(
+        ErrorInfo::from_json(&serde_json::to_vec(&failure)?)?,
+        failure
+    );
     println!("整数分类、结构化往返与 Job/Capture 字段迁移通过；无真实网络或系统隧道验证。");
     Ok(())
 }

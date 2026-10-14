@@ -1155,7 +1155,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
             vec![source("dense", Layer::Local, dense)],
             1
         ),
-        Err(Error::ResourceLimit)
+        Err(Error::ResourceBudgetExceeded {actual,limit:536_870_912}) if actual>536_870_912
     ));
     let too_many = (0..100_001)
         .map(|_| rule(Match::Domain, "example.com", Policy::Direct))

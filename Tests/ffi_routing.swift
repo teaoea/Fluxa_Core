@@ -81,6 +81,6 @@ struct RoutingFFICheck {
   private static func expectRejection(_ operation: () throws -> Void) throws {
     do { try operation()
       preconditionFailure("应明确拒绝，不能伪造连接或回退直连")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
   }
 }

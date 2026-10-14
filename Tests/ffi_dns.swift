@@ -70,7 +70,7 @@ struct DNSFFICheck {
       do {
         _ = try client.query(name: "example.test")
         preconditionFailure("关闭后不能查询")
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
     }
     try checkFakeIP(server: servers[0])
     let validator = try NativeDNSClient()
@@ -82,7 +82,7 @@ struct DNSFFICheck {
     do {
       let forged = try validator.query(name: "ad-only.example.test")
       precondition(forged.validation != "secure", "不能相信未验证的 AD 标记")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     try validator.close()
     for _ in 0 ..< 100 {
       let client = try NativeDNSClient()
@@ -108,7 +108,7 @@ struct DNSFFICheck {
     _ = try client.query(name: "second.test")
     do { _ = try client.query(name: "overflow.test")
       preconditionFailure("不能超过容量")
-    } catch NativeClientError.rejected {}
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
     try client.resetFakeIP()
     let old = try client.reverseFakeIP(address: first.addresses[0])
     precondition(old == nil)

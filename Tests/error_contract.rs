@@ -16,6 +16,14 @@ fn registered_contract_and_initial_baseline_are_complete() {
         json, registered,
         "代码、分类、参数 Schema 与机器契约必须一致"
     );
+    let published: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/error-contract-v2.json")).unwrap();
+    for entry in published.as_array().unwrap() {
+        assert!(
+            registered.as_array().unwrap().contains(entry),
+            "新方案已登记语义不得静默删除、修改或复用"
+        );
+    }
     let mut seen = HashSet::new();
     let document = include_str!("../Documentation/错误代码查询表.md");
     for code in ErrorCode::ALL {
@@ -60,7 +68,24 @@ fn registered_contract_and_initial_baseline_are_complete() {
             row.status
         )));
         assert_eq!(document.matches(&format!("| `{}` |", row.code)).count(), 1);
-        let value: ErrorInfo = serde_json::from_slice(code.json_bytes()).unwrap();
+        let mut info = ErrorInfo::new(*code);
+        use libfluxa_core::error::FieldName;
+        match code {
+            ErrorCode::ConfigUnknownField | ErrorCode::ConfigDuplicateField => {
+                info.params.field = FieldName::new("debug")
+            }
+            ErrorCode::ConfigUnsupportedVersion => {
+                info.params.actual = Some(2);
+                info.params.expected = Some(1);
+            }
+            ErrorCode::DebugInvalidLifetime => info.params.limit = Some(3600),
+            ErrorCode::ResourceBudgetExceeded => {
+                info.params.actual = Some(3);
+                info.params.limit = Some(2);
+            }
+            _ => (),
+        }
+        let value: ErrorInfo = serde_json::from_slice(&serde_json::to_vec(&info).unwrap()).unwrap();
         assert_eq!(value.code, *code);
         assert_eq!(serde_json::to_value(value).unwrap()["code"], code.value());
     }
@@ -69,10 +94,15 @@ fn registered_contract_and_initial_baseline_are_complete() {
         .filter(|line| line.starts_with("| `"))
         .count();
     assert_eq!(rows, ErrorCode::ALL.len(), "文档不得虚构代码");
+    // 历史冻结记录保留用于迁移审查；用户已明确批准所有旧接口切换新方案。
+    // 检查旧业务类别没有消失，迁移不把历史记录伪装成新协议基线。
+    assert_eq!(baseline.as_array().unwrap().len(), 20);
     for old in baseline.as_array().unwrap() {
         assert!(
-            registered.as_array().unwrap().contains(old),
-            "已登记语义不得静默删除、修改或复用"
+            ErrorCode::ALL
+                .iter()
+                .any(|code| code.contract().name == old["name"].as_str().unwrap()),
+            "迁移不能丢失旧错误的业务类别"
         );
     }
 }
@@ -117,16 +147,16 @@ fn policies_errors_and_debug_lifecycle_have_independent_expected_semantics() {
         })
         .unwrap();
     assert_eq!(decision.policy, Policy::Reject);
-    assert_eq!(Error::Rejected.code().value(), 1017);
+    assert_eq!(Error::Rejected.code().value(), 1101);
     let refused: Error = std::io::Error::from(std::io::ErrorKind::ConnectionRefused).into();
-    assert_eq!(refused.code().value(), 1007);
+    assert_eq!(refused.code().value(), 6003);
     assert_ne!(refused.code(), Error::Rejected.code());
     let session = libfluxa_core::routing::debug::Session::new().unwrap();
     session.close().unwrap();
-    assert_eq!(session.clear().unwrap_err().code().value(), 1012);
-    assert_eq!(Error::DnsTimeout.code().value(), 1002);
-    assert_eq!(Error::NetworkTimeout.code().value(), 1008);
-    assert_eq!(Error::ResourceLimit.code().value(), 1006);
+    assert_eq!(session.clear().unwrap_err().code().value(), 4002);
+    assert_eq!(Error::DnsTimeout.code().value(), 5001);
+    assert_eq!(Error::NetworkTimeout.code().value(), 6002);
+    assert_eq!(Error::ResourceLimit.code().value(), 8001);
 }
 #[test]
 fn embedded_kernel_failure_survives_io_wrapper_without_sensitive_text() {
@@ -137,7 +167,7 @@ fn embedded_kernel_failure_survives_io_wrapper_without_sensitive_text() {
         "token=do-not-publish /private/key.pem",
     );
     let public = serde_json::to_string(&Error::from(secret).public_info()).unwrap();
-    assert_eq!(public, r#"{"code":1007,"params":{}}"#);
+    assert_eq!(public, r#"{"code":6001,"params":{}}"#);
     assert!(!public.contains("token") && !public.contains("private"));
 }
 
@@ -158,7 +188,10 @@ fn serialization_failure_remains_a_failure() {
 #[test]
 fn fixed_integer_protocol_has_no_string_or_heap_representation() {
     assert_eq!(std::mem::size_of::<ErrorCode>(), 2);
-    assert_eq!(std::mem::size_of::<ErrorInfo>(), 2);
+    assert!(
+        std::mem::size_of::<ErrorInfo>() <= 128,
+        "上下文固定有界且无堆指针"
+    );
     assert_eq!(ErrorCode::from_value(1001), Some(ErrorCode::InvalidInput));
     assert_eq!(ErrorCode::from_value(0), None);
     for invalid in [
@@ -194,7 +227,8 @@ fn failed_debug_replacement_keeps_the_authorized_active_rules() {
     let before = session.replace(vec![row(Some(60))], None).unwrap();
     for lifetime in [None, Some(0), Some(3601)] {
         let error = session.replace(vec![row(lifetime)], None).unwrap_err();
-        assert_eq!(error.code(), ErrorCode::InvalidInput);
+        assert_eq!(error.code(), ErrorCode::DebugInvalidLifetime);
+        assert_eq!(error.public_info().params.actual, lifetime);
         assert_eq!(session.status().unwrap().version, before.version);
     }
     let error = session.replace(vec![row(Some(60)); 257], None).unwrap_err();
@@ -258,7 +292,7 @@ async fn real_dns_deadline_and_closed_port_fail_without_policy_success() {
         )
         .await;
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), ErrorCode::Network);
+    assert_eq!(result.unwrap_err().code(), ErrorCode::NetworkConnectRefused);
 }
 
 #[test]
@@ -302,25 +336,22 @@ fn nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded() {
     assert_eq!(Error::from(std::io::Error::other(Cycle)), Error::Network);
 }
 #[test]
-fn legacy_statuses_keep_their_published_numeric_values() {
-    use libfluxa_core::error::LegacyAbiStatus;
-    assert_eq!(LegacyAbiStatus::Success.value(), 0);
-    assert_eq!(LegacyAbiStatus::InvalidHandle.value(), 1);
-    assert_eq!(LegacyAbiStatus::Unsupported.value(), 2);
-    assert_eq!(LegacyAbiStatus::Internal.value(), 3);
-    assert_eq!(LegacyAbiStatus::Empty.value(), 11);
-    for (error, status) in [
-        (Error::InvalidInput, 4),
-        (Error::ResourceLimit, 5),
-        (Error::InvalidState, 6),
-        (Error::Cancelled, 7),
-        (Error::Network, 8),
-        (Error::Rejected, 9),
-        (Error::ProtocolViolation, 9),
-        (Error::DnsTimeout, 10),
-        (Error::NetworkTimeout, 10),
+fn all_abi_failures_use_segmented_codes_and_nonerrors_remain_states() {
+    use libfluxa_core::error::AbiStatus;
+    assert_eq!(AbiStatus::Success.value(), 0);
+    assert_eq!(AbiStatus::Empty.value(), 11);
+    for (error, code) in [
+        (Error::InvalidInput, 1001),
+        (Error::ResourceLimit, 8001),
+        (Error::InvalidState, 9001),
+        (Error::Cancelled, 9002),
+        (Error::Network, 6001),
+        (Error::Rejected, 1101),
+        (Error::ProtocolViolation, 1401),
+        (Error::DnsTimeout, 5001),
+        (Error::NetworkTimeout, 6002),
     ] {
-        assert_eq!(error.legacy_tun_status().value(), status);
+        assert_eq!(error.code().value(), code);
     }
 }
 
@@ -329,23 +360,23 @@ fn every_internal_error_maps_to_the_independent_protocol_identity() {
     // 预期来自首版协议登记，不通过生产 match 或枚举下标推导。
     for (error, expected) in [
         (Error::InvalidInput, 1001),
-        (Error::DnsTimeout, 1002),
-        (Error::DnsResponse, 1003),
-        (Error::DnsValidation, 1004),
-        (Error::FakeIpUnavailable, 1005),
-        (Error::ResourceLimit, 1006),
-        (Error::Network, 1007),
-        (Error::NetworkTimeout, 1008),
-        (Error::Cancelled, 1009),
-        (Error::Tls, 1010),
-        (Error::Certificate, 1011),
-        (Error::InvalidState, 1012),
-        (Error::Unsupported, 1013),
-        (Error::Internal, 1014),
-        (Error::Script, 1015),
-        (Error::ScriptTimeout, 1016),
-        (Error::Rejected, 1017),
-        (Error::ProtocolViolation, 1020),
+        (Error::DnsTimeout, 5001),
+        (Error::DnsResponse, 5002),
+        (Error::DnsValidation, 5003),
+        (Error::FakeIpUnavailable, 5004),
+        (Error::ResourceLimit, 8001),
+        (Error::Network, 6001),
+        (Error::NetworkTimeout, 6002),
+        (Error::Cancelled, 9002),
+        (Error::Tls, 7001),
+        (Error::Certificate, 7002),
+        (Error::InvalidState, 9001),
+        (Error::Unsupported, 1002),
+        (Error::Internal, 9901),
+        (Error::Script, 1301),
+        (Error::ScriptTimeout, 1302),
+        (Error::Rejected, 1101),
+        (Error::ProtocolViolation, 1401),
     ] {
         assert_eq!(error.public_info().code.value(), expected);
     }
@@ -353,17 +384,26 @@ fn every_internal_error_maps_to_the_independent_protocol_identity() {
 #[test]
 fn invalid_config_keeps_snapshot_and_machine_failure() {
     use libfluxa_core::routing::{Match, Rule, runtime::GenerationInput, store::Store};
-    // 公开约定只登记现有通用输入类别；不凭字段名字虚构未知字段专用代码。
-    for input in [
-        "format_version: 1\nsettings: {}\nsources: []\nunknown: true\n",
-        "format_version: 1\nformat_version: 1\nsettings: {}\nsources: []\n",
-        "format_version: 999\nsettings: {}\nsources: []\n",
-        "format_version: 1\nsettings: {debug_rules: []}\nsources: []\n",
+    // 预期来自独立规范：未知、重复字段及格式版本必须拒绝并准确区分。
+    for (input, expected) in [
+        (
+            "format_version: 1\nsettings: {}\nsources: []\nunknown: true\n",
+            2002,
+        ),
+        (
+            "format_version: 1\nformat_version: 1\nsettings: {}\nsources: []\n",
+            2003,
+        ),
+        ("format_version: 999\nsettings: {}\nsources: []\n", 2004),
+        (
+            "format_version: 1\nsettings: {debug_rules: []}\nsources: []\n",
+            2002,
+        ),
     ] {
         let error = GenerationInput::from_yaml(input)
             .err()
             .expect("非法配置必须失败");
-        assert_eq!(error.code().value(), 1001);
+        assert_eq!(error.code().value(), expected);
     }
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -404,4 +444,95 @@ fn diagnostics_remain_fixed_size_and_do_not_hold_error_chains() {
     assert_eq!(records.len(), 64);
     assert!(records.iter().all(Option::is_some));
     assert!(after.saturating_sub(before) >= 128);
+}
+
+#[test]
+fn segmented_codes_have_one_category_per_prefix() {
+    // 类别表独立来自本次登记；只在验证中用算术检查分段，不生成生产编号。
+    let categories = [
+        (10, "INPUT"),
+        (20, "CONFIG"),
+        (40, "DEBUG"),
+        (50, "DNS"),
+        (60, "IO"),
+        (70, "TLS"),
+        (80, "RESOURCE"),
+        (90, "LIFECYCLE"),
+        (11, "POLICY"),
+        (12, "ABI"),
+        (13, "SCRIPT"),
+        (14, "PROTOCOL"),
+        (99, "INTERNAL"),
+    ];
+    for code in ErrorCode::ALL {
+        assert!((1000..=9999).contains(&code.value()));
+        assert_ne!(code.value() % 100, 0);
+        assert_eq!(
+            categories
+                .iter()
+                .find(|(prefix, _)| *prefix == code.value() / 100)
+                .unwrap()
+                .1,
+            code.contract().category
+        );
+    }
+}
+#[test]
+fn typed_context_is_required_bounded_and_specific_to_code() {
+    use libfluxa_core::error::FieldName;
+    for invalid in [
+        r#"{"code":2002,"params":{}}"#,
+        r#"{"code":2002,"params":{"field":null}}"#,
+        r#"{"code":2002,"params":{"field":"../../secret"}}"#,
+        r#"{"code":2002,"params":{"field":"abcdefghijklmnopqrstuvwxyzabcdefg"}}"#,
+        r#"{"code":2002,"params":{"field":"debug","field":"other"}}"#,
+        r#"{"code":4001,"params":{"limit":3600}}"#,
+        r#"{"code":4001,"params":{"actual":60,"limit":3600}}"#,
+        r#"{"code":4001,"params":{"actual":0,"limit":3601}}"#,
+        r#"{"code":8002,"params":{"actual":null,"limit":5}}"#,
+        r#"{"code":2004,"params":{"actual":1,"expected":1}}"#,
+        r#"{"code":2004,"params":{"actual":4294967296,"expected":1}}"#,
+        r#"{"code":1001,"params":{"field":null}}"#,
+        r#"{"code":1001,"params":[]}"#,
+        r#"[1001,{}]"#,
+        r#"{"code":0001,"params":{}}"#,
+    ] {
+        assert_eq!(
+            ErrorInfo::from_json(invalid.as_bytes()),
+            Err(Error::InvalidInput),
+            "{invalid}"
+        );
+    }
+    for error in [
+        Error::ConfigUnknownField(FieldName::new("debug").unwrap()),
+        Error::ConfigDuplicateField(FieldName::new("format_version").unwrap()),
+        Error::ConfigUnsupportedVersion(2),
+        Error::DebugInvalidLifetime(None),
+        Error::DebugInvalidLifetime(Some(0)),
+        Error::DebugInvalidLifetime(Some(3601)),
+        Error::ResourceBudgetExceeded {
+            actual: 1,
+            limit: 4,
+        },
+    ] {
+        let info = error.public_info();
+        let bytes = serde_json::to_vec(&info).unwrap();
+        assert!(bytes.len() <= libfluxa_core::error::MAX_ERROR_BYTES);
+        assert_eq!(ErrorInfo::from_json(&bytes).unwrap(), info);
+    }
+    assert!(serde_json::to_vec(&ErrorInfo::new(ErrorCode::ConfigUnknownField)).is_err());
+}
+#[test]
+fn debug_closed_and_yaml_syntax_return_real_failures() {
+    use libfluxa_core::routing::{debug::Session, runtime::GenerationInput};
+    let session = Session::new().unwrap();
+    session.close().unwrap();
+    assert_eq!(session.clear(), Err(Error::DebugSessionClosed));
+    assert_eq!(session.status(), Err(Error::DebugSessionClosed));
+    assert_eq!(
+        session.replace(vec![], None),
+        Err(Error::DebugSessionClosed)
+    );
+    let result = GenerationInput::from_yaml("format_version: \"unterminated");
+    assert_eq!(result.err().unwrap(), Error::ConfigYamlSyntax);
 }

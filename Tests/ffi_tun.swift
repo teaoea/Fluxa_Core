@@ -39,27 +39,27 @@ struct TunFFICheck {
         for length in 0 ..< bytes.count {
           do { _ = try client.inspect(bytes.prefix(length))
             preconditionFailure("应拒绝截断包")
-          } catch NativeClientError.rejected {}
+          } catch NativeClientError.kernel, NativeClientError.rejected {}
         }
         var corrupt = bytes
         corrupt[corrupt.count - 1] ^= 1
         do { _ = try client.inspect(corrupt)
           preconditionFailure("应拒绝校验错误")
-        } catch NativeClientError.rejected {}
+        } catch NativeClientError.kernel, NativeClientError.rejected {}
       }
       do { try client.startTunnel()
         preconditionFailure("应拒绝未实现转发")
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
       try client.close()
       try client.close()
       do { _ = try client.inspect(Data(base64Encoded: vectors[0].encoded)!)
         preconditionFailure("关闭后应拒绝")
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
     }
     for mtu in [-1, 1279, 9001] {
       do { _ = try NativeTunPacketClient(mtu: mtu)
         preconditionFailure("应拒绝无效 MTU")
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
     }
     let raw = try NativeCommandClient(requiredCapabilities: 32)
     _ = try raw.command(["operation": "packet_open", "mtu": 1500])
@@ -71,7 +71,7 @@ struct TunFFICheck {
     ] {
       do { _ = try raw.command(command)
         preconditionFailure("应拒绝无效命令")
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
     }
     _ = try raw.command(["operation": "packet_close"])
     print("Swift TUN 基础 FFI 通过：IPv4/IPv6、TCP/UDP、截断、校验、关闭及 100 次释放；转发明确未实现。")

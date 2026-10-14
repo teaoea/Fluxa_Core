@@ -11,15 +11,15 @@ struct ErrorCodeFFICheck {
         let request = Data(#"{"operation":"tun_start"}"#.utf8)
         let legacy = try command(handle: handle, request: request, structured: false)
         precondition(legacy["success"] as? Bool == false)
-        precondition(legacy["error_info"] == nil && legacy["error"] is String)
+        precondition((legacy["error_info"] as? [String: Any])?["code"] as? Int == 1002)
         let current = try command(handle: handle, request: request, structured: true)
         guard let errorInfo = current["error_info"] as? [String: Any],
               let code = errorInfo["code"] as? Int
         else { preconditionFailure("缺少整数结构化错误") }
-        precondition(code == 1013 && current["error"] == nil)
+        precondition(code == 1002 && current["error"] == nil)
         // 旧协议先验证句柄再解析 JSON；同一非法输入在不同句柄下必须准确分类。
         let malformed = Data("not-json".utf8)
-        for (target, expected) in [(UInt64(0), UInt16(1018)), (handle, UInt16(1001))] {
+        for (target, expected) in [(UInt64(0), UInt16(1201)), (handle, UInt16(1001))] {
             let response = malformed.withUnsafeBytes {
                 fluxa_engine_command(target, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
             }
@@ -39,18 +39,18 @@ struct ErrorCodeFFICheck {
         let denied = request.withUnsafeBytes {
             fluxa_engine_command_v2(handle, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
         }
-        precondition(denied == 0 && fluxa_engine_last_error_code() == 1006)
+        precondition(denied == 0 && fluxa_engine_last_error_code() == 8001)
         var untouched = [UInt8](repeating: 0xAB, count: 1)
         let required = untouched.withUnsafeMutableBufferPointer {
             fluxa_engine_last_error_copy($0.baseAddress, $0.count)
         }
         precondition(required > 1 && untouched == [0xAB])
-        precondition(fluxa_engine_last_error_code() == 1006)
+        precondition(fluxa_engine_last_error_code() == 8001)
         for response in responses {
             precondition(fluxa_engine_destroy(response) == 0)
         }
         precondition(fluxa_engine_last_error_code() == 0)
-        print("真实 Swift FFI：v1 JSON 兼容、v2 整数错误、配额耗尽仍可查询、成功清除旧错误通过。")
+        print("真实 Swift FFI：全部命令统一分段整数错误、配额耗尽仍可查询、成功清除旧错误通过。")
     }
 
     static func command(

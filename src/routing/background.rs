@@ -453,7 +453,10 @@ mod tests {
         );
         assert!(matches!(
             extra.start(Config::default(), sources(Policy::Direct)),
-            Err(Error::ResourceLimit)
+            Err(Error::ResourceBudgetExceeded {
+                actual: 1,
+                limit: 4
+            })
         ));
         for (directory, service, send, id) in running {
             send.send(()).unwrap();

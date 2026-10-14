@@ -20,7 +20,7 @@ struct ScriptFFICheck {
       do {
         _ = try client.execute(source: source, input: Data("null".utf8))
         preconditionFailure("应拒绝无效脚本")
-      } catch NativeClientError.rejected {}
+      } catch NativeClientError.kernel, NativeClientError.rejected {}
       let next = try client.execute(source: "input => input + 1", input: Data("1".utf8))
       precondition(String(data: next, encoding: .utf8) == "2")
     }
