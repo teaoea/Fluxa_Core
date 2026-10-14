@@ -336,8 +336,9 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 // 底层错误链只检查类型，最多 16 层，避免恶意循环 source 或无界遍历。
 const MAX_ERROR_SOURCE_DEPTH: usize = 16;
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
+impl Error {
+    /// 原始 I/O 分类先保留已包裹的内核原因；不同协议阶段复用，不按错误文本判断。
+    fn classify_io(error: &io::Error) -> Self {
         let mut mapped = match error.kind() {
             io::ErrorKind::TimedOut => Self::NetworkTimeout,
             // 系统明确报告内存不足时归入资源失败，不能误标成普通连接错误。
@@ -357,8 +358,56 @@ impl From<io::Error> for Error {
             }
             source = cause.source();
         }
+        mapped
+    }
+    /// TLS 阶段只归类通用 I/O；预算、取消、内部状态及协议等明确原因不能被 TLS 覆盖。
+    pub(crate) fn from_tls(error: io::Error) -> Self {
+        let mapped = Self::classify_io(&error);
+        let mapped = if mapped == Self::Network {
+            Self::Tls
+        } else {
+            mapped
+        };
         diagnostics::record_io(&error, mapped.code());
         mapped
+    }
+}
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        let mapped = Self::classify_io(&error);
+        diagnostics::record_io(&error, mapped.code());
+        mapped
+    }
+}
+#[cfg(test)]
+mod tls_mapping_tests {
+    use super::*;
+    #[test]
+    fn tls_keeps_budget_state_protocol_and_cancellation_causes() {
+        // 预期来自业务契约：改变传输层不能把资源或权限/状态原因改报为 TLS 校验。
+        for error in [
+            Error::ResourceLimit,
+            Error::Internal,
+            Error::InvalidState,
+            Error::Cancelled,
+            Error::Rejected,
+            Error::Unsupported,
+            Error::ProtocolViolation,
+        ] {
+            assert_eq!(Error::from_tls(io::Error::other(error)), error);
+        }
+        assert_eq!(
+            Error::from_tls(io::Error::from(io::ErrorKind::OutOfMemory)),
+            Error::ResourceLimit
+        );
+        assert_eq!(
+            Error::from_tls(io::Error::from(io::ErrorKind::TimedOut)),
+            Error::NetworkTimeout
+        );
+        assert_eq!(
+            Error::from_tls(io::Error::from(io::ErrorKind::InvalidData)),
+            Error::Tls
+        );
     }
 }
 pub type Result<T> = std::result::Result<T, Error>;

@@ -82,7 +82,7 @@ impl HttpsClient {
             .connect(name, socket)
             .await
             .map(|stream| Box::new(stream) as SecureStream)
-            .map_err(tls_error)
+            .map_err(Error::from_tls)
     }
     pub async fn execute(
         &self,
@@ -207,7 +207,7 @@ impl HttpsClient {
             .connect(name, socket)
             .await
             .map(|stream| Box::new(stream) as SecureStream)
-            .map_err(tls_error)
+            .map_err(Error::from_tls)
     }
     async fn open_tunnel(
         &self,
@@ -432,11 +432,4 @@ impl HttpsClient {
 }
 pub(crate) fn is_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
-}
-
-fn tls_error(error: std::io::Error) -> Error {
-    match Error::from(error) {
-        Error::Cancelled => Error::Cancelled,
-        _ => Error::Tls,
-    }
 }

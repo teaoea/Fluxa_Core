@@ -176,3 +176,7 @@ L4：证据为源码、测试文件、查询表、迁移示例、实跑命令及
 完整的实际修改范围另存 [ErrorChangedFiles.md](ErrorChangedFiles.md)，技术文档已在 Documentation，查询表的正式路径为 `/Users/klee/Documents/FLuxa_Core/Documentation/错误代码查询表.md`。
 
 最终构建缓存异常记录：补充 OutOfMemory 预期后一次增量测试仍返回旧分类；清理该 crate 构建缓存，重新编译专项及完整回归后通过。最终验收仅采用清理后的正式目录结果。SwiftFormat 与 SwiftLint strict 最新示例检查通过，0 格式差异、0 违规。
+
+## v2.3.1 TLS 传播补充审查
+
+实际源码 `https.rs::tls_error` 只保留 Cancelled，包裹的 ResourceLimit／Internal 会变成 Tls，违反真实原因传播规范。已把共用 I/O 分类集中到 error.rs，并在 HTTPS 与 MITM 的 TLS 边界复用。原编号和失败结果不变；只有泛化网络 I/O 在 TLS 阶段归类为 TLS，明确内核原因不被覆盖。独立测试以预算、状态、取消、策略、能力及协议原因作预期，系统内存不足和超时亦保持真实分类。完整 Rust 回归 211 通过、0失败、1既有远端测试忽略，严格 Clippy 通过。错误代码仍20个，首版基线语义没有修改。

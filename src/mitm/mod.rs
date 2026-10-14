@@ -261,7 +261,7 @@ async fn session(socket: TcpStream, state: &SessionState, capture: &mut Capture)
     let tls = TlsAcceptor::from(config)
         .accept(socket)
         .await
-        .map_err(|_| Error::Tls)?;
+        .map_err(Error::from_tls)?;
     if tls
         .get_ref()
         .1
