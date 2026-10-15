@@ -1,12 +1,12 @@
 //! 同一宿主会话分派 TCP/UDP；原 UDP 接口保持兼容，所有协议处理仍在 Rust。
-use super::{Packet, tcp, udp};
+use super::{Packet, ip, tcp, udp};
 use crate::{
     error::{Error, Result},
     outbound::Manager,
 };
 use serde::Deserialize;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -19,23 +19,63 @@ pub struct Session {
     udp: Arc<udp::Session>,
     tcp: tcp::Session,
     next_tcp: AtomicBool,
+    reassembly: Arc<Mutex<ip::Reassembly>>,
 }
 impl Session {
     pub fn new(manager: Arc<Manager>, options: Options) -> Result<Self> {
         options.tcp.validate()?;
         let udp = Arc::new(udp::Session::new(manager, options.udp)?);
         let tcp = tcp::Session::new(udp.clone(), options.tcp)?;
+        let reassembly = Arc::new(Mutex::new(ip::Reassembly::default()));
+        let cleanup = ip::Cleanup(reassembly.clone());
+        let mut cancel = udp.cancellation();
+        udp.spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                let canceled = tokio::select! {
+                    biased;
+                    _ = cancel.changed() => true,
+                    _ = tick.tick() => false,
+                };
+                if let Err(error) = cleanup.expire(std::time::Instant::now()) {
+                    crate::error::diagnostics::record(
+                        error,
+                        crate::error::diagnostics::DiagnosticSite::Cleanup,
+                    );
+                    break;
+                }
+                if canceled {
+                    break;
+                }
+            }
+        })?;
         Ok(Self {
+            reassembly,
             udp,
             tcp,
             next_tcp: AtomicBool::new(true),
         })
     }
     pub async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
-        let info = super::parse(bytes, self.udp.options().mtu)?;
+        let authority = self.udp.authority();
+        let input = authority.with_active(authority.identity(), || {
+            let mut table = self.reassembly.lock().map_err(|_| Error::Internal)?;
+            table.revision(self.udp.manager().network_snapshot()?.revision);
+            table.submit(
+                bytes,
+                self.udp.options().mtu,
+                generation,
+                std::time::Instant::now(),
+            )
+        })?;
+        let Some(input) = input else {
+            return Ok(());
+        };
+        let bytes = input.bytes();
+        let info = super::parse(bytes, super::MAX_MTU)?;
         match info.protocol {
             6 => self.tcp.submit(bytes, generation),
-            17 => self.udp.submit(bytes, generation).await,
+            17 => self.udp.submit_normalized(bytes, generation).await,
             _ => Err(Error::Unsupported),
         }
     }

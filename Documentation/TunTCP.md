@@ -23,7 +23,9 @@ Swift 封装及测试仅位于 Fluxa 的 `Packages/FluxaKernelBridge/`。`Native
 - 流开始捕获一致网络快照；实际出站建立后释放这份完整快照，连接保留既有必要决策。新流使用新配置。
 - 规则拒绝、DNS/映射失效、连接错误、资源不足和关闭状态按原统一错误体系报告，不降级 DIRECT。规则拒绝和技术失败保持区别。
 
-未实现：IP 分片/扩展头、紧急数据、TCP Fast Open 数据型 SYN、窗口扩大、SACK、时间戳、ECN 协商、PMTU/ICMP 处理及所有 TCP 扩展。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
+入站有界 IP 分片重组及 IPv6 扩展头处理见 [IP 重组说明](IPReassembly.md)。
+
+未实现：输出 IP 分片、紧急数据、TCP Fast Open 数据型 SYN、窗口扩大、SACK、时间戳、ECN 协商、PMTU/ICMP 处理及所有 TCP 扩展。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
 
 ## 资源预算与关闭契约
 

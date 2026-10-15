@@ -1027,6 +1027,27 @@
         "malformed_options_and_urgent_data_never_enter_state_machine",
         "deterministic_truncated_and_mutated_packets_never_panic"
       ]
+    },
+    {
+      "id": "test_tun_ip",
+      "file": "tests/test_tun_ip.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/ip.rs",
+        "src/tun/session.rs"
+      ],
+      "module": "test_tun_ip",
+      "declared_cases": [
+        "dual_stack_out_of_order_reassembly",
+        "overlap_poison_and_absolute_expiry",
+        "limits_generations_and_revision",
+        "ipv6_options_routing_and_atomic_fragment",
+        "truncation_and_mutation_never_panic",
+        "fragmented_udp_uses_real_egress_and_close_revokes_input",
+        "canceled_unpolled_cleanup_and_global_budget",
+        "malformed_headers_first_fragment_and_conflicting_metadata",
+        "ipv6_fragment_boundary_preserves_extension_constraints"
+      ]
     }
   ]
 }

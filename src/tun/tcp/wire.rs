@@ -28,7 +28,10 @@ pub struct Segment<'a> {
     pub payload: &'a [u8],
 }
 pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
-    let info = tun::parse(bytes, mtu)?;
+    if !(tun::MIN_MTU..=tun::MAX_MTU).contains(&mtu) {
+        return Err(Error::InvalidInput);
+    }
+    let info = tun::parse(bytes, tun::MAX_MTU)?;
     if info.protocol != 6 {
         return Err(Error::Unsupported);
     }

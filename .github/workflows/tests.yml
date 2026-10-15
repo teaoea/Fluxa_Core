@@ -61,7 +61,7 @@ jobs:
           rustup default 1.98.1
           cargo fetch --locked
       - name: 验证有界 TCP 单元与资源契约
-        run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR" --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session
+        run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR" --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session --suite test_tun_ip
       - name: 构建真实系统互通夹具并保留编译状态
         run: python3 Tools/test_reports.py --external test_tun_tcp_kernel --phase compile -- cargo build --locked --example tun_tcp_kernel
       - name: 独立网络命名空间真实 TCP 互通
@@ -73,5 +73,6 @@ jobs:
           name: fluxa-linux-tcp-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             tests/test_tun_tcp_*.md
+            tests/test_tun_ip.md
             /tmp/fluxa-linux-tcp-evidence/
           if-no-files-found: error

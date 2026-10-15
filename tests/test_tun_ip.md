@@ -1,0 +1,64 @@
+# 测试报告：test_tun_ip
+
+<!-- fluxa-test-report:{"command": ["/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05", "::test_tun_ip::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.18477335299758124, "status": "PASS", "discovered": ["tun::ip::test_tun_ip::canceled_unpolled_cleanup_and_global_budget", "tun::ip::test_tun_ip::dual_stack_out_of_order_reassembly", "tun::ip::test_tun_ip::fragmented_udp_uses_real_egress_and_close_revokes_input", "tun::ip::test_tun_ip::ipv6_fragment_boundary_preserves_extension_constraints", "tun::ip::test_tun_ip::ipv6_options_routing_and_atomic_fragment", "tun::ip::test_tun_ip::limits_generations_and_revision", "tun::ip::test_tun_ip::malformed_headers_first_fragment_and_conflicting_metadata", "tun::ip::test_tun_ip::overlap_poison_and_absolute_expiry", "tun::ip::test_tun_ip::truncation_and_mutation_never_panic"], "results": {"tun::ip::test_tun_ip::canceled_unpolled_cleanup_and_global_budget": "PASS", "tun::ip::test_tun_ip::dual_stack_out_of_order_reassembly": "PASS", "tun::ip::test_tun_ip::fragmented_udp_uses_real_egress_and_close_revokes_input": "PASS", "tun::ip::test_tun_ip::ipv6_fragment_boundary_preserves_extension_constraints": "PASS", "tun::ip::test_tun_ip::ipv6_options_routing_and_atomic_fragment": "PASS", "tun::ip::test_tun_ip::limits_generations_and_revision": "PASS", "tun::ip::test_tun_ip::malformed_headers_first_fragment_and_conflicting_metadata": "PASS", "tun::ip::test_tun_ip::overlap_poison_and_absolute_expiry": "PASS", "tun::ip::test_tun_ip::truncation_and_mutation_never_panic": "PASS"}, "fingerprint": "8d0f63faa3c6bfb7f633892faeb0973d2fa47ef97f19965b565f9829a57119b3", "time": "2026-10-16T04:42:49.885948+08:00", "attempt": 1, "suite": "test_tun_ip", "file": "tests/test_tun_ip.rs", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "dc82643899080011bb27af10212048f908cdf077", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+
+## 基本信息
+
+- 测试文件：`tests/test_tun_ip.rs`
+- 测试对象：src/tun/ip.rs、src/tun/session.rs
+- 执行机制：unit
+- 测试范围：本文件登记且在当前平台实际发现的全部用例
+- 实际命令：`/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05 ::test_tun_ip:: --test-threads=1`
+- 执行时间：2026-10-16T04:42:49.885948+08:00
+- 实际耗时：0.18477335299758124 秒
+- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "dc82643899080011bb27af10212048f908cdf077", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`8d0f63faa3c6bfb7f633892faeb0973d2fa47ef97f19965b565f9829a57119b3`
+- 总体状态：**PASS**
+- 原始进程退出状态：0
+
+## 实际用例与结果
+
+| 实际发现的用例 | 独立目标 | 状态 |
+| --- | --- | --- |
+| `tun::ip::test_tun_ip::canceled_unpolled_cleanup_and_global_budget` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::dual_stack_out_of_order_reassembly` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::fragmented_udp_uses_real_egress_and_close_revokes_input` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::ipv6_fragment_boundary_preserves_extension_constraints` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::ipv6_options_routing_and_atomic_fragment` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::limits_generations_and_revision` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::malformed_headers_first_fragment_and_conflicting_metadata` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::overlap_poison_and_absolute_expiry` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::ip::test_tun_ip::truncation_and_mutation_never_panic` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+
+## 执行汇总
+
+- 实际发现：9
+- 实际执行完成：9
+- 通过：9
+- 失败：0
+- 忽略/跳过：0
+- 未取得完整执行结果：0
+
+## 失败、异常与限制
+
+本次未观察到断言失败不等于不存在缺陷；平台门控的未发现用例不计通过。
+未覆盖范围以本文件实际断言和前置条件为界，不宣称全模块或全平台覆盖。
+不自动重试；若手动重跑，旧报告及原始退出结果保存在证据目录。缺少执行结果时不推定成功。
+
+## 独立 L1–L4 审查
+
+- L1：本次测试构建结果见 build 日志；格式/Clippy 等需另行记录，不自动推断通过。
+- L2：已登记用例按 Cargo 工件、发现列表与显式文件映射归属；实际结果见上表。
+- L3：未由报告生成器验证；迁移保留断言不等于原业务预期已全面证明，需独立语义审查。
+- L4：原始日志、机器结果、版本及指纹可在下述证据核对；未上传的本地证据不冒充 CI 工件。
+
+## 证据及后续事项
+
+- 原始证据：`/var/tmp/fluxa-ip-linux-compact-evidence/test_tun_ip.json`、对应 `.log`（实际存在时）。
+- CI 工件标识：`本地证据目录；未宣称已上传 CI`
+- 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
+- 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
+
+## 本轮 Linux 构建设置
+
+固定 Rust 工具链、单构建任务、`CARGO_INCREMENTAL=0`、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_PROFILE_TEST_DEBUG=0`；仅减少可重建的编译缓存，不改变断言或运行时业务预算。macOS 完整回归证据保留在 `/private/tmp/fluxa-ip-frozen-evidence`。

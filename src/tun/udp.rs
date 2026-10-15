@@ -161,20 +161,32 @@ impl SessionInner {
             tasks: Mutex::new(tokio::task::JoinSet::new()),
         })
     }
-    async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
+    async fn submit(&self, bytes: &[u8], generation: Option<u64>, normalized: bool) -> Result<()> {
         let _operation = self.authority.enter(self.authority.identity())?;
         tokio::select! {
             biased;
             _ = self.authority.canceled() => Err(Error::Cancelled),
-            result = self.submit_inner(bytes, generation) => result,
+            result = self.submit_inner(bytes, generation, normalized) => result,
         }
     }
-    async fn submit_inner(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
+    async fn submit_inner(
+        &self,
+        bytes: &[u8],
+        generation: Option<u64>,
+        normalized: bool,
+    ) -> Result<()> {
         let _submission = self
             .submit_lock
             .try_lock()
             .map_err(|_| Error::ResourceLimit)?;
-        let info = parse(bytes, self.options.mtu)?;
+        let info = parse(
+            bytes,
+            if normalized {
+                MAX_MTU
+            } else {
+                self.options.mtu
+            },
+        )?;
         if info.protocol != 17 {
             return Err(Error::Unsupported);
         }
@@ -489,7 +501,14 @@ impl Session {
         })
     }
     pub async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<()> {
-        self.inner.submit(bytes, generation).await
+        self.inner.submit(bytes, generation, false).await
+    }
+    pub(crate) async fn submit_normalized(
+        &self,
+        bytes: &[u8],
+        generation: Option<u64>,
+    ) -> Result<()> {
+        self.inner.submit(bytes, generation, true).await
     }
     pub fn receive(&self) -> Result<Option<Packet>> {
         self.inner.receive()
