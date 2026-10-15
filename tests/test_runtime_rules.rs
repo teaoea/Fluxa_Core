@@ -48,6 +48,9 @@
 //! 执行状态：由同名 Markdown 报告记录，不在源码中固化通过结论。
 
 // 产品优先级、包含裁剪和独立参考匹配器的回归测试。
+// 固定的未分配版本作为独立非法输入；不把当前生产版本当作未知版本。
+const UNSUPPORTED_CACHE_VERSION: u32 = u32::MAX;
+
 use libfluxa_core::routing::{
     Config, Match, Mode, Policy, Rule, Target, Transport,
     runtime::{Layer, Snapshot, Source},
@@ -810,7 +813,7 @@ fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
     assert_eq!(reopened.snapshot().unwrap().document(), snapshot.document());
     reopened.close().unwrap();
     let mut bytes = std::fs::read(path.join("runtime-rules.bin")).unwrap();
-    bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&UNSUPPORTED_CACHE_VERSION.to_le_bytes());
     std::fs::write(path.join("runtime-rules.bin"), bytes).unwrap();
     // 已存在二进制缓存损坏或版本未知时不能回退旧文件，伪装成最新方案。
     assert!(Store::open(&path).is_err());
@@ -843,7 +846,7 @@ fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
                 let last = bytes.len() - 1;
                 bytes[last] ^= 1;
             }
-            1 => bytes[8..12].copy_from_slice(&3u32.to_le_bytes()),
+            1 => bytes[8..12].copy_from_slice(&UNSUPPORTED_CACHE_VERSION.to_le_bytes()),
             2 => {
                 bytes.truncate(bytes.len() - 1);
             }

@@ -26,7 +26,8 @@ const PREFIX_CHILDREN_OFFSET: usize = PREFIX_LENGTH_OFFSET + WORD;
 const PREFIX_VALUES_OFFSET: usize = PREFIX_CHILDREN_OFFSET + 2 * WORD;
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
-// 固定哈希只用于内部索引，限制探测链以拒绝碰撞堆积，不让查询退化到遍历十万槽。
+// 普通精确域名表最多探测 64 次；构建触限时改用有序表和二分查询，不拒绝合法碰撞。
+// 后缀子边仍沿用自身的有界哈希准入，不借本次精确表修复放宽其他预算。
 const MAX_EXACT_PROBES: usize = 64;
 const BYTE_MASK_WORDS: usize = 4;
 const MASK_WORD_BITS: usize = 64;
@@ -125,6 +126,8 @@ pub(super) struct FlatIndex {
     _memory: Option<ByteLease>,
     ranges: [(usize, usize); SECTION_COUNT],
     roots: [u32; 2],
+    // 仅加载时识别一次布局；查询不创建索引副本或分配内存。
+    exact_sorted: bool,
     keyword_first_bytes: [u64; BYTE_MASK_WORDS],
     keyword_single_first_byte: Option<u8>,
     keyword_has_patterns: bool,
@@ -179,11 +182,12 @@ impl FlatIndex {
             _memory: memory,
             ranges,
             roots,
+            exact_sorted: false,
             keyword_first_bytes: [0; BYTE_MASK_WORDS],
             keyword_single_first_byte: None,
             keyword_has_patterns: false,
         };
-        result.validate(entries)?;
+        result.exact_sorted = result.validate(entries)?;
         let nodes = result.section(Section::KeywordNodes);
         let start = word(nodes, 0) as usize;
         let amount = word(nodes, WORD) as usize;
@@ -229,7 +233,7 @@ impl FlatIndex {
         }
         Ok(())
     }
-    fn validate(&self, entries: &[Entry]) -> Result<()> {
+    fn validate(&self, entries: &[Entry]) -> Result<bool> {
         if entries.len() > MAX_RULES {
             return Err(Error::ResourceLimit);
         }
@@ -252,26 +256,54 @@ impl FlatIndex {
         if empty == 0 {
             return Err(invalid());
         }
-        for (ordinal, row) in exact.as_chunks::<EXACT_BYTES>().0.iter().enumerate() {
+        // 有序布局是严格递增的有效行加连续空尾；旧哈希布局仍逐项验证探测可达性。
+        let mut previous = None;
+        let mut saw_empty = false;
+        let mut exact_sorted = true;
+        for row in exact.as_chunks::<EXACT_BYTES>().0 {
             if word(row, WORD) == 0 {
+                saw_empty = true;
                 continue;
             }
             let name = self.string(row, 0);
-            let mut slot = hash(name) & (slots - 1);
-            let mut found = false;
-            for _ in 0..MAX_EXACT_PROBES.min(slots) {
-                let candidate = &exact[slot * EXACT_BYTES..];
-                if word(candidate, WORD) == 0 {
-                    break;
-                }
-                if self.string(candidate, 0) == name {
-                    found = slot == ordinal;
-                    break;
-                }
-                slot = (slot + 1) & (slots - 1);
+            if saw_empty || previous.is_some_and(|value| value >= name) {
+                exact_sorted = false;
             }
-            if !found {
-                return Err(invalid());
+            previous = Some(name);
+            // 合法编号和类别不够：规则必须真的是该节点上的精确域名条件。
+            for id in candidates(row, 2 * WORD)
+                .0
+                .into_iter()
+                .filter(|id| *id != NONE)
+            {
+                if !matches!(&entries[id as usize].matcher, Matcher::Domain(value, false) if value == name)
+                {
+                    return Err(invalid());
+                }
+            }
+        }
+        if !exact_sorted {
+            for (ordinal, row) in exact.as_chunks::<EXACT_BYTES>().0.iter().enumerate() {
+                if word(row, WORD) == 0 {
+                    continue;
+                }
+                let name = self.string(row, 0);
+                let mut slot = hash(name) & (slots - 1);
+                let mut found = false;
+                for _ in 0..MAX_EXACT_PROBES.min(slots) {
+                    let candidate = &exact[slot * EXACT_BYTES..];
+                    if word(candidate, WORD) == 0 {
+                        break;
+                    }
+                    if self.string(candidate, 0) == name {
+                        found = slot == ordinal;
+                        break;
+                    }
+                    slot = (slot + 1) & (slots - 1);
+                }
+                if !found {
+                    return Err(invalid());
+                }
             }
         }
         let nodes = self.section(Section::SuffixNodes);
@@ -362,7 +394,35 @@ impl FlatIndex {
                 if length > width {
                     return Err(invalid());
                 }
+                let key = u128::from_le_bytes(
+                    row[..PREFIX_KEY_BYTES].try_into().expect("固定宽度已校验"),
+                );
+                let address_mask = if width == 32 {
+                    u128::from(u32::MAX)
+                } else {
+                    u128::MAX
+                };
+                let prefix_mask = if length == 0 {
+                    0
+                } else {
+                    (address_mask << (width - length)) & address_mask
+                };
+                // 同时拒绝 IPv4 高位越界、主机位非零及 /0 非零地址。
+                if key > address_mask || key & prefix_mask != key {
+                    return Err(invalid());
+                }
                 self.validate_candidates(row, PREFIX_VALUES_OFFSET, entries)?;
+                for id in candidates(row, PREFIX_VALUES_OFFSET)
+                    .0
+                    .into_iter()
+                    .filter(|id| *id != NONE)
+                {
+                    if !matches!(&entries[id as usize].matcher, Matcher::Network(network)
+                        if network.key() == (key, length as u8, width == 32))
+                    {
+                        return Err(invalid());
+                    }
+                }
                 for side in 0..2 {
                     let child = word(row, PREFIX_CHILDREN_OFFSET + side * WORD);
                     if child != NONE {
@@ -372,7 +432,18 @@ impl FlatIndex {
                         let target = prefixes
                             .get(child as usize * PREFIX_BYTES..(child as usize + 1) * PREFIX_BYTES)
                             .ok_or_else(invalid)?;
-                        if word(target, PREFIX_LENGTH_OFFSET) <= length {
+                        let child_length = word(target, PREFIX_LENGTH_OFFSET);
+                        let child_key = u128::from_le_bytes(
+                            target[..PREFIX_KEY_BYTES]
+                                .try_into()
+                                .expect("固定宽度已校验"),
+                        );
+                        if child_length <= length
+                            || child_length > width
+                            || length == width
+                            || child_key & prefix_mask != key
+                            || ((child_key >> (width - length - 1)) & 1) as usize != side
+                        {
                             return Err(invalid());
                         }
                     }
@@ -455,13 +526,29 @@ impl FlatIndex {
         {
             self.validate_candidates(row, 0, entries)?;
         }
-        Ok(())
+        Ok(exact_sorted)
     }
     fn exact(&self, name: &str) -> Candidates {
         let bytes = self.section(Section::Exact);
         // 空精确域名表只有一个空槽，不必计算输入哈希。
         if bytes.len() == EXACT_BYTES {
             return Candidates::default();
+        }
+        if self.exact_sorted {
+            // 空尾按大于任意有效域名处理；最多对表长做对数次比较。
+            let rows = bytes.as_chunks::<EXACT_BYTES>().0;
+            return rows
+                .binary_search_by(|row| {
+                    if word(row, WORD) == 0 {
+                        std::cmp::Ordering::Greater
+                    } else {
+                        self.string_bytes(row, 0).cmp(name.as_bytes())
+                    }
+                })
+                .map_or_else(
+                    |_| Candidates::default(),
+                    |id| candidates(&rows[id], 2 * WORD),
+                );
         }
         let mask = bytes.len() / EXACT_BYTES - 1;
         let mut slot = hash(name) & mask;
@@ -699,11 +786,11 @@ impl Builder {
         let mut memory = BUILD_MEMORY.reserve(estimate)?;
         let mut sections: [Vec<u8>; SECTION_COUNT] = std::array::from_fn(|_| Vec::new());
         let mut strings = Vec::new();
-        let mut string = |value: &str| -> Result<[u32; 2]> {
+        fn string(strings: &mut Vec<u8>, value: &str) -> Result<[u32; 2]> {
             let pair = [count(strings.len())?, count(value.len())?];
             strings.extend_from_slice(value.as_bytes());
             Ok(pair)
-        };
+        }
         let slots = (index
             .exact
             .len()
@@ -718,22 +805,52 @@ impl Builder {
                 cell.copy_from_slice(&NONE.to_le_bytes());
             }
         }
-        for (name, values) in &index.exact {
+        let mut sorted_fallback = false;
+        'hashed: for (name, values) in &index.exact {
             let mut slot = hash(name) & (slots - 1);
             let mut probes = 1;
             while word(exact, slot * EXACT_BYTES + WORD) != 0 {
                 if probes >= MAX_EXACT_PROBES {
-                    return Err(Error::ResourceLimit);
+                    sorted_fallback = true;
+                    break 'hashed;
                 }
                 slot = (slot + 1) & (slots - 1);
                 probes += 1;
             }
             let mut row = Vec::with_capacity(EXACT_BYTES);
-            for part in string(name)? {
+            for part in string(&mut strings, name)? {
                 push(&mut row, part);
             }
             put_candidates(&mut row, *values);
             exact[slot * EXACT_BYTES..(slot + 1) * EXACT_BYTES].copy_from_slice(&row);
+        }
+        if sorted_fallback {
+            // 此时字符串池只含精确域名；复用其容量，不能因切换布局保留重复字符串。
+            strings.clear();
+            // 复用已分配的精确表，不扩容、不取消探测上限。排序原地进行。
+            exact.fill(0);
+            for row in exact.as_chunks_mut::<EXACT_BYTES>().0.iter_mut() {
+                for cell in row[2 * WORD..].as_chunks_mut::<WORD>().0 {
+                    cell.copy_from_slice(&NONE.to_le_bytes());
+                }
+            }
+            for ((name, values), row) in index
+                .exact
+                .iter()
+                .zip(exact.as_chunks_mut::<EXACT_BYTES>().0.iter_mut())
+            {
+                let pair = string(&mut strings, name)?;
+                row[..WORD].copy_from_slice(&pair[0].to_le_bytes());
+                row[WORD..2 * WORD].copy_from_slice(&pair[1].to_le_bytes());
+                for (cell, value) in row[2 * WORD..]
+                    .as_chunks_mut::<WORD>()
+                    .0
+                    .iter_mut()
+                    .zip(values.0)
+                {
+                    cell.copy_from_slice(&value.to_le_bytes());
+                }
+            }
         }
         for node in &index.suffix.nodes {
             let mut children: Vec<_> = node.children.iter().collect();
@@ -775,7 +892,7 @@ impl Builder {
                         slot = (slot + 1) & (slots - 1);
                         probes += 1;
                     }
-                    let [offset, length] = string(label)?;
+                    let [offset, length] = string(&mut strings, label)?;
                     let row =
                         &mut edges[begin + slot * EDGE_BYTES..begin + (slot + 1) * EDGE_BYTES];
                     row[..WORD].copy_from_slice(&offset.to_le_bytes());
@@ -784,7 +901,7 @@ impl Builder {
                 }
             } else {
                 for (label, child) in children {
-                    for part in string(label)? {
+                    for part in string(&mut strings, label)? {
                         push(edges, part);
                     }
                     push(edges, *child);
@@ -878,6 +995,15 @@ impl Builder {
         let out = &mut sections[Section::Transports as usize];
         for values in index.transports {
             put_candidates(out, values);
+        }
+        if sorted_fallback {
+            let exact = &mut sections[Section::Exact as usize];
+            let text = |row: &[u8]| {
+                let start = word(row, 0) as usize;
+                &strings[start..start + word(row, WORD) as usize]
+            };
+            exact.as_chunks_mut::<EXACT_BYTES>().0[..index.exact.len()]
+                .sort_unstable_by(|left, right| text(left).cmp(text(right)));
         }
         sections[Section::Strings as usize] = strings;
         let total = sections.iter().try_fold(HEADER_BYTES, |sum, part| {

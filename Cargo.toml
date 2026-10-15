@@ -115,3 +115,7 @@ path = "tests/test_service_pipeline.rs"
 [[test]]
 name = "test_tun_dns"
 path = "tests/test_tun_dns.rs"
+
+[[test]]
+name = "test_flat_cache_round_trip"
+path = "tests/test_flat_cache_round_trip.rs"

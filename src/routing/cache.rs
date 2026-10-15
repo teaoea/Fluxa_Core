@@ -9,8 +9,8 @@ use std::{
     path::Path,
 };
 const MAGIC: &[u8; 8] = b"FLXARULE";
-// 新的协议候选槽位改变固定记录宽度；旧缓存必须从来源重建，不能误读。
-const VERSION: u32 = 2;
+// v3 支持精确域名碰撞后的有序布局，并加强节点语义验证；旧缓存从来源重建。
+const VERSION: u32 = 3;
 const WORD_BYTES: usize = 4;
 const VERSION_OFFSET: usize = MAGIC.len();
 const DOCUMENT_LENGTH_OFFSET: usize = VERSION_OFFSET + WORD_BYTES;

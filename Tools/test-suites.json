@@ -453,6 +453,8 @@
         "scenario_03_ipv6_zero_prefix_must_be_normalized",
         "scenario_04_child_prefix_must_belong_to_parent",
         "scenario_05_child_must_be_on_the_right_branch",
+        "normalized_child_outside_parent_is_rejected_for_both_families",
+        "prefix_address_bits_and_leaf_boundaries_are_validated",
         "scenario_06_keyword_failures_return_every_candidate",
         "scenario_07_tampered_keyword_failure_transition_is_rejected",
         "scenario_08_candidate_must_correspond_to_its_node",
@@ -462,7 +464,9 @@
         "scenario_12_retained_snapshot_is_still_counted",
         "scenario_13_incompatible_format_version_is_reported",
         "scenario_14_domain_normalization_never_misses",
-        "control_rewrite_with_recomputed_digest_still_loads"
+        "control_rewrite_with_recomputed_digest_still_loads",
+        "previous_cache_layout_requires_explicit_rebuild",
+        "collision_fallback_preserves_other_sections"
       ]
     },
     {
@@ -925,6 +929,20 @@
         "test_unrun_collection_cannot_overwrite_actual_external_result",
         "test_support_fixture_cannot_be_counted_as_passing_suite",
         "test_named_external_suites_require_actual_cases"
+      ]
+    },
+    {
+      "id": "test_flat_cache_round_trip",
+      "file": "tests/test_flat_cache_round_trip.rs",
+      "kind": "integration",
+      "target": "test_flat_cache_round_trip",
+      "sources": [
+        "src/routing/flat.rs",
+        "src/routing/cache.rs",
+        "src/routing/store.rs"
+      ],
+      "declared_cases": [
+        "cache_round_trip_preserves_independent_policy_matrix"
       ]
     }
   ]

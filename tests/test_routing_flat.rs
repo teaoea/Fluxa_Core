@@ -17,6 +17,10 @@
 //! - scenario_13_incompatible_format_version_is_reported：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - scenario_14_domain_normalization_never_misses：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - control_rewrite_with_recomputed_digest_still_loads：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - normalized_child_outside_parent_is_rejected_for_both_families：以独立构造的非法缓存及合法边界验证拒绝和匹配。
+//! - prefix_address_bits_and_leaf_boundaries_are_validated：以独立构造的非法缓存及合法边界验证拒绝和匹配。
+//! - previous_cache_layout_requires_explicit_rebuild：旧格式返回明确错误且不覆盖文件。
+//! - collision_fallback_preserves_other_sections：碰撞后其他索引区段的字符串和来源不受影响。
 //!
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
@@ -77,13 +81,10 @@ mod public_contract {
     //
     // ## 运行要求
     // 用例 11、12 依赖进程级 512 MiB 准入池，必须串行执行：
-    // `cargo test --locked --test test_routing_flat -- --test-threads=1`。
+    // `python3 Tools/test_reports.py --run --suite test_routing_flat`。
     // 默认并行时其他用例占用同一内存池，`cache::load` 会返回 `ResourceBudgetExceeded` 而污染结论。
     //
-    // ## 执行状态（2026-10-15 快照）
-    // 15 项均已实现、含有效断言且实际执行：9 通过 / 6 失败。
-    // 失败项为 01、02、03、04、05、08，表示实现未满足上述规范，属已确认缺陷而非用例错误。
-    // 实现或断言变更后必须同步刷新本行。
+    // 原六项失败的历史证据保留在 Git 历史和报告中；本次结果仅见同名报告。
 
     use libfluxa_core::error::Error;
     use libfluxa_core::routing::{
@@ -98,6 +99,8 @@ mod public_contract {
 
     // ---- 缓存文件格式（对应 src/routing/cache.rs 的常量）----
     const CACHE_FILE: &str = "runtime-rules.bin";
+    /// 本次升级前的已知旧格式，用于明确迁移拒绝而非猜测未知版本。
+    const PREVIOUS_CACHE_VERSION: u32 = 2;
     const DOCUMENT_LENGTH_OFFSET: usize = 12;
     const DIGEST_OFFSET: usize = 24;
     const DIGEST_BYTES: usize = 32;
@@ -158,7 +161,33 @@ mod public_contract {
         }
     }
 
-    fn temp_dir(tag: &str) -> PathBuf {
+    /// 临时目录独占所有权；成功或断言失败时都清理，清理失败不冒充测试成功。
+    struct TestDirectory(PathBuf);
+    impl std::ops::Deref for TestDirectory {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl AsRef<Path> for TestDirectory {
+        fn as_ref(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            if let Err(error) = std::fs::remove_dir_all(&self.0)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                if std::thread::panicking() {
+                    eprintln!("临时规则目录清理失败：{error}");
+                } else {
+                    panic!("临时规则目录清理失败：{error}");
+                }
+            }
+        }
+    }
+    fn temp_dir(tag: &str) -> TestDirectory {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "fluxa-flat-{tag}-{}-{}",
@@ -166,7 +195,7 @@ mod public_contract {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        dir
+        TestDirectory(dir)
     }
 
     /// 写出缓存并返回可继续读取的目录；`Store` 关闭后跨进程锁释放，允许再次 `open`。
@@ -311,12 +340,7 @@ mod public_contract {
 
     // ---------------------------------------------------------------- 场景 01
 
-    /// 65 个同槽合法域名不应被错误识别为真实内存资源耗尽。
-    ///
-    /// 精确域名表按 `next_power_of_two(2 × 域名数)` 取槽数；65 个域名给出 256 槽。
-    /// 构造 65 个在低 8 位哈希上同槽的合法域名，第 65 次插入会走到探测链上限。
-    #[test]
-    fn scenario_01_sixty_five_domains_in_one_slot() {
+    fn collision_names() -> Vec<String> {
         let mut buckets: HashMap<usize, Vec<String>> = HashMap::new();
         let mut chosen = None;
         for index in 0..2_000_000u32 {
@@ -329,7 +353,16 @@ mod public_contract {
                 break;
             }
         }
-        let names = chosen.expect("应能构造出 65 个同槽合法域名");
+        chosen.expect("应能构造出 65 个同槽合法域名")
+    }
+
+    /// 65 个同槽合法域名不应被错误识别为真实内存资源耗尽。
+    ///
+    /// 精确域名表按 `next_power_of_two(2 × 域名数)` 取槽数；65 个域名给出 256 槽。
+    /// 构造 65 个在低 8 位哈希上同槽的合法域名，第 65 次插入会走到探测链上限。
+    #[test]
+    fn scenario_01_sixty_five_domains_in_one_slot() {
+        let names = collision_names();
         assert_eq!(names.len(), 65);
         // 对照：取其中 64 个，槽数为 128，同槽 64 个正好等于探测链上限，必须成功。
         // 这一步证明「同槽构造」有效，失败只可能来自 65 越过上限。
@@ -366,7 +399,38 @@ mod public_contract {
             "65 个同槽合法域名应当可以构建：{:?}",
             result.err()
         );
-        let _ = store.close();
+        let snapshot = store.snapshot().unwrap();
+        for (index, name) in names.iter().enumerate() {
+            let decision = snapshot.evaluate(&target(Some(name), None)).unwrap();
+            assert_eq!(decision.policy, Policy::Direct);
+            assert_eq!(
+                decision.rule_index,
+                Some(index),
+                "合法碰撞不能漏匹配或错报规则来源"
+            );
+        }
+        assert_eq!(
+            snapshot
+                .evaluate(&target(Some("absent.example"), None))
+                .unwrap()
+                .rule_index,
+            None
+        );
+        store.close().unwrap();
+        let recovered = Store::open(&dir).unwrap();
+        for (index, name) in names.iter().enumerate() {
+            let decision = recovered
+                .snapshot()
+                .unwrap()
+                .evaluate(&target(Some(name), None))
+                .unwrap();
+            assert_eq!(
+                decision.rule_index,
+                Some(index),
+                "缓存恢复必须保留碰撞表对应关系"
+            );
+        }
+        recovered.close().unwrap();
     }
 
     // ---------------------------------------------------------------- 场景 02 / 03
@@ -478,6 +542,99 @@ mod public_contract {
             matches!(result, Err(Error::InvalidInput)),
             "子节点挂载到错误分支时必须被拒绝，实际：{result:?}"
         );
+    }
+
+    /// 父节点不是 /0，子地址本身规范合法，单独验证父子包含关系。
+    #[test]
+    fn normalized_child_outside_parent_is_rejected_for_both_families() {
+        for (section_id, networks, replacement) in [
+            (
+                SECTION_V4,
+                ["10.0.0.0/9", "10.128.0.0/9", "11.0.0.0/9", "11.128.0.0/9"],
+                u128::from(0x0c00_0000u32),
+            ),
+            (
+                SECTION_V6,
+                [
+                    "2001:db8::/33",
+                    "2001:db8:8000::/33",
+                    "2001:db9::/33",
+                    "2001:db9:8000::/33",
+                ],
+                u128::from("2001:dba::".parse::<std::net::Ipv6Addr>().unwrap()),
+            ),
+        ] {
+            let dir = temp_dir("parentcontainment");
+            write_cache(
+                &dir,
+                networks
+                    .into_iter()
+                    .map(|cidr| rule(Match::IpCidr, cidr, Policy::Direct))
+                    .collect(),
+            );
+            let result = tamper_and_reload(&dir, |bytes| {
+                let nodes = prefix_nodes(bytes, section_id);
+                let (_, _, _, children) = nodes
+                    .iter()
+                    .filter(|(_, _, _, children)| children.iter().all(|id| *id != NONE))
+                    .min_by_key(|(_, _, length, _)| *length)
+                    .unwrap();
+                let (at, _, _, grandchildren) = nodes[children[0] as usize];
+                assert!(grandchildren.iter().all(|id| *id != NONE));
+                assert!(
+                    (0..CLASSES).all(|slot| u32_at(
+                        bytes,
+                        at + PREFIX_CHILDREN_OFFSET + 2 * 4 + slot * 4
+                    ) == NONE),
+                    "必须独立测试无候选中间节点"
+                );
+                put_u128(bytes, at, replacement);
+            });
+            assert!(
+                matches!(result, Err(Error::InvalidInput)),
+                "规范合法的子网也必须属于父网段：{result:?}"
+            );
+        }
+    }
+
+    /// 直接覆盖不同于父子关系的地址主机位、IPv4 位宽及最长合法前缀边界。
+    #[test]
+    fn prefix_address_bits_and_leaf_boundaries_are_validated() {
+        for (section_id, cidr, replacement) in [
+            (SECTION_V4, "10.0.0.0/8", u128::from(0x0a00_0001u32)),
+            (
+                SECTION_V4,
+                "10.0.0.0/8",
+                (1u128 << 32) | u128::from(0x0a00_0000u32),
+            ),
+            (
+                SECTION_V6,
+                "2001:db8::/32",
+                u128::from("2001:db8::1".parse::<std::net::Ipv6Addr>().unwrap()),
+            ),
+        ] {
+            let dir = temp_dir("addressbits");
+            write_cache(&dir, vec![rule(Match::IpCidr, cidr, Policy::Reject)]);
+            let result = tamper_and_reload(&dir, |bytes| {
+                let at = prefix_nodes(bytes, section_id)[0].0;
+                put_u128(bytes, at, replacement);
+            });
+            assert!(matches!(result, Err(Error::InvalidInput)));
+        }
+        for (cidr, address) in [
+            ("192.0.2.1/32", "192.0.2.1"),
+            ("2001:db8::1/128", "2001:db8::1"),
+        ] {
+            let dir = temp_dir("leafboundary");
+            let snapshot = flat_snapshot(&dir, vec![rule(Match::IpCidr, cidr, Policy::Reject)]);
+            assert_eq!(
+                snapshot
+                    .evaluate(&target(None, Some(address)))
+                    .unwrap()
+                    .policy,
+                Policy::Reject
+            );
+        }
     }
 
     // ---------------------------------------------------------------- 场景 06
@@ -639,7 +796,7 @@ mod public_contract {
         );
         assert_eq!(decision.rule_index, Some(0));
 
-        // 打乱候选槽：类别槽即优先级映射，篡改后要么被拒绝，要么决策不得改变。
+        // 打乱候选类别槽；类别编号不是优先级，非法类别必须被拒绝且不能改变决策。
         let before = decision.policy;
         let result = tamper_and_reload(&dir, |bytes| {
             let (start, count) = section(bytes, 0);
@@ -890,5 +1047,62 @@ mod public_contract {
             matches!(result, Err(Error::InvalidInput)),
             "摘要错误必须被拒绝，实际：{result:?}"
         );
+    }
+    #[test]
+    fn previous_cache_layout_requires_explicit_rebuild() {
+        let dir = temp_dir("previousformat");
+        write_cache(
+            &dir,
+            vec![rule(Match::Domain, "blocked.example", Policy::Reject)],
+        );
+        let file = dir.join(CACHE_FILE);
+        let mut bytes = std::fs::read(&file).unwrap();
+        bytes[8..12].copy_from_slice(&PREVIOUS_CACHE_VERSION.to_le_bytes());
+        std::fs::write(&file, &bytes).unwrap();
+        assert!(matches!(reload(&dir), Err(Error::Unsupported)));
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            bytes,
+            "不支持的旧格式不能被静默覆盖或当成空规则接受"
+        );
+    }
+    /// 碰撞布局复用字符串池后，其他索引区段和缓存恢复不得指向旧偏移。
+    #[test]
+    fn collision_fallback_preserves_other_sections() {
+        let names = collision_names();
+        let mut rules: Vec<_> = names
+            .iter()
+            .map(|name| rule(Match::Domain, name, Policy::Direct))
+            .collect();
+        rules.extend([
+            rule(Match::DomainSuffix, "suffix.example", Policy::Reject),
+            rule(Match::DomainKeyword, "needle", Policy::Reject),
+            rule(Match::IpCidr, "192.0.2.0/24", Policy::Reject),
+            rule(Match::IpCidr, "2001:db8::/32", Policy::Reject),
+        ]);
+        let dir = temp_dir("collision-mixed");
+        write_cache(&dir, rules);
+        let store = Store::open(&dir).unwrap();
+        let snapshot = store.snapshot().unwrap();
+        for (id, name) in names.iter().enumerate() {
+            assert_eq!(
+                snapshot
+                    .evaluate(&target(Some(name), None))
+                    .unwrap()
+                    .rule_index,
+                Some(id)
+            );
+        }
+        for (domain, address, expected_id) in [
+            (Some("x.suffix.example"), None, 65),
+            (Some("x.needle.example"), None, 66),
+            (None, Some("192.0.2.1"), 67),
+            (None, Some("2001:db8::1"), 68),
+        ] {
+            let decision = snapshot.evaluate(&target(domain, address)).unwrap();
+            assert_eq!(decision.policy, Policy::Reject);
+            assert_eq!(decision.rule_index, Some(expected_id));
+        }
+        store.close().unwrap();
     }
 }

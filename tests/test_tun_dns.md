@@ -1,6 +1,6 @@
 # 测试报告：test_tun_dns
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-h1-session-lease/target/debug/deps/test_tun_dns-e65dbd34f62bc415", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.16752449999999897, "status": "PASS", "discovered": ["endpoint_validation_cancellation_and_ordinary_forwarding", "fake_packet_resolves_real_and_returns_original_synthetic_endpoint", "mapping_quota_wrong_owner_udp_block_and_restart", "ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides", "real_query_negative_failure_malformed_and_backpressure", "reopened_same_pool_never_reuses_old_synthetic_address", "resolver_replacement_rejects_old_generation_even_same_ranges", "synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream"], "results": {"endpoint_validation_cancellation_and_ordinary_forwarding": "PASS", "fake_packet_resolves_real_and_returns_original_synthetic_endpoint": "PASS", "mapping_quota_wrong_owner_udp_block_and_restart": "PASS", "ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides": "PASS", "real_query_negative_failure_malformed_and_backpressure": "PASS", "reopened_same_pool_never_reuses_old_synthetic_address": "PASS", "resolver_replacement_rejects_old_generation_even_same_ranges": "PASS", "synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream": "PASS"}, "fingerprint": "0fb0813b0660fe47d55383cf227eea471e18280c288066ca437365f92b9c1931", "time": "2026-10-15T18:16:48.068667+08:00", "attempt": 1, "suite": "test_tun_dns", "file": "tests/test_tun_dns.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "3d210fafdf3363f5c6ebf5c901178219ef9c33c5", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-h1-session-lease/target/debug/deps/test_tun_dns-e65dbd34f62bc415", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.16288854200000458, "status": "PASS", "discovered": ["endpoint_validation_cancellation_and_ordinary_forwarding", "fake_packet_resolves_real_and_returns_original_synthetic_endpoint", "mapping_quota_wrong_owner_udp_block_and_restart", "ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides", "real_query_negative_failure_malformed_and_backpressure", "reopened_same_pool_never_reuses_old_synthetic_address", "resolver_replacement_rejects_old_generation_even_same_ranges", "synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream"], "results": {"endpoint_validation_cancellation_and_ordinary_forwarding": "PASS", "fake_packet_resolves_real_and_returns_original_synthetic_endpoint": "PASS", "mapping_quota_wrong_owner_udp_block_and_restart": "PASS", "ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides": "PASS", "real_query_negative_failure_malformed_and_backpressure": "PASS", "reopened_same_pool_never_reuses_old_synthetic_address": "PASS", "resolver_replacement_rejects_old_generation_even_same_ranges": "PASS", "synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream": "PASS"}, "fingerprint": "53a0d8684b23090b4531725c609fe4e835b392c994fa8b0e37a5afebb2ba8d56", "time": "2026-10-15T18:50:38.813158+08:00", "attempt": 4, "suite": "test_tun_dns", "file": "tests/test_tun_dns.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f9dbdc65374da5ecea85f6a2dc49a49fcdee898", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/private/tmp/fluxa-h1-session-lease/target/debug/deps/test_tun_dns-e65dbd34f62bc415 --test-threads=1`
-- 执行时间：2026-10-15T18:16:48.068667+08:00
-- 实际耗时：0.16752449999999897 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "3d210fafdf3363f5c6ebf5c901178219ef9c33c5", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`0fb0813b0660fe47d55383cf227eea471e18280c288066ca437365f92b9c1931`
+- 执行时间：2026-10-15T18:50:38.813158+08:00
+- 实际耗时：0.16288854200000458 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f9dbdc65374da5ecea85f6a2dc49a49fcdee898", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`53a0d8684b23090b4531725c609fe4e835b392c994fa8b0e37a5afebb2ba8d56`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -53,7 +53,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-swift-split-core-evidence/test_tun_dns.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-flat-six-final-evidence/test_tun_dns.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
