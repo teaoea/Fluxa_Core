@@ -369,9 +369,6 @@ impl Resolver {
         let guard = self.resources.read().await;
         let resources = guard.as_ref().ok_or(Error::InvalidState)?;
         let inner = &resources.inner;
-        if let Some(error) = resources.runtime.fault()? {
-            return Err(error);
-        }
         let (name, kind) = validated_query(query)?;
         let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
         if synthetic && let Some(answer) = self.synthetic_answer(&name, kind)? {
@@ -445,9 +442,6 @@ impl Resolver {
                 })?
             })
             .await?;
-        if let Some(error) = resources.runtime.fault()? {
-            return Err(error);
-        }
         let mut answer = Answer {
             name,
             query_type: kind.to_string(),
