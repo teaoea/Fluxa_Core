@@ -1,0 +1,49 @@
+name: 测试与报告契约
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: fluxa-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust:
+    runs-on: macos-15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      FLUXA_TEST_EVIDENCE_DIR: /tmp/fluxa-test-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装固定 Rust 与检查组件
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.98.1
+          cargo fetch --locked
+      - name: 核验布局与静态正确性
+        run: |
+          python3 Tools/test_reports.py --check-layout
+          cargo fmt --check
+          cargo check --locked --all-targets
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: 验证报告工具的失败保全
+        run: python3 Tools/test_reports.py --external test_test_reporting -- python3 tests/test_test_reporting.py
+      - name: 真实 Rust 测试与逐文件报告
+        run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR"
+      - name: 核验错误协议
+        run: cargo run --locked --example error_contract -- --check
+      - name: 核验当前源码与报告一致
+        run: python3 Tools/test_reports.py --check-reports
+      - name: 无论成功或失败均保全原始证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxa-test-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/*.md
+            /tmp/fluxa-test-evidence/
+          if-no-files-found: error

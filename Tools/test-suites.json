@@ -1,0 +1,931 @@
+{
+  "format_version": 1,
+  "suites": [
+    {
+      "id": "test_budget",
+      "file": "tests/test_budget.rs",
+      "kind": "unit",
+      "sources": [
+        "src/budget.rs"
+      ],
+      "module": "test_budget",
+      "declared_cases": [
+        "quota_is_returned_once_and_overflow_is_rejected",
+        "budget_lifecycle_releases_quota_and_rejects_overflow",
+        "budget_invariants_hold_at_any_time"
+      ]
+    },
+    {
+      "id": "test_dns_config",
+      "file": "tests/test_dns_config.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/config.rs"
+      ],
+      "module": "test_dns_config",
+      "declared_cases": [
+        "upstream_count_must_stay_within_one_to_eight",
+        "timeout_must_stay_within_100_to_30000_ms",
+        "encrypted_and_plaintext_upstreams_cannot_mix",
+        "bootstrap_must_be_numeric_and_match_url_port",
+        "doh_url_rejects_credentials_fragment_and_non_https",
+        "endpoint_rejects_illegal_addresses",
+        "dot_server_name_must_be_a_valid_host"
+      ]
+    },
+    {
+      "id": "test_dns_fake_ip",
+      "file": "tests/test_dns_fake_ip.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/fake_ip.rs"
+      ],
+      "module": "test_dns_fake_ip",
+      "declared_cases": [
+        "retired_pool_can_expand_without_reusing_either_address_family",
+        "either_family_history_prevents_reinterpretation_after_reconfiguration",
+        "unused_retired_namespaces_do_not_consume_lifetime_quota",
+        "shared_pool_remains_active_until_last_owner_and_allocations_are_unique",
+        "active_limit_is_reclaimed_and_concurrent_shared_allocations_are_unique",
+        "fragmented_history_limit_is_atomic_and_adjacent_history_merges",
+        "range_must_stay_inside_reserved_blocks",
+        "capacity_and_exclude_are_bounded",
+        "allocation_is_stable_reversible_and_does_not_rewind",
+        "excluded_literals_and_root_are_not_mapped",
+        "capacity_limit_is_enforced"
+      ]
+    },
+    {
+      "id": "test_dns_mod",
+      "file": "tests/test_dns_mod.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/mod.rs"
+      ],
+      "module": "test_dns_mod",
+      "declared_cases": [
+        "observation_lock_failure_is_internal_not_dns_timeout"
+      ]
+    },
+    {
+      "id": "test_dns_observation",
+      "file": "tests/test_dns_observation.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/observation.rs"
+      ],
+      "module": "test_dns_observation",
+      "declared_cases": [
+        "shares_only_live_matching_configuration"
+      ]
+    },
+    {
+      "id": "test_dns_runtime",
+      "file": "tests/test_dns_runtime.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/runtime.rs"
+      ],
+      "module": "test_dns_runtime",
+      "declared_cases": [
+        "background_budget_failure_is_not_dns_timeout",
+        "historical_admission_failure_does_not_poison_new_query",
+        "same_poll_failure_cannot_be_returned_as_success",
+        "concurrent_queries_observe_event_without_clearing_each_other",
+        "task_budget_exhaustion_is_retryable_after_lease_release",
+        "revoked_runtime_cannot_recover_or_spawn",
+        "all_transports_recover_after_worker_limit"
+      ]
+    },
+    {
+      "id": "test_dns_service",
+      "file": "tests/test_dns_service.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/service.rs"
+      ],
+      "module": "test_dns_service",
+      "declared_cases": [
+        "fixed_conflict_is_not_silently_moved_and_ephemeral_pair_agrees",
+        "service_protocols_cache_negative_large_truncation_tcp_and_stop",
+        "service_dnssec_proof_fake_ip_ad_flags_and_edns_version",
+        "service_acl_rate_malformed_cancel_idle_and_ipv6",
+        "service_config_rejects_public_clients_and_implicit_lan_listen",
+        "service_failed_bind_drop_and_global_quota_release"
+      ]
+    },
+    {
+      "id": "test_error",
+      "file": "tests/test_error.rs",
+      "kind": "unit",
+      "sources": [
+        "src/error.rs"
+      ],
+      "module": "test_error",
+      "declared_cases": [
+        "tls_keeps_budget_state_protocol_and_cancellation_causes"
+      ]
+    },
+    {
+      "id": "test_ffi",
+      "file": "tests/test_ffi.rs",
+      "kind": "unit",
+      "sources": [
+        "src/ffi.rs"
+      ],
+      "module": "test_ffi",
+      "declared_cases": [
+        "invalid_internal_error_encoding_does_not_become_no_error",
+        "error_protocol_is_thread_local_and_success_clears_stale_error",
+        "error_query_remains_available_when_response_registry_is_full",
+        "legacy_validation_order_preserves_handle_before_json",
+        "failed_test_assertion_returns_owned_response_capacity",
+        "abi_rejects_invalid_and_destroyed_handles",
+        "concurrent_owners_release_their_own_handles",
+        "output_buffers_obey_budget_and_handle_type",
+        "admission_failure_keeps_tcp_bytes_and_returns_reservations",
+        "admission_failure_keeps_tun_return_packet",
+        "nested_runtime_does_not_detach_failed_http_calls"
+      ]
+    },
+    {
+      "id": "test_geoip",
+      "file": "tests/test_geoip.rs",
+      "kind": "unit",
+      "sources": [
+        "src/geoip.rs"
+      ],
+      "module": "test_geoip",
+      "declared_cases": [
+        "invalid_database_is_rejected",
+        "complete_examples_have_strict_yaml_and_disabled_geoip",
+        "bounded_diagnostic_retains_download_reason_and_correct_levels",
+        "offline_ipv4_ipv6_missing_invalid_and_file_limits",
+        "configured_url_is_strict_and_never_defaults",
+        "configured_https_download_integrity_budget_and_no_match",
+        "all_user_assigned_geoip_failure_codes_are_exact",
+        "reachable_corruption_is_rejected_and_query_fault_is_not_no_match"
+      ]
+    },
+    {
+      "id": "test_https",
+      "file": "tests/test_https.rs",
+      "kind": "unit",
+      "sources": [
+        "src/https.rs"
+      ],
+      "module": "test_https",
+      "declared_cases": [
+        "decrypts_https_request_and_response",
+        "rejects_untrusted_ca_and_wrong_hostname",
+        "handles_chunked_head_no_content_and_redirect_without_following",
+        "rejects_ambiguous_oversized_and_truncated_messages",
+        "rejects_header_injection_credentials_and_wrong_scheme",
+        "rejects_expired_certificate",
+        "decrypts_tls12_as_well_as_default_tls13"
+      ]
+    },
+    {
+      "id": "test_lifecycle_session",
+      "file": "tests/test_lifecycle_session.rs",
+      "kind": "unit",
+      "sources": [
+        "src/lifecycle/session.rs"
+      ],
+      "module": "test_lifecycle_session",
+      "declared_cases": [
+        "retained_objects_do_not_restore_revoked_rights_and_completion_waits_for_operations",
+        "invalid_identity_and_failed_cleanup_are_not_success"
+      ]
+    },
+    {
+      "id": "test_lifecycle",
+      "file": "tests/test_lifecycle.rs",
+      "kind": "unit",
+      "sources": [
+        "src/lifecycle.rs"
+      ],
+      "module": "test_lifecycle",
+      "declared_cases": [
+        "owned_resources_are_released_exactly_once",
+        "stale_handles_never_refer_to_new_instances",
+        "instance_limit_is_released_after_destroy",
+        "overflow_does_not_reuse_zero_or_old_handles"
+      ]
+    },
+    {
+      "id": "test_mitm_capture",
+      "file": "tests/test_mitm_capture.rs",
+      "kind": "unit",
+      "sources": [
+        "src/mitm/capture.rs"
+      ],
+      "module": "test_mitm_capture",
+      "declared_cases": [
+        "oldest_records_are_evicted_and_acknowledgement_is_exact"
+      ]
+    },
+    {
+      "id": "test_outbound_resources",
+      "file": "tests/test_outbound_resources.rs",
+      "kind": "unit",
+      "sources": [
+        "src/outbound/resources.rs"
+      ],
+      "module": "test_outbound_resources",
+      "declared_cases": [
+        "idle_expiry_cancels_blocked_read_and_releases_peer",
+        "datagram_activity_and_timeout_have_distinct_idle_semantics",
+        "quota_reconfiguration_preserves_live_connections_and_isolation",
+        "atomic_network_replacement_keeps_snapshot_and_live_endpoint",
+        "in_flight_dns_retains_original_network_snapshot"
+      ]
+    },
+    {
+      "id": "test_outbound_stream",
+      "file": "tests/test_outbound_stream.rs",
+      "kind": "unit",
+      "sources": [
+        "src/outbound/stream.rs"
+      ],
+      "module": "test_outbound_stream",
+      "declared_cases": [
+        "retained_stream_does_not_own_socket_after_session_close"
+      ]
+    },
+    {
+      "id": "test_outbound",
+      "file": "tests/test_outbound.rs",
+      "kind": "unit",
+      "sources": [
+        "src/outbound.rs"
+      ],
+      "module": "test_outbound",
+      "declared_cases": [
+        "tcp_duplex_half_close_and_eof_use_real_peer",
+        "udp_keeps_datagram_boundaries_zero_length_and_rejects_truncation",
+        "read_timeout_recovers_and_close_cancels_blocked_io",
+        "policy_and_invalid_targets_do_not_connect",
+        "session_limit_reclaims_resources_and_never_reuses_handles",
+        "ipv6_tcp_and_udp_reach_real_loopback_peers",
+        "tcp_write_timeout_invalidates_connection_to_prevent_duplicate_retry",
+        "latency_probe_closes_connection_without_application_data"
+      ]
+    },
+    {
+      "id": "test_platform_debug_identity",
+      "file": "tests/test_platform_debug_identity.rs",
+      "kind": "unit",
+      "sources": [
+        "src/platform/debug_identity.rs"
+      ],
+      "module": "test_platform_debug_identity",
+      "declared_cases": [
+        "private_seed_rejects_wrong_permissions_symlinks_and_wrong_size"
+      ]
+    },
+    {
+      "id": "test_protocol_crypto",
+      "file": "tests/test_protocol_crypto.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/crypto.rs"
+      ],
+      "module": "test_protocol_crypto",
+      "declared_cases": [
+        "all_suites_authenticate_records_and_key_updates"
+      ]
+    },
+    {
+      "id": "test_protocol_datagram",
+      "file": "tests/test_protocol_datagram.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/datagram.rs"
+      ],
+      "module": "test_protocol_datagram",
+      "declared_cases": [
+        "independent_response_boundaries_and_peer_constraints",
+        "invalid_session_and_peer_are_not_policy_rejects"
+      ]
+    },
+    {
+      "id": "test_protocol_fingerprint",
+      "file": "tests/test_protocol_fingerprint.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/fingerprint.rs"
+      ],
+      "module": "test_protocol_fingerprint",
+      "declared_cases": [
+        "fixed_templates_have_distinct_wire_shapes",
+        "chrome_shuffle_grease_ech_and_padding_are_bounded"
+      ]
+    },
+    {
+      "id": "test_protocol_inner_tls",
+      "file": "tests/test_protocol_inner_tls.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/inner_tls.rs"
+      ],
+      "module": "test_protocol_inner_tls",
+      "declared_cases": [
+        "fragmented_record_boundary",
+        "non_tls_does_not_enable_switch"
+      ]
+    },
+    {
+      "id": "test_protocol_quic",
+      "file": "tests/test_protocol_quic.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/quic.rs"
+      ],
+      "module": "test_protocol_quic",
+      "declared_cases": [
+        "versions_lengths_association_and_bounded_input"
+      ]
+    },
+    {
+      "id": "test_protocol_reality",
+      "file": "tests/test_protocol_reality.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/reality.rs"
+      ],
+      "module": "test_protocol_reality",
+      "declared_cases": [
+        "record_cipher_authentication_sequence_and_update"
+      ]
+    },
+    {
+      "id": "test_protocol_vision",
+      "file": "tests/test_protocol_vision.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/vision.rs"
+      ],
+      "module": "test_protocol_vision",
+      "declared_cases": [
+        "every_fragment_boundary_and_stop",
+        "bad_uuid_command_truncation_and_quota"
+      ]
+    },
+    {
+      "id": "test_protocol_vless",
+      "file": "tests/test_protocol_vless.rs",
+      "kind": "unit",
+      "sources": [
+        "src/protocol/vless.rs"
+      ],
+      "module": "test_protocol_vless",
+      "declared_cases": [
+        "address_encoding_and_flow"
+      ]
+    },
+    {
+      "id": "test_routing_background",
+      "file": "tests/test_routing_background.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/background.rs"
+      ],
+      "module": "test_routing_background",
+      "declared_cases": [
+        "queued_input_is_also_charged_to_shared_rule_pool",
+        "async_generation_keeps_connections_old_until_commit_and_bounds_workers"
+      ]
+    },
+    {
+      "id": "test_routing_debug_ipc",
+      "file": "tests/test_routing_debug_ipc.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/debug/ipc.rs"
+      ],
+      "module": "test_routing_debug_ipc",
+      "declared_cases": [
+        "handshake_preserves_real_failure_and_never_turns_error_into_success",
+        "signature_is_bound_to_session_sequence_payload_and_deadline",
+        "control_fields_are_closed_and_permissions_are_separate",
+        "oversized_frame_rejected_before_reading_body",
+        "failed_binding_does_not_activate_debug_and_audit_is_bounded",
+        "signed_os_peer_and_operation_permissions_use_real_unix_socket"
+      ],
+      "limitations": "未提供 FLUXA_DEBUG_TEST_REQUIREMENT 时，签名用例只验证未授权签名被拒绝；只有 Tools/check_debug_ipc.py 的真实签名与 Swift 对端联调才验证完整授权分支，普通 Rust PASS 不代表该分支完成。"
+    },
+    {
+      "id": "test_routing_debug",
+      "file": "tests/test_routing_debug.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/debug.rs"
+      ],
+      "module": "test_routing_debug",
+      "declared_cases": [
+        "individual_deadlines_expire_even_in_retained_views",
+        "audit_debug_not_configurable_or_persistent_and_has_quota",
+        "audit_debug_ip_waits_for_dns_before_formal_reject",
+        "audit_scoped_debug_protocol_is_not_global_and_precedes_generic_domain",
+        "audit_debug_api_overrides_reject_and_clear_restores_formal_rules",
+        "debug_closed_and_yaml_syntax_return_real_failures",
+        "failed_debug_replacement_keeps_the_authorized_active_rules",
+        "policies_errors_and_debug_lifecycle_have_independent_expected_semantics",
+        "debug_direct_overrides_formal_udp_in_actual_outbound_and_revocation_restores_it",
+        "expiry_cancels_pending_io_without_frontend_cleanup",
+        "manager_uses_one_valid_debug_owner_across_control_endpoints",
+        "debug_exception_covers_tcp_and_quic_but_clear_restores_actual_data_guard",
+        "debug_overlay_still_overrides_formal_domain_transport_reject"
+      ]
+    },
+    {
+      "id": "test_routing_flat",
+      "file": "tests/test_routing_flat.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/flat.rs"
+      ],
+      "module": "test_routing_flat",
+      "declared_cases": [
+        "scenario_01_sixty_five_domains_in_one_slot",
+        "scenario_02_ipv4_zero_prefix_must_be_normalized",
+        "scenario_03_ipv6_zero_prefix_must_be_normalized",
+        "scenario_04_child_prefix_must_belong_to_parent",
+        "scenario_05_child_must_be_on_the_right_branch",
+        "scenario_06_keyword_failures_return_every_candidate",
+        "scenario_07_tampered_keyword_failure_transition_is_rejected",
+        "scenario_08_candidate_must_correspond_to_its_node",
+        "scenario_09_same_class_candidate_order_is_preserved",
+        "scenario_10_domain_and_ip_priority",
+        "scenario_11_build_peak_stays_within_budget",
+        "scenario_12_retained_snapshot_is_still_counted",
+        "scenario_13_incompatible_format_version_is_reported",
+        "scenario_14_domain_normalization_never_misses",
+        "control_rewrite_with_recomputed_digest_still_loads"
+      ]
+    },
+    {
+      "id": "test_routing_runtime",
+      "file": "tests/test_routing_runtime.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/runtime.rs"
+      ],
+      "module": "test_routing_runtime",
+      "declared_cases": [
+        "full_value_validation_detects_provenance_and_report_changes",
+        "audit_migration_and_input_leases_are_bounded",
+        "audit_registry_uses_weak_owners_and_releases_handles",
+        "shared_pool_covers_compilation_flattening_cache_io_and_retained_snapshots",
+        "rule_class_slots_never_define_decision_priority"
+      ]
+    },
+    {
+      "id": "test_routing_store",
+      "file": "tests/test_routing_store.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/store.rs"
+      ],
+      "module": "test_routing_store",
+      "declared_cases": [
+        "cache_owned_file_roundtrip_preserves_document",
+        "cache_write_rejects_nonempty_handle_without_truncation",
+        "cache_failed_exclusive_creation_does_not_remove_existing_file",
+        "cache_symlink_swap_never_truncates_or_overwrites_target",
+        "cache_regular_file_swap_is_rejected_by_identity",
+        "cache_failed_exclusive_creation_does_not_remove_symlink",
+        "cache_rejected_update_keeps_snapshot_old_file_and_symlink_target"
+      ]
+    },
+    {
+      "id": "test_routing_yaml",
+      "file": "tests/test_routing_yaml.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/yaml.rs"
+      ],
+      "module": "test_routing_yaml",
+      "declared_cases": [
+        "duplicate_unsafe_identifier_keeps_its_real_classification"
+      ]
+    },
+    {
+      "id": "test_routing",
+      "file": "tests/test_routing.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing.rs"
+      ],
+      "module": "test_routing",
+      "declared_cases": [
+        "exact_suffix_order_and_ascii_normalization",
+        "ipv4_ipv6_prefix_boundaries_and_absent_metadata",
+        "port_range_transport_and_priority",
+        "modes_fallback_named_outbound_and_explicit_support",
+        "malformed_rules_targets_and_unknown_fields_rejected",
+        "immutable_snapshot_is_shared_without_state_between_connections",
+        "limits_and_last_owner_return_global_budget",
+        "arbitrary_short_values_do_not_panic"
+      ]
+    },
+    {
+      "id": "test_script",
+      "file": "tests/test_script.rs",
+      "kind": "unit",
+      "sources": [
+        "src/script.rs"
+      ],
+      "module": "test_script",
+      "declared_cases": [
+        "global_heap_budget_rejects_then_recovers",
+        "transforms_json_and_preserves_unicode_null_and_keys",
+        "rejects_lossy_or_executable_results",
+        "timeout_and_exception_do_not_poison_next_execution",
+        "no_ambient_io_or_state_between_calls",
+        "bounds_source_input_output_depth_and_nodes",
+        "serializer_cannot_be_replaced_by_script"
+      ]
+    },
+    {
+      "id": "test_subscription",
+      "file": "tests/test_subscription.rs",
+      "kind": "unit",
+      "sources": [
+        "src/subscription.rs"
+      ],
+      "module": "test_subscription",
+      "declared_cases": [
+        "utc_boundary_manual_and_daily_retry",
+        "resume_catches_latest_slot_once_even_before_todays_slot",
+        "manual_before_slot_does_not_suppress_later_slot",
+        "failed_or_interrupted_attempt_retries_latest_slot_with_backoff",
+        "strict_input_and_midnight",
+        "fetches_https_and_rejects_invalid_content",
+        "body_limits_precede_allocation_for_all_framings"
+      ]
+    },
+    {
+      "id": "test_tun_udp",
+      "file": "tests/test_tun_udp.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/udp.rs"
+      ],
+      "module": "test_tun_udp",
+      "declared_cases": [
+        "real_ipv4_ipv6_multiple_datagrams_and_empty_payload",
+        "reject_missing_configuration_proxy_and_invalid_packets_do_not_send",
+        "bounded_flows_idle_reuse_backpressure_and_close_release_resources",
+        "new_flows_use_new_rules_existing_flows_keep_snapshot",
+        "options_and_return_packet_limits_are_strict",
+        "fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address",
+        "oversize_response_is_an_error_and_drop_cancels_blocked_output"
+      ]
+    },
+    {
+      "id": "test_tun",
+      "file": "tests/test_tun.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun.rs"
+      ],
+      "module": "test_tun",
+      "declared_cases": [
+        "ipv4_ipv6_tcp_udp_and_odd_payloads",
+        "every_truncation_and_checksum_corruption_is_rejected",
+        "fragments_options_extensions_and_unknown_protocols_are_rejected",
+        "udp_checksum_omission_only_allowed_for_ipv4",
+        "session_bounds_close_and_rejection_do_not_change_counters",
+        "invalid_transport_lengths_and_ip_headers_are_rejected",
+        "counter_overflow_is_atomic",
+        "arbitrary_bounded_bytes_never_panic"
+      ]
+    },
+    {
+      "id": "test_dns",
+      "file": "tests/test_dns.rs",
+      "kind": "integration",
+      "sources": [
+        "src/dns/mod.rs"
+      ],
+      "target": "test_dns",
+      "declared_cases": [
+        "udp_tcp_dot_doh_cname_aaaa_and_records",
+        "positive_negative_cache_ttl_zero_expiry_clear_and_isolation",
+        "timeout_wrong_transaction_and_failure_recovery",
+        "encrypted_certificate_and_name_failure_never_downgrade",
+        "invalid_config_names_and_mixed_security_are_rejected",
+        "explicit_upstream_failover_query_type_and_resource_validation",
+        "dnssec_signed_root_valid_tampered_expired_and_untrusted",
+        "fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse",
+        "fake_ip_range_alignment_capacity_and_exhaustion",
+        "fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec",
+        "fake_ip_concurrent_reuse_is_unique_and_reversible"
+      ]
+    },
+    {
+      "id": "test_error_contract",
+      "file": "tests/test_error_contract.rs",
+      "kind": "integration",
+      "sources": [
+        "src/error.rs"
+      ],
+      "target": "test_error_contract",
+      "declared_cases": [
+        "registered_contract_and_initial_baseline_are_complete",
+        "strict_error_schema_rejects_unregistered_or_unbounded_data",
+        "embedded_kernel_failure_survives_io_wrapper_without_sensitive_text",
+        "serialization_failure_remains_a_failure",
+        "fixed_integer_protocol_has_no_string_or_heap_representation",
+        "real_dns_deadline_and_closed_port_fail_without_policy_success",
+        "nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded",
+        "all_abi_failures_use_segmented_codes_and_nonerrors_remain_states",
+        "every_internal_error_maps_to_the_independent_protocol_identity",
+        "invalid_config_keeps_snapshot_and_machine_failure",
+        "diagnostics_remain_fixed_size_and_do_not_hold_error_chains",
+        "segmented_codes_have_one_category_per_prefix",
+        "typed_context_is_required_bounded_and_specific_to_code",
+        "safety_filter_preserves_unknown_and_duplicate_classification"
+      ]
+    },
+    {
+      "id": "test_fake_ip_lifecycle",
+      "file": "tests/test_fake_ip_lifecycle.rs",
+      "kind": "integration",
+      "sources": [
+        "src/dns/fake_ip.rs",
+        "src/tun/udp.rs"
+      ],
+      "target": "test_fake_ip_lifecycle",
+      "declared_cases": [
+        "retired_fake_ip_range_can_expand_and_reopen_tun"
+      ]
+    },
+    {
+      "id": "test_fixture_dns",
+      "file": "tests/test_fixture_dns.rs",
+      "kind": "fixture",
+      "sources": [],
+      "declared_cases": []
+    },
+    {
+      "id": "test_fixture_dnssec",
+      "file": "tests/test_fixture_dnssec.rs",
+      "kind": "fixture",
+      "sources": [],
+      "declared_cases": []
+    },
+    {
+      "id": "test_fixture_geoip",
+      "file": "tests/test_fixture_geoip.rs",
+      "kind": "fixture",
+      "sources": [],
+      "declared_cases": []
+    },
+    {
+      "id": "test_fixture_https",
+      "file": "tests/test_fixture_https.rs",
+      "kind": "fixture",
+      "sources": [],
+      "declared_cases": []
+    },
+    {
+      "id": "test_mitm",
+      "file": "tests/test_mitm.rs",
+      "kind": "integration",
+      "sources": [
+        "src/mitm/mod.rs"
+      ],
+      "target": "test_mitm",
+      "declared_cases": [
+        "intercepts_real_tls_and_captures_both_bodies",
+        "unselected_host_keeps_original_tls_certificate",
+        "rejects_upstream_and_downstream_untrusted_certificates",
+        "disabled_body_capture_preserves_lengths_without_payloads",
+        "stop_closes_active_connections_and_releases_listener",
+        "restores_ca_and_rejects_mismatched_or_non_ca_identity",
+        "rejects_cross_host_request_and_accepts_chunked_request_body",
+        "rejects_wildcards_and_preserves_head_and_redirect"
+      ]
+    },
+    {
+      "id": "test_outbound_dns",
+      "file": "tests/test_outbound_dns.rs",
+      "kind": "integration",
+      "sources": [
+        "src/dns/mod.rs",
+        "src/routing/runtime.rs"
+      ],
+      "target": "test_outbound_dns",
+      "declared_cases": [
+        "all_dns_transports_feed_real_tcp_and_reuse_cache",
+        "family_fallback_and_udp_use_configured_records",
+        "rejected_policy_synthetic_and_negative_answers_never_connect",
+        "total_deadline_and_close_all_cancel_pending_dns",
+        "dnssec_failure_cannot_reach_outbound",
+        "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns"
+      ]
+    },
+    {
+      "id": "test_outbound_fake_ip",
+      "file": "tests/test_outbound_fake_ip.rs",
+      "kind": "integration",
+      "sources": [
+        "src/dns/mod.rs",
+        "src/routing/runtime.rs"
+      ],
+      "target": "test_outbound_fake_ip",
+      "declared_cases": [
+        "both_fake_families_restore_domain_and_use_real_dns_cache",
+        "reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connections",
+        "unknown_mapping_and_rejected_policies_do_not_send_dns_or_connect",
+        "fake_mapping_does_not_bypass_dnssec_validation"
+      ]
+    },
+    {
+      "id": "test_outbound_routing",
+      "file": "tests/test_outbound_routing.rs",
+      "kind": "integration",
+      "sources": [
+        "src/dns/mod.rs",
+        "src/routing/runtime.rs"
+      ],
+      "target": "test_outbound_routing",
+      "declared_cases": [
+        "known_rejection_proxy_and_missing_dns_never_connect_or_fallback",
+        "domain_match_skips_ip_rejection_in_both_orders",
+        "numeric_udp_skips_dns_and_direct_mode_preserves_rejection",
+        "mixed_address_policies_reject_before_any_candidate_is_dialed",
+        "fake_ip_route_matches_restored_domain_and_real_cidr_with_generation",
+        "fake_preallocation_exclusion_does_not_touch_dns",
+        "routed_dns_deadline_and_close_cancel_before_dial",
+        "formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp"
+      ]
+    },
+    {
+      "id": "test_protocol",
+      "file": "tests/test_protocol.rs",
+      "kind": "integration",
+      "sources": [
+        "src/protocol/mod.rs"
+      ],
+      "target": "test_protocol",
+      "declared_cases": [
+        "strict_configuration_and_supported_combination",
+        "independent_peer_data_authentication_and_tls13"
+      ]
+    },
+    {
+      "id": "test_protocol_block",
+      "file": "tests/test_protocol_block.rs",
+      "kind": "integration",
+      "sources": [
+        "src/protocol/mod.rs",
+        "src/routing/runtime.rs"
+      ],
+      "target": "test_protocol_block",
+      "declared_cases": [
+        "datagram_guard_is_shared_and_existing_connection_keeps_snapshot",
+        "transport_reject_cannot_be_bypassed_by_modes",
+        "duplicate_sources_and_binary_cache_restore_guard",
+        "incoming_quic_and_explicit_router_are_guarded"
+      ]
+    },
+    {
+      "id": "test_proxy",
+      "file": "tests/test_proxy.rs",
+      "kind": "integration",
+      "sources": [
+        "跨模块契约：proxy"
+      ],
+      "target": "test_proxy",
+      "declared_cases": [
+        "http_rewrites_chunked_upload_and_records_original_request",
+        "rejection_is_exact_and_upstream_failure_never_falls_back",
+        "https_uses_same_rewrite_and_capture_pipeline",
+        "invalid_rules_and_unimplemented_lan_are_rejected_before_listening",
+        "replacement_expansion_is_bounded_before_allocation",
+        "traffic_script_runs_on_http_and_https_and_captures_processed_body",
+        "traffic_scripts_validate_configuration_and_bound_processing"
+      ]
+    },
+    {
+      "id": "test_runtime_rules",
+      "file": "tests/test_runtime_rules.rs",
+      "kind": "integration",
+      "sources": [
+        "src/routing/runtime.rs",
+        "src/routing/store.rs",
+        "src/routing/background.rs"
+      ],
+      "target": "test_runtime_rules",
+      "declared_cases": [
+        "rejects_survive_coverage_and_every_mode",
+        "domain_match_skips_ip_for_domain_target",
+        "suffix_boundaries_cover_all_depths_and_rejects_are_not_pruned",
+        "only_complete_nonreject_coverage_is_removed",
+        "duplicates_record_origins_and_conflicts_choose_first",
+        "regeneration_restores_pruned_and_disabled_sources_stay_remote",
+        "domain_hit_decides_before_dns_and_domain_miss_waits",
+        "indexes_equal_reference_for_mixed_inputs_and_overlapping_ranges",
+        "strict_yaml_round_trip_unknown_duplicate_alias_and_depth",
+        "failed_update_preserves_disk_and_snapshot_and_close_releases_owner",
+        "port_partial_overlap_stays_and_full_coverage_is_pruned",
+        "exact_domain_precedes_earlier_suffix_across_source_layers",
+        "pruned_index_agrees_with_unpruned_reference_including_original_origin",
+        "keyword_reject_overrides_domain_actions_and_domain_hit_skips_ip",
+        "domain_branch_skips_ip_and_respects_domain_type_and_source_priority",
+        "domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject",
+        "clash_payload_is_strict_uppercase_and_supports_both_address_families",
+        "binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml",
+        "binary_cache_rejects_corruption_offsets_truncation_and_unknown_version",
+        "binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback",
+        "binary_cache_matches_all_matcher_shapes_before_and_after_reopen",
+        "generation_input_accepts_structured_and_clash_sources",
+        "empty_clash_payload_still_validates_outbound_metadata",
+        "audit_primary_domain_and_ip_precede_local_port",
+        "audit_global_transport_only_allows_reject_and_quic_is_not_udp",
+        "audit_document_trust_requires_original_sources",
+        "audit_invalid_documents_are_rejected_with_low_sensitive_locations",
+        "audit_dns_before_after_matrix",
+        "audit_resource_limits_reject_before_index_expansion",
+        "audit_seeded_random_unpruned_differential_and_round_trip",
+        "binary_cache_fault_injection_never_panics_with_recomputed_checksum",
+        "formal_domain_transport_matrix_and_roundtrip",
+        "mismatched_scoped_domain_does_not_skip_ip_or_early_dns",
+        "formal_reject_and_same_type_local_precedence_survive_scoped_conditions",
+        "scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rules",
+        "scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout",
+        "both_complete_yaml_examples_strictly_compile_formal_rules",
+        "duplicate_vec_capacity_is_accounted_without_false_rejection"
+      ]
+    },
+    {
+      "id": "test_service_pipeline",
+      "file": "tests/test_service_pipeline.rs",
+      "kind": "integration",
+      "sources": [
+        "src/http.rs",
+        "src/https.rs"
+      ],
+      "target": "test_service_pipeline",
+      "declared_cases": [
+        "service_requires_explicit_route_and_dns",
+        "configured_rejection_never_dials_and_reconfiguration_recovers",
+        "unsupported_proxy_is_not_direct",
+        "cancellation_interrupts_tls_and_plain_requests_and_releases_resources",
+        "idle_expiry_also_interrupts_managed_tls"
+      ]
+    },
+    {
+      "id": "test_tun_dns",
+      "file": "tests/test_tun_dns.rs",
+      "kind": "integration",
+      "sources": [
+        "src/tun/udp.rs",
+        "src/dns/mod.rs"
+      ],
+      "target": "test_tun_dns",
+      "declared_cases": [
+        "synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream",
+        "fake_packet_resolves_real_and_returns_original_synthetic_endpoint",
+        "resolver_replacement_rejects_old_generation_even_same_ranges",
+        "real_query_negative_failure_malformed_and_backpressure",
+        "endpoint_validation_cancellation_and_ordinary_forwarding",
+        "mapping_quota_wrong_owner_udp_block_and_restart",
+        "reopened_same_pool_never_reuses_old_synthetic_address",
+        "ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides"
+      ]
+    },
+    {
+      "id": "test_fixture_quic_packet",
+      "file": "tests/test_fixture_quic_packet.py",
+      "kind": "fixture_python",
+      "sources": [
+        "独立 QUIC Initial 报文夹具"
+      ],
+      "declared_cases": []
+    },
+    {
+      "id": "test_test_reporting",
+      "file": "tests/test_test_reporting.py",
+      "kind": "python_unit",
+      "sources": [
+        "Tools/test_reports.py：测试运行与报告失败保全契约"
+      ],
+      "declared_cases": [
+        "test_nonzero_is_never_pass",
+        "test_missing_and_ignored_are_not_full_pass",
+        "test_exact_case_ownership",
+        "test_timeout_retains_child_status",
+        "test_compile_failure_and_report_failure_keep_nonzero",
+        "test_signaled_external_process_never_returns_success",
+        "test_unrun_collection_cannot_overwrite_actual_external_result",
+        "test_support_fixture_cannot_be_counted_as_passing_suite",
+        "test_named_external_suites_require_actual_cases"
+      ]
+    }
+  ]
+}

@@ -462,3 +462,7 @@ impl HttpsClient {
 pub(crate) fn is_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
+
+#[cfg(test)]
+#[path = "../tests/test_https.rs"]
+mod test_https;

@@ -2,7 +2,8 @@ name: 发布内核二进制
 on:
   push:
     branches: [dev]
-    paths: [Release.version, .github/workflows/release.yml]
+    # 测试/报告维护不触发产物发布；只有明确版本变更或手动请求触发。
+    paths: [Release.version]
   workflow_dispatch:
 permissions:
   contents: write
@@ -12,6 +13,8 @@ concurrency:
 jobs:
   release:
     runs-on: macos-15
+    env:
+      FLUXA_TEST_EVIDENCE_DIR: /tmp/fluxa-test-evidence
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,7 +42,7 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
           rustup default 1.98.1
-      - name: 验证 Rust 与实际 Swift FFI
+      - name: 验证 Rust 内核
         run: |
           cargo fetch --locked
           cargo fmt --check
@@ -47,20 +50,19 @@ jobs:
           python3 - <<'PYCODE'
           from pathlib import Path
           files = set(Path('/tmp/fluxa-package-files.txt').read_text().splitlines())
-          required = {'src/error.rs', 'Tests/error_contract.rs', 'Tests/geoip_fixture.rs', 'Tests/service_pipeline.rs', 'Tests/fixtures/error-contract-v1.json', 'Tests/fixtures/error-contract-v2.json', 'Tests/fixtures/error-contract-v2.4.1.json', 'Documentation/error-codes.json', 'Documentation/错误代码查询表.md'}
+          required = {'src/error.rs', 'tests/test_error_contract.rs', 'tests/test_fixture_geoip.rs', 'tests/test_service_pipeline.rs', 'tests/fixtures/error-contract-v1.json', 'tests/fixtures/error-contract-v2.json', 'tests/fixtures/error-contract-v2.4.1.json', 'Documentation/error-codes.json', 'Documentation/错误代码查询表.md'}
           if not required <= files: raise SystemExit('发布包缺少错误契约必要文件：'+str(required-files))
           PYCODE
-          cargo test --locked
+          python3 Tools/test_reports.py --run --evidence-dir "/tmp/fluxa-test-evidence"
+          python3 Tools/test_reports.py --check-reports
           cargo run --locked --example error_contract -- --check
           cargo run --locked --example fake_ip_reconfigure
           cargo run --locked --example geoip_configuration
-          cargo test --locked --test error_contract segmented_codes_have_one_category_per_prefix
+          python3 Tools/test_reports.py --run --suite test_error_contract --evidence-dir "/tmp/fluxa-test-evidence"
           cargo clippy --locked --all-targets -- -D warnings
           python3 -m venv /tmp/fluxa-quic-peer
           /tmp/fluxa-quic-peer/bin/python -m pip install aioquic==1.2.0
-          /tmp/fluxa-quic-peer/bin/python Tests/make_quic_initial.py /tmp/fluxa-quic-initial.bin
-          FLUXA_QUIC_PACKET_BIN=/tmp/fluxa-quic-initial.bin bash check-ffi.sh all
-          bash check-protocol.sh
+          /tmp/fluxa-quic-peer/bin/python tests/test_fixture_quic_packet.py /tmp/fluxa-quic-initial.bin
       - name: 构建静态框架并打包
         run: |
           bash build-macos.sh
@@ -72,7 +74,7 @@ jobs:
           rm fluxa-test-fixture
           cd ..
           ditto -c -k --keepParent Vendor/FluxaEngine.xcframework Release/FluxaEngine.xcframework.zip
-          swift package compute-checksum Release/FluxaEngine.xcframework.zip > Release/checksum.txt
+          shasum -a 256 Release/FluxaEngine.xcframework.zip | awk '{print $1}' > Release/checksum.txt
           shasum -a 256 Release/fluxa-test-fixture-macos-arm64.zip > Release/fixture-checksum.txt
           python3 - <<'PYCODE'
           from pathlib import Path
@@ -83,23 +85,10 @@ jobs:
           if version != cargo_version: raise SystemExit('发布版本与 Cargo 不一致')
           checksum = Path('Release/checksum.txt').read_text().strip()
           if not re.fullmatch(r'[0-9a-f]{64}', checksum): raise SystemExit('校验值无效')
-          path = Path('Package.swift')
-          source = path.read_text()
-          source, count = re.subn(r'checksum: "[0-9a-f]{64}"', 'checksum: "'+checksum+'"', source)
-          if count != 1: raise SystemExit('未找到唯一二进制校验值')
-          path.write_text(source)
           PYCODE
-      - name: 保存校验值与版本标签
+      - name: 保存原生版本标签
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Package.swift
           version="$(cat Release.version)"
-          git commit -m "发布 $version 内核二进制并固定下载校验值"
-          # 发布期间允许其他已验证文档推进 dev；校验值提交重放到最新 dev，不强推。
-          git fetch origin dev
-          git rebase origin/dev
-          git push origin HEAD:dev
           git tag "v$version"
           git push origin "v$version"
       - name: 发布下载附件
@@ -113,8 +102,24 @@ jobs:
           version = Path('Release.version').read_text().strip()
           record = {'version': version, 'source_commit': os.environ['FLUXA_SOURCE_SHA'], 'tag': 'v'+version, 'tag_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'framework_sha256': Path('Release/checksum.txt').read_text().strip(), 'fixture_sha256': Path('Release/fixture-checksum.txt').read_text().split()[0]}
           Path('Release/provenance.json').write_text(json.dumps(record, indent=2)+'\n')
-          Path('Release/release-notes.md').write_text('macOS ARM64 静态内核；Rust、实际 Swift FFI 及固定独立服务端指纹互通通过。\n\n构建源码：'+record['source_commit']+'\n版本标签：'+record['tag']+'\n框架 SHA-256：'+record['framework_sha256']+'\n\n固定远程二进制，不包含 iOS/tvOS 切片；目标平台与未测范围见 Documentation/Protocols.md。\n')
+          Path('Release/release-notes.md').write_text('macOS ARM64 静态内核；Rust 检查结果见测试证据；Swift 适配与真实平台联调在 Fluxa 仓库单独验收。\n\n构建源码：'+record['source_commit']+'\n版本标签：'+record['tag']+'\n框架 SHA-256：'+record['framework_sha256']+'\n\n固定远程二进制，不包含 iOS/tvOS 切片；目标平台与未测范围见 Documentation/Protocols.md。\n')
           PYCODE
           gh release create "v$version" Release/FluxaEngine.xcframework.zip Release/checksum.txt Release/fluxa-test-fixture-macos-arm64.zip Release/fixture-checksum.txt Release/provenance.json --verify-tag --title "libfluxa_core v$version" --notes-file Release/release-notes.md
-      - name: 验证远程二进制下载和 Swift 门面
-        run: swift test --disable-sandbox
+      - name: 验证原生二进制下载校验
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          gh release download "v$(cat Release.version)" --pattern FluxaEngine.xcframework.zip --dir "$directory"
+          test "$(shasum -a 256 "$directory/FluxaEngine.xcframework.zip" | awk '{print $1}')" = "$(cat Release/checksum.txt)"
+
+      - name: 保存真实测试报告与失败证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxa-test-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/*.md
+            /tmp/fluxa-test-evidence/
+          if-no-files-found: error

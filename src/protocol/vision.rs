@@ -99,38 +99,7 @@ pub fn frame(uuid: Option<&[u8; 16]>, content: &[u8], command: u8) -> Result<Vec
     out.resize(out.len() + padding, 0);
     Ok(out)
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn every_fragment_boundary_and_stop() {
-        let uuid = [7; 16];
-        let mut wire = frame(Some(&uuid), b"first", 0).unwrap();
-        wire.extend(frame(None, b"last", 2).unwrap());
-        for split in 0..=wire.len() {
-            let mut d = Decoder::new();
-            let mut out = d.feed(&wire[..split], &uuid).unwrap();
-            out.extend(d.feed(&wire[split..], &uuid).unwrap());
-            assert_eq!(out, b"firstlast");
-            assert!(d.direct);
-            d.finish().unwrap();
-        }
-    }
-    #[test]
-    fn bad_uuid_command_truncation_and_quota() {
-        let uuid = [7; 16];
-        let wire = frame(Some(&uuid), b"first", 0).unwrap();
-        assert!(Decoder::new().feed(&wire, &[8; 16]).is_err());
-        let mut d = Decoder::new();
-        d.feed(&wire[..17], &uuid).unwrap();
-        assert!(d.finish().is_err());
-        assert!(
-            Decoder::new()
-                .feed(&vec![0; 2 * LIMIT + 22], &uuid)
-                .is_err()
-        );
-        let mut bad = uuid.to_vec();
-        bad.extend([3, 0, 0, 0, 0]);
-        assert!(Decoder::new().feed(&bad, &uuid).is_err());
-    }
-}
+#[path = "../../tests/test_protocol_vision.rs"]
+mod test_protocol_vision;

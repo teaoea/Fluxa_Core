@@ -212,3 +212,7 @@ fn endpoint(value: &str) -> Result<SocketAddr> {
     }
     Ok(address)
 }
+
+#[cfg(test)]
+#[path = "../../tests/test_dns_config.rs"]
+mod test_dns_config;

@@ -73,40 +73,7 @@ fn long_datagram(bytes: &[u8]) -> bool {
     // 合并报文或尾部填充不能撤销已识别的首包，避免追加字节绕过拦截。
     long_packet(bytes).is_some()
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn initial(version: u32) -> Vec<u8> {
-        let mut bytes = vec![if version == V1 { 0xc0 } else { 0xd0 }];
-        bytes.extend(version.to_be_bytes());
-        bytes.extend([1, 1, 1, 2, 0, 17]);
-        bytes.extend([0; 17]);
-        bytes
-    }
-    #[test]
-    fn versions_lengths_association_and_bounded_input() {
-        for version in [V1, V2] {
-            let packet = initial(version);
-            for length in 0..packet.len() {
-                assert!(!Flow::default().observe(&packet[..length]));
-            }
-            let mut flow = Flow::default();
-            assert!(!flow.observe(&[0x40; 30]));
-            assert!(flow.observe(&packet));
-            assert!(flow.observe(&[0x40; 30]));
-            assert!(!Flow::default().observe(&[0x40; 30]));
-            let mut joined = packet.clone();
-            joined.extend(&packet);
-            assert!(Flow::default().observe(&joined));
-            let mut padded = packet.clone();
-            padded.extend([0; 1200]);
-            assert!(Flow::default().observe(&padded));
-            let mut malformed = packet;
-            malformed[5] = 21;
-            assert!(!Flow::default().observe(&malformed));
-        }
-        for length in 0..=9000 {
-            let _ = Flow::default().observe(&vec![0xff; length]);
-        }
-    }
-}
+#[path = "../../tests/test_protocol_quic.rs"]
+mod test_protocol_quic;

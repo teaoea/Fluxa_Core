@@ -141,19 +141,7 @@ fn check(b: &[u8]) -> Result<bool> {
     }
     Ok(tls13)
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn fragmented_record_boundary() {
-        let mut b = Boundary::default();
-        assert_eq!(b.application_end(&[22, 3, 3, 0, 2, 1]), None);
-        assert_eq!(b.application_end(&[2, 23, 3, 3, 0, 3, 1]), None);
-        assert_eq!(b.application_end(&[2, 3, 99]), Some(2));
-    }
-    #[test]
-    fn non_tls_does_not_enable_switch() {
-        assert_eq!(Boundary::default().application_end(b"GET / HTTP/1.1"), None);
-        assert!(!ServerHello::default().feed(b"HTTP/1.1 200 OK").unwrap());
-    }
-}
+#[path = "../../tests/test_protocol_inner_tls.rs"]
+mod test_protocol_inner_tls;

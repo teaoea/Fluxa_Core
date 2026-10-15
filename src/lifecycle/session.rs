@@ -158,44 +158,7 @@ impl Drop for Operation {
         }
     }
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn retained_objects_do_not_restore_revoked_rights_and_completion_waits_for_operations() {
-        let owner = Authority::new().unwrap();
-        let retained = owner.clone();
-        let operation = owner.enter(owner.identity()).unwrap();
-        assert!(owner.revoke().unwrap());
-        assert!(!retained.revoke().unwrap());
-        assert!(matches!(
-            retained.enter(retained.identity()),
-            Err(Error::InvalidState)
-        ));
-        assert!(matches!(owner.complete(Ok(())), Err(Error::InvalidState)));
-        assert_eq!(owner.phase().unwrap(), Phase::Closing);
-        drop(operation);
-        owner.wait_idle().await.unwrap();
-        owner.complete(Ok(())).unwrap();
-        retained.wait_closed().await.unwrap();
-        assert_eq!(retained.phase().unwrap(), Phase::Closed);
-        assert!(matches!(
-            retained.check(retained.identity()),
-            Err(Error::InvalidState)
-        ));
-    }
-    #[tokio::test]
-    async fn invalid_identity_and_failed_cleanup_are_not_success() {
-        let owner = Authority::new().unwrap();
-        let other = Authority::new().unwrap();
-        assert!(matches!(
-            owner.enter(other.identity()),
-            Err(Error::InvalidState)
-        ));
-        owner.revoke().unwrap();
-        owner.canceled().await;
-        owner.complete(Err(Error::Internal)).unwrap();
-        assert!(matches!(owner.wait_closed().await, Err(Error::Internal)));
-        assert_eq!(owner.phase().unwrap(), Phase::Failed);
-    }
-}
+#[path = "../../tests/test_lifecycle_session.rs"]
+mod test_lifecycle_session;

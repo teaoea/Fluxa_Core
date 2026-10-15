@@ -903,3 +903,7 @@ impl Builder {
         FlatIndex::parse_owned(bytes, entries, Some(memory))
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/test_routing_flat.rs"]
+mod test_routing_flat;

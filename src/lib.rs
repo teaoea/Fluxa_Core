@@ -26,3 +26,15 @@ pub mod tun;
 // 导出对象使用整数句柄；字节指针仅在同步调用期间借用。
 #[allow(unsafe_code)]
 pub mod ffi;
+
+// 外置单元测试复用既有公开契约夹具，不扩大任何生产 API。
+#[cfg(test)]
+extern crate self as libfluxa_core;
+
+// 共用夹具每个测试 crate 只加载一次，避免迁移后重复模块及重复类型。
+#[cfg(test)]
+#[path = "../tests/test_fixture_dnssec.rs"]
+mod test_fixture_dnssec;
+#[cfg(test)]
+#[path = "../tests/test_fixture_https.rs"]
+mod test_fixture_https;

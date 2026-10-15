@@ -530,3 +530,7 @@ pub fn encode(
         _lease: lease,
     })
 }
+
+#[cfg(test)]
+#[path = "../../tests/test_tun_udp.rs"]
+mod test_tun_udp;

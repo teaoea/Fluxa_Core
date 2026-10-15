@@ -388,3 +388,7 @@ impl TrafficProtection {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/test_routing.rs"]
+mod test_routing;

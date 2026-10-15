@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "libfluxa_core"
 version = "2.4.2"
 authors = ["可莉唯一的狗"]
@@ -10,7 +11,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/Tests/**/*.rs", "/Tests/fixtures/error-contract-v1.json", "/Tests/fixtures/error-contract-v2.json", "/Tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.rs", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
 
 [lib]
 name = "libfluxa_core"
@@ -51,26 +52,6 @@ yaml-rust2 = { version = "=0.13.0", default-features = false }
 aho-corasick = "=1.1.4"
 maxminddb = { version = "=0.32.0", default-features = false }
 
-[[test]]
-name = "https"
-path = "Tests/https.rs"
-
-[[test]]
-name = "mitm"
-path = "Tests/mitm.rs"
-
-[[test]]
-name = "script"
-path = "Tests/script.rs"
-
-[[test]]
-name = "proxy"
-path = "Tests/proxy.rs"
-
-[[test]]
-name = "dns"
-path = "Tests/dns.rs"
-
 [target.'cfg(target_os = "macos")'.dependencies]
 # 复用已锁定的 Apple 安全框架与系统类型；仅平台边界需要 audit token 和签名验证。
 security-framework = "=3.7.0"
@@ -84,73 +65,53 @@ bytes = "=1.12.1"
 http = "=1.4.2"
 
 [[test]]
-name = "dns_service"
-path = "Tests/dns_service.rs"
+name = "test_dns"
+path = "tests/test_dns.rs"
 
 [[test]]
-name = "routing"
-path = "Tests/routing.rs"
+name = "test_error_contract"
+path = "tests/test_error_contract.rs"
 
 [[test]]
-name = "outbound"
-path = "Tests/outbound.rs"
+name = "test_fake_ip_lifecycle"
+path = "tests/test_fake_ip_lifecycle.rs"
 
 [[test]]
-name = "outbound_dns"
-path = "Tests/outbound_dns.rs"
+name = "test_mitm"
+path = "tests/test_mitm.rs"
 
 [[test]]
-name = "outbound_fake_ip"
-path = "Tests/outbound_fake_ip.rs"
+name = "test_outbound_dns"
+path = "tests/test_outbound_dns.rs"
 
 [[test]]
-name = "outbound_routing"
-path = "Tests/outbound_routing.rs"
+name = "test_outbound_fake_ip"
+path = "tests/test_outbound_fake_ip.rs"
 
 [[test]]
-name = "outbound_resources"
-path = "Tests/outbound_resources.rs"
+name = "test_outbound_routing"
+path = "tests/test_outbound_routing.rs"
 
 [[test]]
-name = "runtime_rules"
-path = "Tests/runtime_rules.rs"
+name = "test_protocol"
+path = "tests/test_protocol.rs"
 
 [[test]]
-name = "subscription"
-path = "Tests/subscription.rs"
+name = "test_protocol_block"
+path = "tests/test_protocol_block.rs"
 
 [[test]]
-name = "protocol"
-path = "Tests/protocol.rs"
+name = "test_proxy"
+path = "tests/test_proxy.rs"
 
 [[test]]
-name = "geoip"
-path = "Tests/geoip.rs"
+name = "test_runtime_rules"
+path = "tests/test_runtime_rules.rs"
 
 [[test]]
-name = "tun_udp"
-path = "Tests/tun_udp.rs"
+name = "test_service_pipeline"
+path = "tests/test_service_pipeline.rs"
 
 [[test]]
-name = "protocol_block"
-path = "Tests/protocol_block.rs"
-
-[[test]]
-name = "tun_dns"
-path = "Tests/tun_dns.rs"
-
-[[test]]
-name = "error_contract"
-path = "Tests/error_contract.rs"
-
-[[test]]
-name = "geoip_fixture"
-path = "Tests/geoip_fixture.rs"
-
-[[test]]
-name = "service_pipeline"
-path = "Tests/service_pipeline.rs"
-
-[[test]]
-name = "fake_ip_lifecycle"
-path = "Tests/fake_ip_lifecycle.rs"
+name = "test_tun_dns"
+path = "tests/test_tun_dns.rs"

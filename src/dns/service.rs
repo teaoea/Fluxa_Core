@@ -329,18 +329,5 @@ async fn tcp_session(
 }
 
 #[cfg(test)]
-mod binding_tests {
-    use super::*;
-    #[tokio::test]
-    async fn fixed_conflict_is_not_silently_moved_and_ephemeral_pair_agrees() {
-        let occupied = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let address = occupied.local_addr().unwrap();
-        assert!(bind_listeners(address).await.is_err());
-        for _ in 0..100 {
-            let (tcp, udp) = bind_listeners("127.0.0.1:0".parse().unwrap())
-                .await
-                .unwrap();
-            assert_eq!(tcp.local_addr().unwrap(), udp.local_addr().unwrap());
-        }
-    }
-}
+#[path = "../../tests/test_dns_service.rs"]
+mod test_dns_service;

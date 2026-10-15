@@ -1025,37 +1025,7 @@ impl From<io::Error> for Error {
         mapped
     }
 }
-#[cfg(test)]
-mod tls_mapping_tests {
-    use super::*;
-    #[test]
-    fn tls_keeps_budget_state_protocol_and_cancellation_causes() {
-        // 预期来自业务契约：改变传输层不能把资源或权限/状态原因改报为 TLS 校验。
-        for error in [
-            Error::ResourceLimit,
-            Error::Internal,
-            Error::InvalidState,
-            Error::Cancelled,
-            Error::Rejected,
-            Error::Unsupported,
-            Error::ProtocolViolation,
-        ] {
-            assert_eq!(Error::from_tls(io::Error::other(error)), error);
-        }
-        assert_eq!(
-            Error::from_tls(io::Error::from(io::ErrorKind::OutOfMemory)),
-            Error::ResourceLimit
-        );
-        assert_eq!(
-            Error::from_tls(io::Error::from(io::ErrorKind::TimedOut)),
-            Error::NetworkTimeout
-        );
-        assert_eq!(
-            Error::from_tls(io::Error::from(io::ErrorKind::InvalidData)),
-            Error::Tls
-        );
-    }
-}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// 成功和队列空是非错误状态；全部失败返回 ErrorCode 的四位整数。
@@ -1074,3 +1044,7 @@ impl AbiStatus {
 }
 /// 零只表示同线程目前没有失败，不登记为一个错误代码。
 pub const NO_ERROR_CODE: u16 = 0;
+
+#[cfg(test)]
+#[path = "../tests/test_error.rs"]
+mod test_error;

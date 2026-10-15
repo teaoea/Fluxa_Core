@@ -176,32 +176,5 @@ impl Cipher {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn all_suites_authenticate_records_and_key_updates() {
-        for suite in [Suite::Aes128, Suite::Aes256, Suite::ChaCha] {
-            let make = || Cipher::new(Zeroizing::new(vec![7; suite.hash_len()]), suite).unwrap();
-            let mut writer = make();
-            let mut reader = make();
-            for n in [0, 1, 1024, 16384] {
-                let data = vec![42; n];
-                let record = writer.seal(23, &data).unwrap();
-                let (kind, plain) = reader.open(&record).unwrap();
-                assert_eq!(kind, 23);
-                assert_eq!(*plain, data);
-            }
-            writer.update().unwrap();
-            reader.update().unwrap();
-            let record = writer.seal(22, b"updated").unwrap();
-            assert_eq!(&*reader.open(&record).unwrap().1, b"updated");
-            let mut corrupt = make().seal(23, b"auth").unwrap();
-            corrupt[7] ^= 1;
-            assert!(make().open(&corrupt).is_err());
-            let mut record = make().seal(23, b"length").unwrap();
-            record[4] ^= 1;
-            assert!(make().open(&record).is_err());
-            assert!(make().seal(23, &vec![0; 16385]).is_err());
-        }
-    }
-}
+#[path = "../../tests/test_protocol_crypto.rs"]
+mod test_protocol_crypto;

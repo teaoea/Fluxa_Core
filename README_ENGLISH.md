@@ -13,3 +13,7 @@ H1 dev 源码修复：会话异步关闭主动撤销权限并等待活动资源�
 Debug control uses an authenticated, authorized local Unix IPC endpoint on macOS. Ordinary business commands do not grant Debug access. See [the security contract](Documentation/Debug本地IPC安全契约.md), `examples/debug_ipc.rs`, and `Tools/check_debug_ipc.py`; App integration and production installation remain separate validation stages.
 
 Formal DOMAIN / DOMAIN-SUFFIX rules accept an optional `protocol: tcp|udp` AND condition. See [contract, memory calibration and build acceptance](Documentation/规则组合与资源验收.md) and `examples/domain_transport.rs`. Cache layout v2 requires rebuilding v1 caches from original sources; App dependencies remain unchanged.
+
+## Swift / macOS 适配边界
+
+Swift 数据类型、C ABI 调用封装、系统适配和 Swift 测试已移至 Fluxa 仓库 `Packages/FluxaKernelBridge/`；本仓库不再提供 Swift Package。内核仅交付 Rust、C ABI 和固定校验值的原生二进制。历史发布标签不改写，main 不变。

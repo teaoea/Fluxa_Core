@@ -59,21 +59,5 @@ pub(super) fn address(host: &str, port: u16) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn address_encoding_and_flow() {
-        let uuid = [7; 16];
-        let v4 = request(&uuid, "192.0.2.4", 443).unwrap();
-        assert_eq!(&v4[..18], &[&[0][..], &uuid[..], &[18][..]].concat());
-        assert_eq!(&v4[18..36], b"\x0a\x10xtls-rprx-vision");
-        assert_eq!(&v4[36..], &[1, 1, 187, 1, 192, 0, 2, 4]);
-        let v6 = request(&uuid, "2001:db8::1", 80).unwrap();
-        assert_eq!(v6[39], 3);
-        assert_eq!(v6.len(), 56);
-        let domain = request(&uuid, "ExAmPlE.com.", 80).unwrap();
-        assert_eq!(&domain[39..], b"\x02\x0bexample.com");
-        assert!(request(&uuid, "example.com", 0).is_err());
-        assert!(request(&uuid, "bad host", 80).is_err());
-    }
-}
+#[path = "../../tests/test_protocol_vless.rs"]
+mod test_protocol_vless;

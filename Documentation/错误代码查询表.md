@@ -26,7 +26,7 @@ REJECT 是策略，连接 ConnectionRefused 是 I/O 执行失败；旧版为 100
 
 ## 自动维护
 
-执行 `cargo run --example error_contract -- --check` 与 `cargo test --test error_contract`。新增代码、Schema、说明、触发条件、后果或源码未同步会失败；兼容基线不可通过更新文件来掩盖已发布语义变更。数量一致及自动生成不证明业务正确。
+执行 `cargo run --example error_contract -- --check` 与 `cargo test --test test_error_contract`。新增代码、Schema、说明、触发条件、后果或源码未同步会失败；兼容基线不可通过更新文件来掩盖已发布语义变更。数量一致及自动生成不证明业务正确。
 
 ## 非错误状态
 

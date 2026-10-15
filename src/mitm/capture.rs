@@ -149,20 +149,5 @@ impl CaptureStore {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn oldest_records_are_evicted_and_acknowledgement_is_exact() {
-        let store = CaptureStore::default();
-        for _ in 0..65 {
-            store.push(Capture::new()).unwrap();
-        }
-        assert_eq!(store.dropped().unwrap(), 1);
-        let first = store.peek().unwrap().unwrap();
-        assert_eq!(first.id, 2);
-        assert!(store.acknowledge(1).is_err());
-        assert_eq!(store.peek().unwrap().unwrap().id, 2);
-        store.acknowledge(2).unwrap();
-        assert_eq!(store.peek().unwrap().unwrap().id, 3);
-    }
-}
+#[path = "../../tests/test_mitm_capture.rs"]
+mod test_mitm_capture;

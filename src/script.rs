@@ -159,19 +159,5 @@ const SERIALIZER: &str = r#"
 "#;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn global_heap_budget_rejects_then_recovers() {
-        let leases: Vec<_> = (0..4).map(|_| HEAPS.reserve(MAX_HEAP).unwrap()).collect();
-        assert_eq!(
-            execute("input=>input", &Json::Null),
-            Err(Error::ResourceBudgetExceeded {
-                actual: MAX_HEAP as u64,
-                limit: (4 * MAX_HEAP) as u64
-            })
-        );
-        drop(leases);
-        assert_eq!(execute("input=>input", &Json::Null).unwrap(), Json::Null);
-    }
-}
+#[path = "../tests/test_script.rs"]
+mod test_script;

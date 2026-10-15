@@ -356,70 +356,11 @@ impl View {
         }))
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn individual_deadlines_expire_even_in_retained_views() {
-        let now = Instant::now();
-        let session = Session::new().unwrap();
-        let rule = |lifetime, policy| DebugRule {
-            rule: Rule {
-                protocol: None,
-                r#type: Match::Domain,
-                value: "example.com".into(),
-                policy,
-                outbound: None,
-            },
-            protocol: None,
-            lifetime_seconds: lifetime,
-        };
-        for missing in [None, Some(0), Some(MAX_LIFETIME_SECONDS + 1)] {
-            assert!(
-                session
-                    .replace_at(vec![rule(missing, Policy::Direct)], None, now)
-                    .is_err()
-            );
-        }
-        session
-            .replace_at(
-                vec![
-                    rule(Some(30), Policy::Reject),
-                    rule(Some(60), Policy::Direct),
-                ],
-                None,
-                now,
-            )
-            .unwrap();
-        let view = session.view().unwrap();
-        let target = Target {
-            domain: Some("example.com".into()),
-            address: None,
-            port: 443,
-            transport: Transport::Tcp,
-        };
-        assert_eq!(
-            view.evaluate_at(&target, now).unwrap().unwrap().policy,
-            Policy::Reject
-        );
-        assert_eq!(
-            view.evaluate_at(&target, now + Duration::from_secs(30))
-                .unwrap()
-                .unwrap()
-                .policy,
-            Policy::Direct
-        );
-        assert!(
-            view.evaluate_at(&target, now + Duration::from_secs(60))
-                .unwrap()
-                .is_none()
-        );
-    }
-}
 
 /// 独立 Unix IPC 控制入口；不注册普通业务 JSON 操作。
 #[cfg(unix)]
 pub mod ipc;
 
 #[cfg(test)]
-mod semantic_tests;
+#[path = "../../tests/test_routing_debug.rs"]
+mod test_routing_debug;

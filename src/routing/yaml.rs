@@ -351,18 +351,5 @@ impl Writer {
 }
 
 #[cfg(test)]
-mod error_context_tests {
-    use super::*;
-    #[test]
-    fn duplicate_unsafe_identifier_keeps_its_real_classification() {
-        for key in ["abcdefghijklmnopqrstuvwxyzabcdefg", "隐私字段", "bad.field"] {
-            let input = format!("{key}: 1\n{key}: 2\n");
-            let error = decode::<Value>(&input).unwrap_err();
-            assert_eq!(error, Error::ConfigDuplicateField(None));
-            assert_eq!(
-                serde_json::to_string(&error.public_info()).unwrap(),
-                r#"{"code":2003,"params":{"field":null}}"#
-            );
-        }
-    }
-}
+#[path = "../../tests/test_routing_yaml.rs"]
+mod test_routing_yaml;

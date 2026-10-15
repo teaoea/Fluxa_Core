@@ -671,3 +671,7 @@ pub use resources::{SessionStatus, Status};
 
 mod stream;
 pub use stream::ManagedStream;
+
+#[cfg(test)]
+#[path = "../tests/test_outbound.rs"]
+mod test_outbound;

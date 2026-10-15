@@ -156,3 +156,7 @@ impl Manager {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/test_outbound_resources.rs"]
+mod test_outbound_resources;

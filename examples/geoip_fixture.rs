@@ -1,5 +1,5 @@
 //! 生成实际 Swift FFI 使用的自有小型数据库。
-#[path = "../Tests/geoip_fixture.rs"]
+#[path = "../tests/test_fixture_geoip.rs"]
 mod fixture;
 fn main() {
     let path = std::env::args().nth(1).expect("需要输出路径");

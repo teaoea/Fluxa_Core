@@ -373,18 +373,6 @@ pub async fn current_address(client: &crate::https::HttpsClient, ipv6: bool) -> 
     Ok(address.to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn invalid_database_is_rejected() {
-        let path = std::env::temp_dir().join(format!("fluxa-geoip-invalid-{}", std::process::id()));
-        std::fs::write(&path, b"not an mmdb").unwrap();
-        assert!(Database::open(&path).is_err());
-        std::fs::remove_file(path).unwrap();
-    }
-}
-
 /// 校验工作单位包括值和字符串字节；重复引用仍计数，防止小文件引发超量扫描。
 const MAX_VERIFICATION_WORK: usize = 64 * 1024 * 1024;
 #[derive(Default)]
@@ -515,48 +503,5 @@ fn verify_records(reader: &Reader<Vec<u8>>) -> Result<()> {
 }
 
 #[cfg(test)]
-mod classification_tests {
-    use super::*;
-    #[test]
-    fn complete_examples_have_strict_yaml_and_disabled_geoip() {
-        for yaml in [
-            include_str!("../fluxa.yaml"),
-            include_str!("../fluxa_english.yaml"),
-        ] {
-            let document: serde_json::Value = crate::routing::runtime::yaml::decode(yaml).unwrap();
-            let value = document
-                .get("geoip_url")
-                .expect("完整示例须登记 GeoIP 字段");
-            let config: Config =
-                serde_json::from_value(serde_json::json!({"geoip_url": value})).unwrap();
-            config.validate().unwrap();
-            assert!(Service::new(config).unwrap().is_disabled());
-        }
-    }
-    #[test]
-    fn bounded_diagnostic_retains_download_reason_and_correct_levels() {
-        assert_eq!(
-            access_error(Error::NetworkTimeout),
-            Error::GeoipDownloadTimeout
-        );
-        assert_eq!(access_error(Error::DnsTimeout), Error::GeoipDownloadFailed);
-        assert_eq!(access_error(Error::Tls), Error::GeoipDownloadFailed);
-        assert_eq!(
-            access_error(Error::ResourceLimit),
-            Error::GeoipResourceLimit
-        );
-        assert_eq!(
-            ErrorCode::GeoipNotConfigured.level(),
-            crate::error::LogLevel::Warn
-        );
-        assert_eq!(ErrorCode::GeoipReady.level(), crate::error::LogLevel::Info);
-        assert_eq!(
-            ErrorCode::GeoipNoMatch.level(),
-            crate::error::LogLevel::Info
-        );
-        assert_eq!(
-            ErrorCode::GeoipQueryFailed.level(),
-            crate::error::LogLevel::Error
-        );
-    }
-}
+#[path = "../tests/test_geoip.rs"]
+mod test_geoip;

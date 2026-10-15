@@ -52,34 +52,5 @@ pub(super) fn shared(config: &super::Config) -> Result<Arc<State>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn config(port: u16) -> super::super::Config {
-        super::super::Config {
-            servers: vec![super::super::Server::Udp {
-                address: format!("127.0.0.1:{port}"),
-            }],
-            timeout_ms: 1000,
-            dnssec: false,
-            fake_ip: None,
-            service: None,
-        }
-    }
-    #[test]
-    fn shares_only_live_matching_configuration() {
-        let a = shared(&config(18001)).unwrap();
-        let b = shared(&config(18001)).unwrap();
-        assert!(Arc::ptr_eq(&a, &b));
-        *a.lock().unwrap() = Some(Observation {
-            duration_ms: 12,
-            from_cache: false,
-            successful: true,
-        });
-        assert_eq!(b.lock().unwrap().as_ref().unwrap().duration_ms, 12);
-        let other = shared(&config(18002)).unwrap();
-        assert!(other.lock().unwrap().is_none());
-        drop(a);
-        drop(b);
-        assert!(shared(&config(18001)).unwrap().lock().unwrap().is_none());
-    }
-}
+#[path = "../../tests/test_dns_observation.rs"]
+mod test_dns_observation;

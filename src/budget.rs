@@ -62,21 +62,7 @@ impl Drop for ByteLease {
         self.budget.used.fetch_sub(self.bytes, Ordering::AcqRel);
     }
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn quota_is_returned_once_and_overflow_is_rejected() {
-        static BUDGET: ByteBudget = ByteBudget::new(10);
-        let lease = BUDGET.reserve(8).unwrap();
-        assert!(BUDGET.reserve(3).is_err());
-        assert!(BUDGET.reserve(usize::MAX).is_err());
-        let mut lease = lease;
-        lease.shrink_to(2);
-        let extra = BUDGET.reserve(8).unwrap();
-        drop(extra);
-        drop(lease);
-        assert!(BUDGET.reserve(10).is_ok());
-        assert_eq!(BUDGET.used.load(Ordering::Acquire), 0);
-    }
-}
+#[path = "../tests/test_budget.rs"]
+mod test_budget;

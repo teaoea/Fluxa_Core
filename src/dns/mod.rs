@@ -653,39 +653,5 @@ impl Drop for Resolver {
 }
 
 #[cfg(test)]
-mod error_semantics_tests {
-    use super::*;
-    #[tokio::test]
-    async fn observation_lock_failure_is_internal_not_dns_timeout() {
-        let upstream = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let resolver = Resolver::new(Config {
-            servers: vec![Server::Udp {
-                address: upstream.local_addr().unwrap().to_string(),
-            }],
-            timeout_ms: 200,
-            dnssec: false,
-            fake_ip: None,
-            service: None,
-        })
-        .unwrap();
-        let observation = std::sync::Arc::clone(&resolver.observation);
-        // 仅测试自己的统计锁；业务锁中毒必须受控失败，不能恢复成解析成功或超时。
-        assert!(
-            std::thread::spawn(move || {
-                let _guard = observation.lock().unwrap();
-                panic!("注入统计锁中毒");
-            })
-            .join()
-            .is_err()
-        );
-        let error = resolver
-            .resolve(Query {
-                name: "example.test".into(),
-                query_type: "A".into(),
-            })
-            .await
-            .unwrap_err();
-        assert_eq!(error, Error::Internal);
-        assert_eq!(error.code().value(), 9901);
-    }
-}
+#[path = "../../tests/test_dns_mod.rs"]
+mod test_dns_mod;

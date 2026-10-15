@@ -1,0 +1,26 @@
+{
+  "baseline_commit": "3d210fafdf3363f5c6ebf5c901178219ef9c33c5",
+  "baseline_worktree_dirty": true,
+  "old_declared_count": 299,
+  "migrated_declared_count": 299,
+  "missing": {},
+  "added": {},
+  "note": "用例名称数量核对不代替断言或业务语义验证；原断言保留，只有模块相对路径和夹具路径调整。",
+  "test_body_comparison": {
+    "original": 299,
+    "migrated": 299,
+    "unchanged_after_path_and_whitespace_normalization": 296,
+    "needs_manual_review": [
+      "budget_lifecycle_releases_quota_and_rejects_overflow",
+      "scenario_11_build_peak_stays_within_budget",
+      "scenario_12_retained_snapshot_is_still_counted"
+    ],
+    "normalization": "仅移除 super 相对层级、include_str 的父路径、空白和格式化尾逗号；正文其余内容保留。",
+    "manual_review": {
+      "budget_lifecycle_releases_quota_and_rejects_overflow": "已逐项核对：rustfmt 将 map 闭包表达式包为块，调用、输入、预期及全部断言不变。",
+      "scenario_11_build_peak_stays_within_budget": "已逐项核对：rustfmt 将 map 闭包表达式包为块，调用、输入、预期及全部断言不变。",
+      "scenario_12_retained_snapshot_is_still_counted": "已逐项核对：rustfmt 将 map 闭包表达式包为块，调用、输入、预期及全部断言不变。"
+    },
+    "manual_review_complete": true
+  }
+}

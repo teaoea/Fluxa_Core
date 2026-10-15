@@ -454,21 +454,7 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
         }
     }
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn record_cipher_authentication_sequence_and_update() {
-        let key = Zeroizing::new(vec![1; 32]);
-        let mut tx = Cipher::new(key.clone(), Suite::Aes128).unwrap();
-        let mut rx = Cipher::new(key, Suite::Aes128).unwrap();
-        let frame = tx.seal(23, b"payload").unwrap();
-        assert_eq!(rx.open(&frame).unwrap().1.as_slice(), b"payload");
-        assert!(rx.open(&frame).is_err());
-        tx.update().unwrap();
-        rx.update().unwrap();
-        let mut frame = tx.seal(23, b"new").unwrap();
-        frame[7] ^= 1;
-        assert!(rx.open(&frame).is_err());
-    }
-}
+#[path = "../../tests/test_protocol_reality.rs"]
+mod test_protocol_reality;
