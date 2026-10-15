@@ -1,10 +1,10 @@
-# Rust 内核开源协议说明
+# Fluxa Core 内核开源协议说明
 
-作者：可莉唯一的狗。
+作者：可莉唯一的狗
 
-`./` 中 Fluxa 自有代码采用 MIT 许可协议；第三方依赖适用各自的上游协议。MIT 许可范围限于自研内核，不包含采用专有许可的 Fluxa App 自有源码、界面与资源。
+Fluxa Core自有代码采用 MIT 许可协议；第三方依赖适用各自的上游协议。
 
-本文件列出自研 Rust 内核、依赖组件的固定版本与协议声明，Hickory 的 MIT 原文另存于 Notices/。依赖条目来自现有 Cargo 元数据，包含测试、可选功能及其他平台依赖，并非全部已链接到 macOS 库；版本由 `Cargo.lock` 固定。协议中的 `OR` 表示可选协议，`AND` 表示组合要求；保留上游 SPDX 表达式。
+本文件列出Fluxa Core内核、依赖组件的固定版本与协议声明；版本由 `Cargo.lock` 固定。协议中的 `OR` 表示可选协议，`AND` 表示组合要求；保留上游 SPDX 表达式。
 
 本清单不代表实际分发组件及传递依赖的许可审计已完成。组件用途与来源见 [Documentation/DEPENDENCIES.md](Documentation/DEPENDENCIES.md)。
 
@@ -224,24 +224,3 @@
 | zerovec | 0.11.8 | Unicode-3.0 |
 | zerovec-derive | 0.11.6 | Unicode-3.0 |
 | zmij | 1.0.23 | MIT |
-
-## 已移除的 SQLite 历史依赖
-
-本地开发版已移除该组 Cargo 依赖；以下仅保留历史来源与许可记录，当前发行包应以对应源码提交的 Cargo.lock 为准。上游声明原文保存在 Notices/。SQLite 引擎为上游公共领域声明，rusqlite 为 MIT；此清单不等于完成所有传递组件分发审计。
-
-| 组件 | 固定版本 | 上游声明 |
-| --- | --- | --- |
-| fallible-iterator | 0.3.0 | MIT/Apache-2.0 |
-| fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 |
-| hashbrown | 0.16.1 | MIT OR Apache-2.0 |
-| hashbrown | 0.17.1 | MIT OR Apache-2.0 |
-| libsqlite3-sys | 0.38.2 | MIT |
-| pkg-config | 0.3.34 | MIT OR Apache-2.0 |
-| rsqlite-vfs | 0.1.1 | MIT |
-| rusqlite | 0.40.2 | MIT |
-| sqlite-wasm-rs | 0.5.5 | MIT |
-| vcpkg | 0.2.15 | MIT/Apache-2.0 |
-
-## v1.7.0 新增 GeoIP 依赖
-
-maxminddb 0.32.0：ISC，原文 Notices/maxminddb/LICENSE。ipnetwork 0.21.1：MIT/Apache-2.0，原文 Notices/ipnetwork/。数据库由宿主另行提供，不随 crate 分发；DB-IP Lite 数据适用 CC BY 4.0，自有内核 MIT 许可不覆盖其数据库。
