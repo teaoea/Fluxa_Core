@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             outbound: None,
         }],
     };
+    // Store 独占创建 0600 临时文件，写入和复核复用原句柄；宿主不能替换目录项。
     store.update(Config::default(), vec![source(Policy::Reject)])?;
     let old = store.snapshot()?;
     store.update(Config::default(), vec![source(Policy::Direct)])?;

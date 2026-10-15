@@ -10,15 +10,17 @@ struct RuntimeRulesFFICheck {
     let local = try NativeRuleSource(
       id: "local", layer: .local,
       rules: [
-        RoutingRule(type: .domainSuffix, value: "bbb.com", policy: .direct)
-      ])
+        RoutingRule(type: .domainSuffix, value: "bbb.com", policy: .direct),
+      ]
+    )
     let remote = try NativeRuleSource(
       id: "remote", layer: .remote,
       rules: [
         RoutingRule(type: .domain, value: "aaa.bbb.com", policy: .proxy, outbound: "test"),
         RoutingRule(type: .domain, value: "ads.bbb.com", policy: .reject),
         RoutingRule(type: .ipCIDR, value: "192.0.2.0/24", policy: .reject),
-      ])
+      ]
+    )
     let summary = try await client.update(
       settings: RoutingSettings(fallback: .direct),
       sources: [local, remote]
@@ -27,7 +29,7 @@ struct RuntimeRulesFFICheck {
     precondition(
       summary.version == 1 && summary.original == 4 && summary.pruned == 0
         && summary
-          .effective == 4
+        .effective == 4
     )
     let allowed = try client.evaluate(RoutingTarget(domain: "aaa.bbb.com", address: "198.51.100.1"))
     precondition(allowed.policy == .proxy)
@@ -47,7 +49,8 @@ struct RuntimeRulesFFICheck {
         RoutingTarget(
           domain: "ads.bbb.com",
           address: "198.51.100.1"
-        ))
+        )
+      )
       precondition(decision.policy == .reject)
     }
     try checkSharedSnapshot(client)
@@ -67,6 +70,7 @@ struct RuntimeRulesFFICheck {
     precondition(before == after)
     let retained = try client.status()
     precondition(retained.version == 3)
+    try await checkRejectedCachePath(client, directory: directory)
     try client.close()
     let reopened = try NativeRuntimeRulesClient(directory: directory)
     let recovered = try reopened.status()
@@ -80,35 +84,66 @@ struct RuntimeRulesFFICheck {
       rules: [
         RoutingRule(type: .domain, value: "scope.example.net", policy: .reject, protocol: .udp),
         RoutingRule(type: .domain, value: "scope.example.net", policy: .direct),
-      ])
+      ]
+    )
     _ = try await reopened.update(settings: RoutingSettings(), sources: [scoped])
     try reopened.close()
     let scopedRecovery = try NativeRuntimeRulesClient(directory: directory)
     let tcp = try scopedRecovery.evaluate(
-      RoutingTarget(domain: "scope.example.net", transport: .tcp))
+      RoutingTarget(domain: "scope.example.net", transport: .tcp)
+    )
     let udp = try scopedRecovery.evaluate(
-      RoutingTarget(domain: "scope.example.net", transport: .udp))
+      RoutingTarget(domain: "scope.example.net", transport: .udp)
+    )
     precondition(tcp.policy == .direct && udp.policy == .reject)
     try scopedRecovery.close()
     print("运行时规则真实 Swift FFI：来源、裁剪、IP/域名拦截、模式、失败保留、关闭及恢复通过。")
   }
 
+  static func checkRejectedCachePath(
+    _ client: NativeRuntimeRulesClient, directory: URL
+  ) async throws {
+    let cache = directory.appendingPathComponent("runtime-rules.bin")
+    let backup = directory.appendingPathComponent("saved-cache.bin")
+    let victim = directory.appendingPathComponent("disposable-target.txt")
+    let original = try Data(contentsOf: cache)
+    let protected = Data("must-remain-unchanged".utf8)
+    let before = try client.status()
+    try protected.write(to: victim)
+    try FileManager.default.moveItem(at: cache, to: backup)
+    try FileManager.default.createSymbolicLink(at: cache, withDestinationURL: victim)
+    // 真正调用 Rust 更新入口，拒绝符号链接后不能损坏目标或发布新快照。
+    do {
+      _ = try await client.update(settings: RoutingSettings(), sources: [])
+      preconditionFailure("缓存目标是符号链接时必须拒绝更新")
+    } catch NativeClientError.kernel, NativeClientError.rejected {}
+    let after = try client.status()
+    precondition(after.version == before.version)
+    let untouched = try Data(contentsOf: victim)
+    let oldCache = try Data(contentsOf: backup)
+    precondition(untouched == protected && oldCache == original)
+    try FileManager.default.removeItem(at: cache)
+    try FileManager.default.moveItem(at: backup, to: cache)
+  }
+
   static func checkClash(_ client: NativeRuntimeRulesClient, directory: URL) async throws {
     let yaml = """
-      payload:
-        - DOMAIN,Ads.Example.com.
-        - IP-CIDR,2001:db8::/32
-      """
+    payload:
+      - DOMAIN,Ads.Example.com.
+      - IP-CIDR,2001:db8::/32
+    """
     let old = try NativeRuleSnapshot(
-      summary: client.status(), settings: RoutingSettings(fallback: .direct))
+      summary: client.status(), settings: RoutingSettings(fallback: .direct)
+    )
     let subscription = try NativeSubscriptionClient()
     let count = try subscription.validateRules(yaml: yaml, policy: .reject)
     precondition(count == 2)
     _ = try await client.update(
       settings: RoutingSettings(),
       sources: [
-        NativeRuleSource(id: "clash", payloadYaml: yaml, policy: .reject)
-      ])
+        NativeRuleSource(id: "clash", payloadYaml: yaml, policy: .reject),
+      ]
+    )
     let retained = try NativeRoutingClient()
     try retained.configure(old.routing)
     let oldDecision = try retained.evaluate(RoutingTarget(domain: "ads.example.com"))
@@ -131,12 +166,14 @@ struct RuntimeRulesFFICheck {
       RoutingConfiguration(
         settings: RoutingSettings(mode: .global, outbound: "test"),
         runtimeHandle: state.snapshotHandle
-      ))
+      )
+    )
     let sharedDecision = try shared.evaluate(
       RoutingTarget(
         domain: "ads.bbb.com",
         address: "198.51.100.1"
-      ))
+      )
+    )
     precondition(sharedDecision.policy == .reject && sharedDecision.ruleVersion == state.version)
     try shared.close()
   }
@@ -144,24 +181,24 @@ struct RuntimeRulesFFICheck {
   static func checkYAMLInput(_ client: NativeRuntimeRulesClient, directory: URL) async throws {
     let input = directory.appendingPathComponent("original-input.yaml")
     let yaml = """
-      format_version: 1
-      settings:
-        mode: rules
-        fallback: reject
-      sources:
-        - id: local
-          layer: local
-          rules:
-            - type: DOMAIN-KEYWORD
-              value: example
-              policy: direct
-        - id: remote
-          layer: remote
-          rules:
-            - type: IP-CIDR
-              value: 192.0.2.0/24
-              policy: reject
-      """
+    format_version: 1
+    settings:
+      mode: rules
+      fallback: reject
+    sources:
+      - id: local
+        layer: local
+        rules:
+          - type: DOMAIN-KEYWORD
+            value: example
+            policy: direct
+      - id: remote
+        layer: remote
+        rules:
+          - type: IP-CIDR
+            value: 192.0.2.0/24
+            policy: reject
+    """
     try Data(yaml.utf8).write(to: input)
     let summary = try await client.update(inputFile: input)
     precondition(summary.version == 4 && summary.effective == 2)
@@ -179,7 +216,7 @@ struct RuntimeRulesFFICheck {
   }
 
   static func checkBackground(_ client: NativeRuntimeRulesClient, directory: URL) async throws {
-    var rules = try (0..<50000).map {
+    var rules = try (0 ..< 50000).map {
       try RoutingRule(type: .domain, value: "d\($0).unrelated.test", policy: .direct)
     }
     try rules.append(RoutingRule(type: .domainKeyword, value: "example", policy: .reject))
@@ -195,10 +232,12 @@ struct RuntimeRulesFFICheck {
         RoutingTarget(
           domain: "myexample.net",
           address: "192.0.2.1"
-        ))
+        )
+      )
       precondition(
         (decision.ruleVersion == 4 && decision.policy == .direct)
-          || (decision.ruleVersion == 5 && decision.policy == .reject))
+          || (decision.ruleVersion == 5 && decision.policy == .reject)
+      )
       if state.phase == .succeeded {
         precondition(state.version == 5)
         break

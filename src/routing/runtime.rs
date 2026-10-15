@@ -1590,11 +1590,25 @@ mod validation_tests {
             Index::default().flatten(&[]),
             Err(Error::ResourceBudgetExceeded { .. })
         ));
-        // 文件尚未创建也先执行预算准入；不能用 I/O 子池绕过同一全局限制。
+        // 安全创建的文件也必须先通过共享预算准入；超限时不能写入任何字节。
+        let path = std::env::temp_dir().join(format!(
+            "fluxa-cache-budget-{}-{}",
+            std::process::id(),
+            crate::lifecycle::identifier().unwrap()
+        ));
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
         assert!(matches!(
-            crate::routing::cache::write(std::path::Path::new("/not-created"), &snapshot),
+            crate::routing::cache::write(&mut file, &snapshot),
             Err(Error::ResourceBudgetExceeded { .. })
         ));
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        drop(file);
+        std::fs::remove_file(path).unwrap();
         drop(occupied);
         assert_eq!(memory_usage().reserved_bytes, retained);
         drop(snapshot);

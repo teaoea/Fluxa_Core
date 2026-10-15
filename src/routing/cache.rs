@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 use ring::digest::{Context, SHA256};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     path::Path,
 };
 const MAGIC: &[u8; 8] = b"FLXARULE";
@@ -49,7 +49,15 @@ fn open(path: &Path) -> Result<File> {
     if meta.len() > MAX_BYTES {
         return Err(Error::ResourceLimit);
     }
-    let file = File::open(path)?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // 在打开时拒绝最终符号链接；非阻塞避免检查后被换成 FIFO 时挂起。
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
     if !file.metadata()?.is_file() || file.metadata()?.len() > MAX_BYTES {
         return Err(Error::ResourceLimit);
     }
@@ -97,8 +105,8 @@ pub(super) fn load(path: &Path) -> Result<Snapshot> {
     let document: Document = serde_json::from_slice(&document).map_err(|_| Error::InvalidInput)?;
     Snapshot::from_flat_document(document, index)
 }
-/// 临时文件由 Store 创建；返回前刷新并逐字节验证，不重编译第二份索引。
-pub(super) fn write(path: &Path, snapshot: &Snapshot) -> Result<()> {
+/// 仅写入 Store 排他创建的读写句柄；校验复用同一句柄，绝不按路径重开或截断。
+pub(super) fn write(file: &mut File, snapshot: &Snapshot) -> Result<()> {
     let doc = snapshot.document();
     let _temporary = MEMORY.reserve(
         doc.report
@@ -130,14 +138,17 @@ pub(super) fn write(path: &Path, snapshot: &Snapshot) -> Result<()> {
             .to_le_bytes(),
     );
     header[DIGEST_OFFSET..HEADER_BYTES].copy_from_slice(checksum(&document, index).as_ref());
-    let mut file = OpenOptions::new().write(true).truncate(true).open(path)?;
+    // 句柄必须指向刚创建的空普通文件；拒绝误用，不能截断调用方的已有文件。
+    if !file.metadata()?.is_file() || file.metadata()?.len() != 0 {
+        return Err(Error::InvalidInput);
+    }
+    file.rewind()?;
     file.write_all(&header)?;
     file.write_all(&document)?;
     file.write_all(index)?;
     file.sync_all()?;
-    drop(file);
-    // 固定大小栈缓冲流式比较，失败时旧文件和旧快照继续使用。
-    let mut file = open(path)?;
+    // 固定大小栈缓冲在原句柄上复核；路径替换不能把校验引向另一个文件。
+    file.rewind()?;
     if file.metadata()?.len() != total as u64 {
         return Err(Error::InvalidInput);
     }
