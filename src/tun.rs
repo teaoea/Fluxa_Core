@@ -1,9 +1,13 @@
 //! TUN 数据包基础与有界 UDP 转发；不建立系统隧道。
 //! 不持有调用方内存；分片和扩展头必须明确拒绝。
+mod packet;
+pub use packet::Packet;
+pub mod session;
+pub mod tcp;
 pub mod udp;
 use crate::error::{Error, Result};
 use serde::Serialize;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 pub const MAX_MTU: usize = 9000;
 pub const MIN_MTU: usize = 1280;
@@ -18,6 +22,30 @@ pub struct PacketInfo {
     pub destination_port: u16,
     pub packet_bytes: usize,
     pub payload_bytes: usize,
+}
+
+impl PacketInfo {
+    /// 转发端点共用校验；诊断解析本身仍可展示零端口等不可转发输入。
+    pub(crate) fn endpoints(&self) -> Result<(SocketAddr, SocketAddr)> {
+        let source = SocketAddr::new(
+            self.source.parse().map_err(|_| Error::InvalidInput)?,
+            self.source_port,
+        );
+        let destination = SocketAddr::new(
+            self.destination.parse().map_err(|_| Error::InvalidInput)?,
+            self.destination_port,
+        );
+        for endpoint in [source, destination] {
+            if endpoint.port() == 0
+                || endpoint.ip().is_unspecified()
+                || endpoint.ip().is_multicast()
+                || endpoint.ip() == IpAddr::V4(Ipv4Addr::BROADCAST)
+            {
+                return Err(Error::InvalidInput);
+            }
+        }
+        Ok((source, destination))
+    }
 }
 
 /// 会话保存计数与 MTU，不保存正文；close 后不能重新打开或继续使用。

@@ -404,7 +404,7 @@ def run(args):
 
 def external(args):
     row = next((x for x in suites() if x['id'] == args.external), None)
-    if not row or row['kind'] not in ('swift_ffi', 'swift_xctest', 'python_unit'):
+    if not row or row['kind'] not in ('swift_ffi', 'swift_xctest', 'python_unit', 'python_integration'):
         raise ValueError('外部执行器只能运行登记的 Swift/Python 套件')
     argv = args.command[1:] if args.command and args.command[0] == '--' else args.command
     if not argv:

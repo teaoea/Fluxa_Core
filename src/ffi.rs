@@ -34,6 +34,38 @@ const MAX_OUTPUT_MEMORY: usize = 32 * 1024 * 1024;
 const SMALL_OUTPUT: usize = 256 * 1024;
 const READ_REPLY_OVERHEAD: usize = 4096;
 static OUTPUT: ByteBudget = ByteBudget::new(MAX_OUTPUT_MEMORY);
+#[derive(Clone)]
+enum ManagedTun {
+    Udp(Arc<crate::tun::udp::Session>),
+    Mixed(Arc<crate::tun::session::Session>),
+}
+impl ManagedTun {
+    async fn submit(&self, bytes: &[u8], generation: Option<u64>) -> Result<(), Error> {
+        match self {
+            Self::Udp(session) => session.submit(bytes, generation).await,
+            Self::Mixed(session) => session.submit(bytes, generation).await,
+        }
+    }
+    fn receive(&self) -> Result<Option<crate::tun::Packet>, Error> {
+        match self {
+            Self::Udp(session) => session.receive(),
+            Self::Mixed(session) => session.receive(),
+        }
+    }
+    fn same_identity(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Udp(a), Self::Udp(b)) => a.same_identity(b),
+            (Self::Mixed(a), Self::Mixed(b)) => a.same_identity(b),
+            _ => false,
+        }
+    }
+    async fn close(&self) -> Result<(), Error> {
+        match self {
+            Self::Udp(session) => session.close().await,
+            Self::Mixed(session) => session.close().await,
+        }
+    }
+}
 #[derive(Default)]
 struct Engine {
     #[cfg(unix)]
@@ -44,7 +76,7 @@ struct Engine {
     outbound: Arc<crate::outbound::Manager>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
-    tun_udp: Mutex<Option<Arc<crate::tun::udp::Session>>>,
+    tun_udp: Mutex<Option<ManagedTun>>,
     authority: Mutex<Option<Arc<Authority>>>,
     proxy: Mutex<Option<MitmProxy>>,
     captures: Arc<CaptureStore>,
@@ -393,6 +425,8 @@ enum Command {
     TunStart,
     TunUdpOpen(crate::tun::udp::Options),
     TunUdpClose,
+    TunOpen(crate::tun::session::Options),
+    TunClose,
     Script {
         source: String,
         input: serde_json::Value,
@@ -728,7 +762,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
     if bytes.len() <= 256 {
         match serde_json::from_slice::<Command>(bytes) {
-            Ok(Command::TunUdpClose) => {
+            Ok(Command::TunUdpClose | Command::TunClose) => {
                 engine.close_tun()?;
                 return Ok(Reply {
                     success: true,
@@ -1311,16 +1345,29 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             if session.is_some() {
                 return Err(Error::InvalidState);
             }
-            *session = Some(Arc::new(crate::tun::udp::Session::new(
+            *session = Some(ManagedTun::Udp(Arc::new(crate::tun::udp::Session::new(
                 Arc::clone(&engine.outbound),
                 options,
-            )?));
+            )?)));
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
         }
-        Command::TunUdpClose => {
+        Command::TunOpen(options) => {
+            let mut session = engine.tun_udp.lock().map_err(|_| Error::Internal)?;
+            if session.is_some() {
+                return Err(Error::InvalidState);
+            }
+            *session = Some(ManagedTun::Mixed(Arc::new(
+                crate::tun::session::Session::new(engine.outbound.clone(), options)?,
+            )));
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
+        Command::TunUdpClose | Command::TunClose => {
             engine.close_tun()?;
             Ok(Reply {
                 success: true,
@@ -1504,7 +1551,10 @@ pub extern "C" fn fluxa_engine_capabilities() -> u64 {
     const STRUCTURED_ERROR_CAPABILITY: u64 = 1 << 25;
     // 位 27：正式域名与 TCP/UDP 组合规则，不改变既有能力位语义。
     const DOMAIN_TRANSPORT_CAPABILITY: u64 = 1 << 27;
+    // 位 28：自研 TCP/UDP 包会话；不代表系统 VPN 已接管。
+    const TUN_TCP_CAPABILITY: u64 = 1 << 28;
     33554431
+        | TUN_TCP_CAPABILITY
         | STRUCTURED_ERROR_CAPABILITY
         | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {
@@ -1791,7 +1841,7 @@ pub unsafe extern "C" fn fluxa_engine_buffer_copy(
 fn tun_status(error: Error) -> i32 {
     i32::from(error.code().value())
 }
-fn udp_session(handle: u64) -> Result<Arc<crate::tun::udp::Session>, i32> {
+fn udp_session(handle: u64) -> Result<ManagedTun, i32> {
     engine(handle)
         .map_err(|error| {
             let info = if error == Error::InvalidState {
@@ -1809,7 +1859,7 @@ fn udp_session(handle: u64) -> Result<Arc<crate::tun::udp::Session>, i32> {
             ErrorCode::Internal.value() as i32
         })?
         .as_ref()
-        .map(Arc::clone)
+        .cloned()
         .ok_or_else(|| {
             set_last_error(Error::InvalidState.public_info());
             ErrorCode::InvalidState.value() as i32

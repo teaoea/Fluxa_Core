@@ -47,3 +47,30 @@ jobs:
             tests/*.md
             /tmp/fluxa-test-evidence/
           if-no-files-found: error
+  tcp-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      FLUXA_TEST_EVIDENCE_DIR: /tmp/fluxa-linux-tcp-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - name: 固定 Rust 工具链
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+      - name: 验证有界 TCP 单元与资源契约
+        run: python3 Tools/test_reports.py --run --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session
+      - name: 构建真实系统互通夹具并保留编译状态
+        run: python3 Tools/test_reports.py --external test_tun_tcp_kernel --phase compile -- cargo build --locked --example tun_tcp_kernel
+      - name: 独立网络命名空间真实 TCP 互通
+        run: python3 Tools/test_reports.py --external test_tun_tcp_kernel -- sudo unshare --net python3 tests/test_tun_tcp_kernel.py "$PWD/target/debug/examples/tun_tcp_kernel"
+      - name: 保全 Linux 实际报告与失败证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxa-linux-tcp-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tests/test_tun_tcp_*.md
+            /tmp/fluxa-linux-tcp-evidence/
+          if-no-files-found: error

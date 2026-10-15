@@ -29,6 +29,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 23 代表 TCP/UDP 规则及 QUIC 报文/连接关联拦截，不代表所有短头或迁移均可识别。
 // 位 25 代表 u16 错误代码、同线程查询及 command_v2 结构化错误扩展。
 // 位 27 代表正式 DOMAIN / DOMAIN-SUFFIX 与 TCP/UDP 的 AND 条件，旧能力位不改义。
+// 位 28 代表有界 TCP/UDP 数据包会话及 TCP DNS；不代表系统 VPN 已接管。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);
@@ -51,7 +52,7 @@ uint16_t fluxa_engine_last_error_code(void);
 size_t fluxa_engine_buffer_length(uint64_t handle);
 /* 目标须在调用期可写，不能与 Rust 内存重叠；容量不足不写，返回所需长度。 */
 size_t fluxa_engine_buffer_copy(uint64_t handle, uint8_t *output, size_t capacity);
-/* UDP 数据面：输入为一个完整 IP 包，最大 9000 字节；仅同步借用。
+/* TCP/UDP 数据面：输入为一个完整 IP 包，最大 9000 字节；仅同步借用。
    generation=0 表示无 Fake-IP 代次，合成地址不能作为真实目标放行。
    状态：0 成功、11 队列空；全部失败使用 error.rs 登记的四位类别错误代码。
    查询返回受限的真实上下文；旧错误数值不再使用，客户端须同步迁移。

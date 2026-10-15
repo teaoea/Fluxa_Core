@@ -180,9 +180,9 @@ mod tests {
         assert_eq!(
             fluxa_engine_capabilities(),
             if cfg!(target_os = "macos") {
-                268435455
+                536870911
             } else {
-                201326591
+                469762047
             }
         );
     }
@@ -316,7 +316,7 @@ mod tests {
                 )
                 .unwrap(),
             );
-            *engine.tun_udp.lock().unwrap() = Some(session.clone());
+            *engine.tun_udp.lock().unwrap() = Some(ManagedTun::Udp(session.clone()));
             let packet = crate::tun::udp::encode(
                 "192.0.2.1:12345".parse().unwrap(),
                 destination,

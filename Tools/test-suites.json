@@ -944,6 +944,89 @@
       "declared_cases": [
         "cache_round_trip_preserves_independent_policy_matrix"
       ]
+    },
+    {
+      "id": "test_tun_tcp_buffer",
+      "file": "tests/test_tun_tcp_buffer.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/tcp/buffer.rs"
+      ],
+      "module": "test_tun_tcp_buffer",
+      "declared_cases": [
+        "reordered_duplicate_overlap_wrap_and_finish",
+        "fixed_window_zero_and_open_after_consume",
+        "transmit_preserves_unacked_bytes_and_wraps"
+      ]
+    },
+    {
+      "id": "test_tun_tcp_state",
+      "file": "tests/test_tun_tcp_state.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/tcp/state.rs"
+      ],
+      "module": "test_tun_tcp_state",
+      "declared_cases": [
+        "syn_retransmission_and_acknowledgement_validation",
+        "receive_reordering_duplicate_and_window_update",
+        "segmentation_partial_ack_and_retransmit_preserve_payload",
+        "zero_window_probe_and_reopen_does_not_consume_data",
+        "half_close_keeps_return_data_then_fin_and_time_wait",
+        "reset_requires_expected_sequence_and_far_packet_cannot_release_tx",
+        "duplicate_ack_triggers_fast_retransmit_without_waiting_for_timer",
+        "exponential_retry_budget_exhausts_with_explicit_timeout",
+        "active_half_close_accepts_final_return_bytes_and_fin",
+        "round_trip_estimate_adapts_and_retransmission_is_not_a_sample",
+        "finish_waits_for_bounded_flight_ledger_space",
+        "duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline"
+      ]
+    },
+    {
+      "id": "test_tun_tcp_session",
+      "file": "tests/test_tun_tcp_session.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/tcp/session.rs"
+      ],
+      "module": "test_tun_tcp_session",
+      "declared_cases": [
+        "real_ipv4_ipv6_data_and_half_close",
+        "rejection_invalid_input_and_close_never_dial",
+        "dns_tcp_length_framing_and_real_resolver",
+        "automatic_fake_ip_uses_original_return_address",
+        "concurrent_close_with_full_output_releases_actual_resources_and_quotas",
+        "close_cancels_pending_tcp_dns_and_revokes_retained_resolver",
+        "network_update_preserves_active_stream_and_rejects_new_flow",
+        "invalid_handshake_packets_do_not_refresh_idle_deadline",
+        "absolute_handshake_deadline_cancels_pending_real_dns_before_dial"
+      ]
+    },
+    {
+      "id": "test_tun_tcp_kernel",
+      "file": "tests/test_tun_tcp_kernel.py",
+      "kind": "python_integration",
+      "sources": [
+        "src/tun/session.rs",
+        "src/tun/tcp/session.rs",
+        "examples/tun_tcp_kernel.rs"
+      ],
+      "declared_cases": []
+    },
+    {
+      "id": "test_tun_tcp_wire",
+      "file": "tests/test_tun_tcp_wire.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/tcp/wire.rs"
+      ],
+      "module": "test_tun_tcp_wire",
+      "declared_cases": [
+        "exact_fields_roundtrip_for_both_address_families",
+        "invalid_window_mss_and_checksum_are_rejected",
+        "malformed_options_and_urgent_data_never_enter_state_machine",
+        "deterministic_truncated_and_mutated_packets_never_panic"
+      ]
     }
   ]
 }
