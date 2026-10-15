@@ -1,6 +1,6 @@
 # 测试报告：test_tun_tcp_kernel
 
-<!-- fluxa-test-report:{"command": ["unshare", "--net", "python3", "tests/test_tun_tcp_kernel.py", "/var/tmp/fluxa-tcp-test/target/debug/examples/tun_tcp_kernel"], "exit_code": 0, "duration_seconds": 2.24615522699969, "status": "PASS", "discovered": ["test_tun_tcp_kernel::process"], "results": {"test_tun_tcp_kernel::process": "PASS"}, "fingerprint": "8d0f63faa3c6bfb7f633892faeb0973d2fa47ef97f19965b565f9829a57119b3", "time": "2026-10-16T04:44:17.363180+08:00", "scope": "单个已登记外部测试程序整体；不声称统计其内部断言或 XCTest 函数数量。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_tun_tcp_kernel", "file": "tests/test_tun_tcp_kernel.py", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "dc82643899080011bb27af10212048f908cdf077", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["unshare", "--net", "python3", "tests/test_tun_tcp_kernel.py", "/var/tmp/fluxa-tcp-test/target/debug/examples/tun_tcp_kernel"], "exit_code": 0, "duration_seconds": 2.276949617997161, "status": "PASS", "discovered": ["test_tun_tcp_kernel::process"], "results": {"test_tun_tcp_kernel::process": "PASS"}, "fingerprint": "1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a", "time": "2026-10-16T06:03:28.277422+08:00", "scope": "单个已登记外部测试程序整体；不声称统计其内部断言或 XCTest 函数数量。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 2, "suite": "test_tun_tcp_kernel", "file": "tests/test_tun_tcp_kernel.py", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：python_integration
 - 测试范围：单个已登记外部测试程序整体；不声称统计其内部断言或 XCTest 函数数量。
 - 实际命令：`unshare --net python3 tests/test_tun_tcp_kernel.py /var/tmp/fluxa-tcp-test/target/debug/examples/tun_tcp_kernel`
-- 执行时间：2026-10-16T04:44:17.363180+08:00
-- 实际耗时：2.24615522699969 秒
-- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "dc82643899080011bb27af10212048f908cdf077", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`8d0f63faa3c6bfb7f633892faeb0973d2fa47ef97f19965b565f9829a57119b3`
+- 执行时间：2026-10-16T06:03:28.277422+08:00
+- 实际耗时：2.276949617997161 秒
+- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -46,11 +46,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/var/tmp/fluxa-ip-linux-compact-evidence/test_tun_tcp_kernel.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/var/tmp/fluxa-out-fragment-linux-full/test_tun_tcp_kernel.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
-
-## 本轮 Linux 构建设置
-
-固定 Rust 工具链、单构建任务、`CARGO_INCREMENTAL=0`、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_PROFILE_TEST_DEBUG=0`；仅减少可重建的编译缓存，不改变断言或运行时业务预算。macOS 完整回归证据保留在 `/private/tmp/fluxa-ip-frozen-evidence`。

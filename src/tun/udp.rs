@@ -1,6 +1,10 @@
-//! 有界 UDP 数据包转发会话；不创建系统隧道，不处理 TCP 或分片；仅接管显式 DNS 端点。
+//! 有界 UDP 数据包转发会话；返回报文按 MTU 分片，不创建系统隧道；仅接管显式 DNS 端点。
 pub use super::packet::{Packet, encode_udp as encode};
-use super::{MAX_MTU, MIN_MTU, parse};
+use super::{
+    MAX_MTU, MIN_MTU,
+    fragment::{self, Datagram},
+    parse,
+};
 use crate::lifecycle::session::Authority;
 use crate::{
     budget::{ByteBudget, ByteLease},
@@ -101,14 +105,18 @@ impl Drop for ConnectionLease {
 pub struct Session {
     inner: Arc<SessionInner>,
 }
+struct Output {
+    channel: mpsc::Receiver<Result<Datagram>>,
+    pending: std::collections::VecDeque<Packet>,
+}
 struct SessionInner {
     options: Options,
     manager: Arc<Manager>,
     dns: Option<Arc<crate::dns::Resolver>>,
     state: Mutex<State>,
     submit_lock: tokio::sync::Mutex<()>,
-    sender: mpsc::Sender<Result<Packet>>,
-    receiver: Mutex<mpsc::Receiver<Result<Packet>>>,
+    sender: mpsc::Sender<Result<Datagram>>,
+    receiver: Mutex<Output>,
     cancel: watch::Sender<bool>,
     authority: Arc<Authority>,
     tasks: Mutex<tokio::task::JoinSet<()>>,
@@ -155,7 +163,10 @@ impl SessionInner {
             }),
             submit_lock: tokio::sync::Mutex::new(()),
             sender,
-            receiver: Mutex::new(receiver),
+            receiver: Mutex::new(Output {
+                channel: receiver,
+                pending: Default::default(),
+            }),
             cancel,
             authority,
             tasks: Mutex::new(tokio::task::JoinSet::new()),
@@ -246,7 +257,7 @@ impl SessionInner {
             if self.state.lock().map_err(|_| Error::Internal)?.closed {
                 return Err(Error::Cancelled);
             }
-            slot.send(encode(
+            slot.send(fragment::encode(
                 key.destination,
                 key.source,
                 &response,
@@ -368,13 +379,15 @@ impl SessionInner {
         if self.state.lock().map_err(|_| Error::Internal)?.closed {
             return Err(Error::InvalidState);
         }
-        match self
-            .receiver
-            .lock()
-            .map_err(|_| Error::Internal)?
-            .try_recv()
-        {
-            Ok(result) => result.map(Some),
+        let mut output = self.receiver.lock().map_err(|_| Error::Internal)?;
+        if let Some(packet) = output.pending.pop_front() {
+            return Ok(Some(packet));
+        }
+        match output.channel.try_recv() {
+            Ok(result) => {
+                output.pending = result?.0;
+                Ok(output.pending.pop_front())
+            }
             Err(mpsc::error::TryRecvError::Empty) => Ok(None),
             Err(mpsc::error::TryRecvError::Disconnected) => Err(Error::InvalidState),
         }
@@ -417,8 +430,9 @@ impl SessionInner {
             }
         }
         let mut receiver = self.receiver.lock().map_err(|_| Error::Internal)?;
-        receiver.close();
-        while receiver.try_recv().is_ok() {}
+        receiver.channel.close();
+        receiver.pending.clear();
+        while receiver.channel.try_recv().is_ok() {}
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         state.flows.clear();
         state.lease.take();
@@ -536,7 +550,7 @@ async fn receive_loop(
     connection: ConnectionLease,
     key: Key,
     options: Options,
-    sender: mpsc::Sender<Result<Packet>>,
+    sender: mpsc::Sender<Result<Datagram>>,
     mut cancel: watch::Receiver<bool>,
 ) {
     let header = if key.source.is_ipv4() { 28 } else { 48 };
@@ -544,10 +558,10 @@ async fn receive_loop(
         let result = tokio::select! {
             biased;
             _ = cancel.changed() => return,
-            result = connection.manager.read(connection.id, options.mtu - header, options.idle_timeout_ms) => result,
+            result = connection.manager.read(connection.id, MAX_MTU - header, options.idle_timeout_ms) => result,
         };
         let packet = match result {
-            Ok(read) => encode(key.destination, key.source, &read.bytes, options.mtu),
+            Ok(read) => fragment::encode(key.destination, key.source, &read.bytes, options.mtu),
             Err(Error::NetworkTimeout | Error::Cancelled) => return,
             Err(error) => Err(error),
         };

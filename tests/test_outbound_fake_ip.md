@@ -1,6 +1,6 @@
 # 测试报告：test_outbound_fake_ip
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/test_outbound_fake_ip-d2f2f604ecbba47d", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.0794070419999997, "status": "PASS", "discovered": ["both_fake_families_restore_domain_and_use_real_dns_cache", "fake_mapping_does_not_bypass_dnssec_validation", "reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connections", "unknown_mapping_and_rejected_policies_do_not_send_dns_or_connect"], "results": {"both_fake_families_restore_domain_and_use_real_dns_cache": "PASS", "fake_mapping_does_not_bypass_dnssec_validation": "PASS", "reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connections": "PASS", "unknown_mapping_and_rejected_policies_do_not_send_dns_or_connect": "PASS"}, "fingerprint": "8d0f63faa3c6bfb7f633892faeb0973d2fa47ef97f19965b565f9829a57119b3", "time": "2026-10-16T04:40:48.450264+08:00", "attempt": 1, "suite": "test_outbound_fake_ip", "file": "tests/test_outbound_fake_ip.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "dc82643899080011bb27af10212048f908cdf077", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/test_outbound_fake_ip-d2f2f604ecbba47d", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.07487729099999285, "status": "PASS", "discovered": ["both_fake_families_restore_domain_and_use_real_dns_cache", "fake_mapping_does_not_bypass_dnssec_validation", "reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connections", "unknown_mapping_and_rejected_policies_do_not_send_dns_or_connect"], "results": {"both_fake_families_restore_domain_and_use_real_dns_cache": "PASS", "fake_mapping_does_not_bypass_dnssec_validation": "PASS", "reset_and_reconfiguration_reject_old_tokens_but_keep_existing_connections": "PASS", "unknown_mapping_and_rejected_policies_do_not_send_dns_or_connect": "PASS"}, "fingerprint": "1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a", "time": "2026-10-16T06:00:09.031753+08:00", "attempt": 1, "suite": "test_outbound_fake_ip", "file": "tests/test_outbound_fake_ip.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/private/tmp/fluxa-tcp-latest/target/debug/deps/test_outbound_fake_ip-d2f2f604ecbba47d --test-threads=1`
-- 执行时间：2026-10-16T04:40:48.450264+08:00
-- 实际耗时：0.0794070419999997 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "dc82643899080011bb27af10212048f908cdf077", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`8d0f63faa3c6bfb7f633892faeb0973d2fa47ef97f19965b565f9829a57119b3`
+- 执行时间：2026-10-16T06:00:09.031753+08:00
+- 实际耗时：0.07487729099999285 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -49,7 +49,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-ip-frozen-evidence/test_outbound_fake_ip.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-out-fragment-full-evidence/test_outbound_fake_ip.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

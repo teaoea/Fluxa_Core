@@ -585,7 +585,8 @@
         "new_flows_use_new_rules_existing_flows_keep_snapshot",
         "options_and_return_packet_limits_are_strict",
         "fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address",
-        "oversize_response_is_an_error_and_drop_cancels_blocked_output"
+        "oversize_response_is_an_error_and_drop_cancels_blocked_output",
+        "fragmented_returns_preserve_datagrams_and_close_discards_pending"
       ]
     },
     {
@@ -1048,6 +1049,33 @@
         "malformed_headers_first_fragment_and_conflicting_metadata",
         "ipv6_fragment_boundary_preserves_extension_constraints"
       ]
+    },
+    {
+      "id": "test_tun_fragment",
+      "file": "tests/test_tun_fragment.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/fragment.rs"
+      ],
+      "module": "test_tun_fragment",
+      "declared_cases": [
+        "dual_stack_layout_checksum_and_reassembly",
+        "mtu_boundaries_and_single_packet_fast_path",
+        "identifier_exhaustion_and_quiet_period",
+        "invalid_inputs_and_complete_packet_limit",
+        "partial_allocation_failure_returns_all_packet_budget"
+      ]
+    },
+    {
+      "id": "test_tun_fragment_kernel",
+      "file": "tests/test_tun_fragment_kernel.py",
+      "kind": "python_integration",
+      "sources": [
+        "src/tun/fragment.rs",
+        "src/tun/udp.rs",
+        "examples/tun_tcp_kernel.rs"
+      ],
+      "declared_cases": []
     }
   ]
 }

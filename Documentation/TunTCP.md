@@ -61,3 +61,7 @@ Linux 夹具覆盖系统 TCP 客户端、IPv4/IPv6、1 MiB 双向、半关闭、
 本阶段版本按 SemVer 的兼容新能力推进到 dev 2.5.0。只提交、推送 dev；不改 main，不从 dev 发布 crates.io，不复用已发布标签。不修改 Fluxa 的固定 XCFramework URL/SHA-256，也不把旧二进制当作新 TCP 功能。正式发布及 App 实际接入须经过后续明确授权的 main 发布流程。
 
 协议依据：[RFC 9293](https://www.rfc-editor.org/rfc/rfc9293)、[RFC 6298](https://www.rfc-editor.org/rfc/rfc6298)、[RFC 7766](https://www.rfc-editor.org/rfc/rfc7766)。仅依据协议编写自有实现，不复制外部 TCP 栈源码。
+
+## UDP 返回分片
+
+UDP 返回超过 MTU 时的有界源分片、队列语义与测试入口见 [出站 IP 分片](OutboundFragmentation.md)。TCP 仍按 MSS 分段。

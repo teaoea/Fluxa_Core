@@ -10,6 +10,7 @@
 //! - fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - oversize_response_is_an_error_and_drop_cancels_blocked_output：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //!
+//! 测试内容：fragmented_returns_preserve_datagrams_and_close_discards_pending。
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
 //! 前置条件：本地测试需文件/回环套接字权限；平台限定及忽略项以实际登记为准。
@@ -383,7 +384,7 @@ mod public_contract {
             .await
             .unwrap()
             .unwrap();
-        socket.send_to(&vec![0; 1280], peer).await.unwrap();
+        socket.send_to(&vec![0; 9000], peer).await.unwrap();
         assert!(matches!(next(&session).await, Err(Error::ResourceLimit)));
         session.close().await.unwrap();
         for _ in 0..40 {
@@ -419,5 +420,102 @@ mod public_contract {
             drop(session);
             tokio::task::yield_now().await;
         }
+    }
+}
+
+#[tokio::test]
+async fn fragmented_returns_preserve_datagrams_and_close_discards_pending() {
+    use super::*;
+    use crate::{
+        outbound::Limits,
+        routing::{Config, Policy, Router},
+    };
+    use std::time::Duration;
+    for ipv6 in [false, true] {
+        let peer = tokio::net::UdpSocket::bind(if ipv6 { "[::1]:0" } else { "127.0.0.1:0" })
+            .await
+            .unwrap();
+        let source = if ipv6 {
+            "[2001:db8::1]:2222"
+        } else {
+            "192.0.2.1:2222"
+        }
+        .parse()
+        .unwrap();
+        let manager = Arc::new(Manager::default());
+        manager
+            .configure_network(
+                None,
+                Some(Arc::new(
+                    Router::compile(Config {
+                        fallback: Policy::Direct,
+                        ..Config::default()
+                    })
+                    .unwrap(),
+                )),
+                Limits::default(),
+            )
+            .unwrap();
+        let session = Session::new(
+            manager.clone(),
+            Options {
+                mtu: 1280,
+                output_capacity: 1,
+                ..Options::default()
+            },
+        )
+        .unwrap();
+        let request = encode(source, peer.local_addr().unwrap(), b"large", 1280).unwrap();
+        session.submit(&request.bytes, None).await.unwrap();
+        let mut buffer = [0; 64];
+        let (_, address) =
+            tokio::time::timeout(Duration::from_secs(2), peer.recv_from(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap();
+        let payload: Vec<u8> = (0..8001).map(|i| (i % 251) as u8).collect();
+        peer.send_to(&payload, address).await.unwrap();
+        peer.send_to(b"next-datagram", address).await.unwrap();
+        let mut table = crate::tun::ip::Reassembly::default();
+        let mut received = Vec::new();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while received.len() != 2 {
+                if let Some(packet) = session.receive().unwrap() {
+                    assert!(packet.bytes.len() <= 1280);
+                    if let Some(full) = table
+                        .submit(&packet.bytes, 1280, None, std::time::Instant::now())
+                        .unwrap()
+                    {
+                        let info = crate::tun::parse(full.bytes(), 9000).unwrap();
+                        received
+                            .push(full.bytes()[full.bytes().len() - info.payload_bytes..].to_vec());
+                    }
+                } else {
+                    tokio::task::yield_now().await;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(received, vec![payload.clone(), b"next-datagram".to_vec()]);
+        peer.send_to(&payload, address).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if session.receive().unwrap().is_some() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!session.inner.receiver.lock().unwrap().pending.is_empty());
+        let (a, b) = tokio::join!(session.close(), session.close());
+        a.unwrap();
+        b.unwrap();
+        let output = session.inner.receiver.lock().unwrap();
+        assert!(output.pending.is_empty());
+        assert!(output.channel.is_empty());
+        assert!(matches!(session.receive(), Err(Error::InvalidState)));
     }
 }

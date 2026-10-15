@@ -1,5 +1,6 @@
 //! TUN 数据包基础与有界 UDP 转发；不建立系统隧道。
 //! 不持有调用方内存；会话先执行有界重组，无状态诊断仍只接受基础完整包。
+mod fragment;
 mod ip;
 mod packet;
 pub use packet::Packet;
