@@ -59,8 +59,9 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal
           rustup default 1.98.1
+          cargo fetch --locked
       - name: 验证有界 TCP 单元与资源契约
-        run: python3 Tools/test_reports.py --run --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session
+        run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR" --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session
       - name: 构建真实系统互通夹具并保留编译状态
         run: python3 Tools/test_reports.py --external test_tun_tcp_kernel --phase compile -- cargo build --locked --example tun_tcp_kernel
       - name: 独立网络命名空间真实 TCP 互通
