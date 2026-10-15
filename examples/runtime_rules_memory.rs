@@ -11,6 +11,7 @@ fn main() {
     let keyword = args.get(2).is_some_and(|v| v == "keyword");
     let rules = (0..count)
         .map(|i| Rule {
+            protocol: None,
             r#type: if keyword {
                 Match::DomainKeyword
             } else {

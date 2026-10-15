@@ -1,10 +1,7 @@
 //! 只保存内部生成产物；二进制索引不含主机指针，提交仍采用同目录临时文件与原子替换。
 //! SHA-256 检测损坏，不充当认证；规则报告加载后仍仅结构验证，不能凭校验和升级信任。
 use super::runtime::{Document, Snapshot};
-use crate::{
-    budget::ByteBudget,
-    error::{Error, Result},
-};
+use crate::error::{Error, Result};
 use ring::digest::{Context, SHA256};
 use std::{
     fs::{self, File, OpenOptions},
@@ -12,7 +9,8 @@ use std::{
     path::Path,
 };
 const MAGIC: &[u8; 8] = b"FLXARULE";
-const VERSION: u32 = 1;
+// 新的协议候选槽位改变固定记录宽度；旧缓存必须从来源重建，不能误读。
+const VERSION: u32 = 2;
 const WORD_BYTES: usize = 4;
 const VERSION_OFFSET: usize = MAGIC.len();
 const DOCUMENT_LENGTH_OFFSET: usize = VERSION_OFFSET + WORD_BYTES;
@@ -28,7 +26,8 @@ const LOAD_BUFFER_FACTOR: usize = 2;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 32 * 1024 * 1024;
 // 文档解析与写入缓冲区额外预算；快照自身仍持有运行时预算。
-static MEMORY: ByteBudget = ByteBudget::new(256 * 1024 * 1024);
+// 编译、平铺、缓存 I/O 与存量快照使用同一 512 MiB 准入池。
+use super::runtime::MEMORY;
 fn size(bytes: &[u8], offset: usize) -> usize {
     u32::from_le_bytes(
         bytes[offset..offset + WORD_BYTES]

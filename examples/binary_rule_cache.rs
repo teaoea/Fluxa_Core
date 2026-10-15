@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         layer: Layer::Local,
         enabled: true,
         rules: vec![Rule {
+            protocol: None,
             r#type: Match::DomainSuffix,
             value: "example.com".into(),
             policy,

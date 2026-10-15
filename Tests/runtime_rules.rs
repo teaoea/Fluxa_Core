@@ -5,6 +5,7 @@ use libfluxa_core::routing::{
 };
 fn rule(kind: Match, value: &str, policy: Policy) -> Rule {
     Rule {
+        protocol: None,
         r#type: kind,
         value: value.into(),
         policy,
@@ -760,7 +761,7 @@ fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
     assert_eq!(reopened.snapshot().unwrap().document(), snapshot.document());
     reopened.close().unwrap();
     let mut bytes = std::fs::read(path.join("runtime-rules.bin")).unwrap();
-    bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
     std::fs::write(path.join("runtime-rules.bin"), bytes).unwrap();
     // 已存在二进制缓存损坏或版本未知时不能回退旧文件，伪装成最新方案。
     assert!(Store::open(&path).is_err());
@@ -793,7 +794,7 @@ fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
                 let last = bytes.len() - 1;
                 bytes[last] ^= 1;
             }
-            1 => bytes[8..12].copy_from_slice(&2u32.to_le_bytes()),
+            1 => bytes[8..12].copy_from_slice(&3u32.to_le_bytes()),
             2 => {
                 bytes.truncate(bytes.len() - 1);
             }
@@ -1237,11 +1238,16 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
                     Match::Transport,
                     Match::DomainKeyword,
                 ][k];
-                rules.push(rule(
-                    kind,
-                    &value,
-                    if k == 5 { Policy::Reject } else { policy },
-                ));
+                let mut generated =
+                    rule(kind, &value, if k == 5 { Policy::Reject } else { policy });
+                if k < 2 && n % 3 == 0 {
+                    generated.protocol = Some(if n % 2 == 0 {
+                        Transport::Tcp
+                    } else {
+                        Transport::Udp
+                    });
+                }
+                rules.push(generated);
             }
             sources.push(source(
                 &format!("source-{group}"),
@@ -1354,5 +1360,245 @@ fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
         });
         assert!(result.is_ok(), "故障样本 {mutation} 发生 panic");
     }
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+// 预期直接取自用户约定：正式拦截优先，域名+协议优先于普通域名；来源只在同类型比较。
+#[test]
+fn formal_domain_transport_matrix_and_roundtrip() {
+    for kind in [Match::Domain, Match::DomainSuffix] {
+        for transport in [Transport::Tcp, Transport::Udp] {
+            let mut scoped = rule(kind, "example.com", Policy::Proxy);
+            scoped.protocol = Some(transport);
+            let mut other = scoped.clone();
+            other.protocol = Some(if transport == Transport::Tcp {
+                Transport::Udp
+            } else {
+                Transport::Tcp
+            });
+            other.policy = Policy::Direct;
+            other.outbound = None;
+            let snapshot = build(
+                vec![rule(Match::Domain, "example.com", Policy::Direct)],
+                vec![scoped.clone(), other, scoped],
+            );
+            assert_eq!(snapshot.document().report.duplicates, 1);
+            assert_eq!(snapshot.document().rules.len(), 3);
+            let loaded = Snapshot::from_yaml(&snapshot.to_yaml().unwrap()).unwrap();
+            for value in [&snapshot, &loaded] {
+                let mut query = target("example.com", "192.0.2.1");
+                query.transport = transport;
+                let chosen = value.evaluate(&query).unwrap();
+                assert_eq!(chosen.policy, Policy::Proxy);
+                assert_eq!(chosen.outbound.as_deref(), Some("test"));
+                assert_eq!(chosen.origin.as_ref().unwrap().source, 1);
+                assert_eq!(value.evaluate_reference(&query).unwrap(), chosen);
+                assert_eq!(value.evaluate_before_dns(&query).unwrap(), Some(chosen));
+                query.transport = if transport == Transport::Tcp {
+                    Transport::Udp
+                } else {
+                    Transport::Tcp
+                };
+                assert_eq!(value.evaluate(&query).unwrap().policy, Policy::Direct);
+            }
+        }
+    }
+}
+
+#[test]
+fn mismatched_scoped_domain_does_not_skip_ip_or_early_dns() {
+    let mut scoped = rule(Match::DomainSuffix, "example.com", Policy::Reject);
+    scoped.protocol = Some(Transport::Udp);
+    let snapshot = build(
+        vec![scoped],
+        vec![rule(Match::IpCidr, "192.0.2.0/24", Policy::Proxy)],
+    );
+    let query = target("api.example.com", "192.0.2.1");
+    assert_eq!(snapshot.evaluate(&query).unwrap().policy, Policy::Proxy);
+    assert_eq!(
+        snapshot.evaluate(&query).unwrap(),
+        snapshot.evaluate_reference(&query).unwrap()
+    );
+    let mut without_ip = query;
+    without_ip.address = None;
+    assert!(snapshot.evaluate_before_dns(&without_ip).unwrap().is_none());
+    without_ip.transport = Transport::Udp;
+    assert_eq!(
+        snapshot
+            .evaluate_before_dns(&without_ip)
+            .unwrap()
+            .unwrap()
+            .policy,
+        Policy::Reject
+    );
+}
+
+#[test]
+fn formal_reject_and_same_type_local_precedence_survive_scoped_conditions() {
+    let mut local = rule(Match::DomainSuffix, "example.com", Policy::Direct);
+    local.protocol = Some(Transport::Tcp);
+    let mut remote = rule(Match::DomainSuffix, "api.example.com", Policy::Proxy);
+    remote.protocol = Some(Transport::Tcp);
+    let snapshot = build(vec![local.clone()], vec![remote]);
+    assert_eq!(snapshot.document().report.pruned, 1);
+    assert_eq!(
+        snapshot
+            .evaluate(&target("api.example.com", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Direct
+    );
+    let snapshot = build(
+        vec![local],
+        vec![rule(Match::Domain, "api.example.com", Policy::Reject)],
+    );
+    assert_eq!(
+        snapshot
+            .evaluate(&target("api.example.com", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Reject
+    );
+}
+
+#[test]
+fn scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rules() {
+    for kind in [
+        Match::IpCidr,
+        Match::DomainKeyword,
+        Match::DestinationPort,
+        Match::Transport,
+    ] {
+        let mut invalid = rule(kind, "tcp", Policy::Reject);
+        invalid.protocol = Some(Transport::Tcp);
+        let mut input = source("disabled", Layer::Local, vec![invalid]);
+        input.enabled = false;
+        assert!(Snapshot::generate(Config::default(), vec![input], 1).is_err());
+    }
+    for text in [
+        r#"{"type":"DOMAIN","value":"example.com","policy":"direct","protocol":"quic"}"#,
+        r#"{"type":"DOMAIN","value":"example.com","policy":"direct","protocol":"tcp","protocol":"udp"}"#,
+        r#"{"type":"DOMAIN","value":"example.com","policy":"direct","protocol":"tcp","debug":true}"#,
+    ] {
+        assert!(serde_json::from_str::<Rule>(text).is_err());
+    }
+}
+
+#[test]
+fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
+    use libfluxa_core::routing::store::Store;
+    let path = std::env::temp_dir().join(format!("fluxa-scoped-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let mut tcp = rule(Match::Domain, "example.com", Policy::Direct);
+    tcp.protocol = Some(Transport::Tcp);
+    let mut udp = tcp.clone();
+    udp.protocol = Some(Transport::Udp);
+    udp.policy = Policy::Reject;
+    let input = vec![source("local", Layer::Local, vec![tcp, udp])];
+    let store = Store::open(&path).unwrap();
+    store.update(Config::default(), input).unwrap();
+    let old = store.snapshot().unwrap();
+    store.close().unwrap();
+    let reopened = Store::open(&path).unwrap();
+    let flat = reopened.snapshot().unwrap();
+    for transport in [Transport::Tcp, Transport::Udp] {
+        let mut query = target("example.com", "192.0.2.1");
+        query.transport = transport;
+        let expected = if transport == Transport::Tcp {
+            Policy::Direct
+        } else {
+            Policy::Reject
+        };
+        assert_eq!(flat.evaluate(&query).unwrap().policy, expected);
+        assert_eq!(
+            old.evaluate(&query).unwrap(),
+            flat.evaluate(&query).unwrap()
+        );
+        assert_eq!(
+            flat.evaluate(&query).unwrap(),
+            flat.evaluate_reference(&query).unwrap()
+        );
+    }
+    reopened.close().unwrap();
+    let file = path.join("runtime-rules.bin");
+    let mut bytes = std::fs::read(&file).unwrap();
+    bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+    std::fs::write(file, bytes).unwrap();
+    assert!(Store::open(&path).is_err());
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn both_complete_yaml_examples_strictly_compile_formal_rules() {
+    use libfluxa_core::routing::runtime::{GenerationInput, SourceInput};
+    for full in [
+        include_str!("../fluxa.yaml"),
+        include_str!("../fluxa_english.yaml"),
+    ] {
+        // 完整示例的顶层由宿主配置层负责；这里用内核严格解析器验收整个 rules 序列，
+        // 不用字符串替换伪造组合，也不把 JSON Value 解析成功当作规则合法证明。
+        let body = full.split_once("\nrules:\n").unwrap().1;
+        let block: Vec<_> = body
+            .lines()
+            .take_while(|line| line.is_empty() || line.starts_with([' ', '#']))
+            .collect();
+        let mut document = String::from(
+            "format_version: 1\nsettings: {}\nsources:\n  - id: complete\n    layer: local\n    rules:\n",
+        );
+        for line in block {
+            document.push_str("    ");
+            document.push_str(line);
+            document.push('\n');
+        }
+        let input = GenerationInput::from_yaml(&document).unwrap();
+        let sources = input
+            .sources
+            .into_iter()
+            .map(|source| match source {
+                SourceInput::Rules(source) => source,
+                SourceInput::Clash(_) => panic!("完整示例不能被替换成订阅"),
+            })
+            .collect();
+        let snapshot = Snapshot::generate(input.settings, sources, 1).unwrap();
+        assert!(
+            snapshot
+                .document()
+                .rules
+                .iter()
+                .any(|row| row.rule.protocol == Some(Transport::Udp))
+        );
+    }
+}
+
+#[test]
+fn duplicate_vec_capacity_is_accounted_without_false_rejection() {
+    use libfluxa_core::routing::store::Store;
+    let path =
+        std::env::temp_dir().join(format!("fluxa-duplicate-capacity-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let store = Store::open(&path).unwrap();
+    let duplicate = rule(Match::Domain, "duplicate.example.net", Policy::Direct);
+    store
+        .update(
+            Config::default(),
+            vec![source("local", Layer::Local, vec![duplicate; 1000])],
+        )
+        .unwrap();
+    let before = store.snapshot().unwrap();
+    assert_eq!(before.document().report.original, 1000);
+    assert_eq!(before.document().report.duplicates, 999);
+    assert_eq!(before.document().rules.len(), 1);
+    store.close().unwrap();
+    let reopened = Store::open(&path).unwrap();
+    let loaded = reopened.snapshot().unwrap();
+    assert_eq!(before.document(), loaded.document());
+    assert_eq!(
+        loaded
+            .evaluate(&target("duplicate.example.net", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Direct
+    );
+    reopened.close().unwrap();
     std::fs::remove_dir_all(path).unwrap();
 }

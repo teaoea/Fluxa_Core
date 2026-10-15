@@ -3,6 +3,7 @@ use libfluxa_core::{error::Error, routing::*};
 use std::sync::Arc;
 fn rule(kind: Match, value: &str, policy: Policy) -> Rule {
     Rule {
+        protocol: None,
         r#type: kind,
         value: value.into(),
         policy,

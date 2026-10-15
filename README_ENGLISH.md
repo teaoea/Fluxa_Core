@@ -11,3 +11,5 @@ H1 dev 源码修复：会话异步关闭主动撤销权限并等待活动资源�
 当前未完成事项及暂停状态统一见 [TODO](Documentation/TODO.md)。
 
 Debug control uses an authenticated, authorized local Unix IPC endpoint on macOS. Ordinary business commands do not grant Debug access. See [the security contract](Documentation/Debug本地IPC安全契约.md), `examples/debug_ipc.rs`, and `Tools/check_debug_ipc.py`; App integration and production installation remain separate validation stages.
+
+Formal DOMAIN / DOMAIN-SUFFIX rules accept an optional `protocol: tcp|udp` AND condition. See [contract, memory calibration and build acceptance](Documentation/规则组合与资源验收.md) and `examples/domain_transport.rs`. Cache layout v2 requires rebuilding v1 caches from original sources; App dependencies remain unchanged.

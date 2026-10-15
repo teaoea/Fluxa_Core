@@ -4,6 +4,7 @@ fn main() -> Result<(), libfluxa_core::error::Error> {
     let router = Router::compile(Config {
         fallback: Policy::Direct,
         rules: vec![Rule {
+            protocol: None,
             r#type: Match::Transport,
             value: "quic".into(),
             policy: Policy::Reject,

@@ -33,7 +33,8 @@ impl Limits {
         Ok(())
     }
 }
-/// 所有者必须保留此快照直到本次连接完成；替换后存量连接不改换对端。
+/// 建连事务捕获同一配置；完成后连接仅保留既定决策与必要资源，不持有整份旧规则快照。
+/// 提交后新请求读取新快照，已开始事务/连接不中断、不改换对端。
 #[derive(Clone, Default)]
 pub struct NetworkSnapshot {
     pub revision: u64,

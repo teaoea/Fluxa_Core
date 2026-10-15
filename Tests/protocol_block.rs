@@ -11,6 +11,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::net::UdpSocket;
 fn rule(value: &str) -> Rule {
     Rule {
+        protocol: None,
         r#type: Match::Transport,
         value: value.into(),
         policy: Policy::Reject,

@@ -5,6 +5,7 @@ use libfluxa_core::routing::{
 };
 fn rule(policy: Policy) -> Rule {
     Rule {
+        protocol: None,
         r#type: Match::Domain,
         value: "example.com".into(),
         policy,

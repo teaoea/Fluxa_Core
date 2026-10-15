@@ -1,6 +1,7 @@
 import Foundation
+
 #if canImport(FluxaCore)
-import FluxaCore
+  import FluxaCore
 #endif
 
 public struct NativeRouteDecision: Decodable, Equatable, Sendable {
@@ -31,12 +32,16 @@ public final class NativeRoutingClient: Sendable {
   }
 
   public func configure(_ configuration: RoutingConfiguration) throws {
+    if configuration.rules.contains(where: { $0.protocol != nil }) {
+      try client.requireDomainTransport()
+    }
     _ = try client.command(Self.configurationCommand(configuration))
   }
 
   static func configurationCommand(_ configuration: RoutingConfiguration) throws -> [String: Any] {
     var command = try object(configuration.settings)
-    command["rules"] = try JSONSerialization
+    command["rules"] =
+      try JSONSerialization
       .jsonObject(with: JSONEncoder().encode(configuration.rules))
     if let handle = configuration.runtimeHandle {
       command["runtime_handle"] = handle
@@ -67,8 +72,9 @@ public final class NativeRoutingClient: Sendable {
   }
 
   private static func object(_ value: some Encodable) throws -> [String: Any] {
-    guard let object = try JSONSerialization
-      .jsonObject(with: JSONEncoder().encode(value)) as? [String: Any]
+    guard
+      let object = try JSONSerialization
+        .jsonObject(with: JSONEncoder().encode(value)) as? [String: Any]
     else { throw NativeClientError.boundary }
     return object
   }

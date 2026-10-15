@@ -36,12 +36,20 @@ struct RoutingFFICheck {
     precondition(port.policy == .reject && port.ruleIndex == 4)
     try checkInvalidReplacement(client: client, configuration: config)
     try checkModes(client: client)
-    for _ in 0 ..< 100 {
+    for _ in 0..<100 {
       try client.configure(config)
       _ = try client.evaluate(proxy)
       try client.close()
     }
     try expectRejection { _ = try client.evaluate(proxy) }
+    try client.configure(
+      RoutingConfiguration(rules: [
+        RoutingRule(type: .domain, value: "scope.example.net", policy: .reject, protocol: .udp),
+        RoutingRule(type: .domain, value: "scope.example.net", policy: .direct),
+      ]))
+    let scopedTCP = try client.evaluate(RoutingTarget(domain: "scope.example.net", transport: .tcp))
+    let scopedUDP = try client.evaluate(RoutingTarget(domain: "scope.example.net", transport: .udp))
+    precondition(scopedTCP.policy == .direct && scopedUDP.policy == .reject)
     try client.close()
     print("路由真实 Swift FFI：顺序、域名边界、IPv6、端口、模式、指定出站、失败保留和 100 次生命周期通过；不建立连接。")
   }
@@ -68,18 +76,24 @@ struct RoutingFFICheck {
     try client.configure(RoutingConfiguration(settings: RoutingSettings(mode: .direct)))
     let direct = try client.checkSupport(target)
     precondition(direct.policy == .direct && direct.reason == .mode && direct.outbound == nil)
-    try client.configure(RoutingConfiguration(settings: RoutingSettings(
-      mode: .global,
-      outbound: "node-global"
-    )))
+    try client.configure(
+      RoutingConfiguration(
+        settings: RoutingSettings(
+          mode: .global,
+          outbound: "node-global"
+        )))
     let global = try client.evaluate(target)
-    precondition(global.policy == .proxy && global.reason == .mode && global
-      .outbound == "node-global")
+    precondition(
+      global.policy == .proxy && global.reason == .mode
+        && global
+          .outbound == "node-global"
+    )
     try expectRejection { _ = try client.checkSupport(target) }
   }
 
   private static func expectRejection(_ operation: () throws -> Void) throws {
-    do { try operation()
+    do {
+      try operation()
       preconditionFailure("应明确拒绝，不能伪造连接或回退直连")
     } catch NativeClientError.kernel, NativeClientError.rejected {}
   }

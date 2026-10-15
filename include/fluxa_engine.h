@@ -28,6 +28,7 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 22 代表单目标 XUDP 代理报文；不代表任意 Mux、空报文或系统 TUN。
 // 位 23 代表 TCP/UDP 规则及 QUIC 报文/连接关联拦截，不代表所有短头或迁移均可识别。
 // 位 25 代表 u16 错误代码、同线程查询及 command_v2 结构化错误扩展。
+// 位 27 代表正式 DOMAIN / DOMAIN-SUFFIX 与 TCP/UDP 的 AND 条件，旧能力位不改义。
 uint64_t fluxa_engine_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t fluxa_engine_create(void);

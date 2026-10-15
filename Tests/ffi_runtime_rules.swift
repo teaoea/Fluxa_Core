@@ -75,7 +75,21 @@ struct RuntimeRulesFFICheck {
     try await checkYAMLInput(reopened, directory: directory)
     try await checkBackground(reopened, directory: directory)
     try await checkClash(reopened, directory: directory)
+    let scoped = try NativeRuleSource(
+      id: "scoped", layer: .local,
+      rules: [
+        RoutingRule(type: .domain, value: "scope.example.net", policy: .reject, protocol: .udp),
+        RoutingRule(type: .domain, value: "scope.example.net", policy: .direct),
+      ])
+    _ = try await reopened.update(settings: RoutingSettings(), sources: [scoped])
     try reopened.close()
+    let scopedRecovery = try NativeRuntimeRulesClient(directory: directory)
+    let tcp = try scopedRecovery.evaluate(
+      RoutingTarget(domain: "scope.example.net", transport: .tcp))
+    let udp = try scopedRecovery.evaluate(
+      RoutingTarget(domain: "scope.example.net", transport: .udp))
+    precondition(tcp.policy == .direct && udp.policy == .reject)
+    try scopedRecovery.close()
     print("运行时规则真实 Swift FFI：来源、裁剪、IP/域名拦截、模式、失败保留、关闭及恢复通过。")
   }
 

@@ -189,6 +189,7 @@ pub fn parse_rules(
         };
         // 与主配置、生成、索引使用同一规范化和匹配条件校验。
         let mut rule = Rule {
+            protocol: None,
             r#type: kind,
             value: value.into(),
             policy,

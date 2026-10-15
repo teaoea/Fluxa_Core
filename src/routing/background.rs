@@ -16,7 +16,27 @@ use std::{
 };
 // 一个实例最多一个在途编译，全进程最多四个工作线程；配额由所有权释放。
 static WORKERS: ByteBudget = ByteBudget::new(4);
-static INPUTS: ByteBudget = ByteBudget::new(128 * 1024 * 1024);
+// 输入既受独立队列额度约束，也计入规则共享池；不能用输入子池绕过总准入。
+struct InputBudget {
+    quota: ByteBudget,
+}
+struct InputLease {
+    _global: ByteLease,
+    _quota: ByteLease,
+}
+impl InputBudget {
+    fn reserve(&'static self, bytes: usize) -> Result<InputLease> {
+        let quota = self.quota.reserve(bytes)?;
+        let global = super::runtime::MEMORY.reserve(bytes)?;
+        Ok(InputLease {
+            _global: global,
+            _quota: quota,
+        })
+    }
+}
+static INPUTS: InputBudget = InputBudget {
+    quota: ByteBudget::new(128 * 1024 * 1024),
+};
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Phase {
@@ -41,6 +61,21 @@ pub struct Service {
     manager: Arc<Manager>,
     latest: Arc<Mutex<Option<Job>>>,
 }
+// 解析配额跟随实际来源直到编译消费结束，避免文件解码结束后出现无预算驻留窗口。
+struct PreparedInput {
+    settings: Config,
+    sources: Vec<Source>,
+    _memory: Option<ByteLease>,
+}
+impl From<(Config, Vec<Source>)> for PreparedInput {
+    fn from((settings, sources): (Config, Vec<Source>)) -> Self {
+        Self {
+            settings,
+            sources,
+            _memory: None,
+        }
+    }
+}
 impl Service {
     pub fn new(store: Store, manager: Arc<Manager>) -> Self {
         Self {
@@ -56,21 +91,12 @@ impl Service {
             return Err(Error::ResourceLimit);
         }
         for source in &sources {
-            if source.id.len() > 64 {
-                return Err(Error::InvalidInput);
-            }
             count = count
                 .checked_add(source.rules.len())
                 .ok_or(Error::ResourceLimit)?;
-            for rule in &source.rules {
-                if rule.value.len() > 253 || rule.outbound.as_ref().is_some_and(|id| id.len() > 64)
-                {
-                    return Err(Error::InvalidInput);
-                }
-                bytes = bytes
-                    .checked_add(256 + rule.value.len() * 2)
-                    .ok_or(Error::ResourceLimit)?;
-            }
+            bytes = bytes
+                .checked_add(super::runtime::source_input_charge(source)?)
+                .ok_or(Error::ResourceLimit)?;
         }
         if count > super::runtime::MAX_RULES {
             return Err(Error::ResourceLimit);
@@ -108,22 +134,25 @@ impl Service {
         let input = INPUTS.reserve(32 * 1024 * 1024)?;
         self.spawn(
             move || {
-                let value = GenerationInput::from_yaml(&super::store::read(&path)?)?;
-                Ok((
-                    value.settings,
-                    value
+                let mut value = GenerationInput::from_yaml(&super::store::read(&path)?)?;
+                let memory = value.take_memory();
+                Ok(PreparedInput {
+                    settings: value.settings,
+                    sources: value
                         .sources
                         .into_iter()
                         .map(SourceInput::into_source)
                         .collect::<Result<_>>()?,
-                ))
+                    _memory: memory,
+                })
             },
             input,
         )
     }
-    fn spawn<F>(&self, load: F, input: ByteLease) -> Result<Job>
+    fn spawn<F, P>(&self, load: F, input: InputLease) -> Result<Job>
     where
-        F: FnOnce() -> Result<(Config, Vec<Source>)> + Send + 'static,
+        F: FnOnce() -> Result<P> + Send + 'static,
+        P: Into<PreparedInput> + 'static,
     {
         let worker = WORKERS.reserve(1)?;
         // 锁顺序固定为 latest → Store；编译与文件 I/O 不持有 latest 锁。
@@ -147,7 +176,12 @@ impl Service {
                 let _worker = worker;
                 let _input = input;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    load().and_then(|(settings, sources)| {
+                    load().and_then(|prepared| {
+                        let PreparedInput {
+                            settings,
+                            sources,
+                            _memory,
+                        } = prepared.into();
                         store.update_job(settings, sources, &manager, id)
                     })
                 }))
@@ -266,6 +300,7 @@ mod tests {
             layer: super::super::runtime::Layer::Local,
             enabled: true,
             rules: vec![Rule {
+                protocol: None,
                 r#type: Match::IpCidr,
                 value: "127.0.0.0/8".into(),
                 policy,
@@ -295,6 +330,41 @@ mod tests {
             assert!(Instant::now() < deadline, "后台任务必须在测试期限内完成");
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
+    }
+    #[test]
+    fn queued_input_is_also_charged_to_shared_rule_pool() {
+        let before = super::super::runtime::memory_usage().reserved_bytes;
+        let mut parsed =
+            GenerationInput::from_yaml("format_version: 1\nsettings: {}\nsources: []\n").unwrap();
+        let prepared = PreparedInput {
+            settings: Config::default(),
+            sources: Vec::new(),
+            _memory: parsed.take_memory(),
+        };
+        drop(parsed);
+        assert!(
+            super::super::runtime::memory_usage().reserved_bytes > before,
+            "解析对象离开后，来源消费凭证仍持有配额"
+        );
+        drop(prepared);
+        assert_eq!(super::super::runtime::memory_usage().reserved_bytes, before);
+        let input = INPUTS.reserve(4096).unwrap();
+        assert_eq!(
+            super::super::runtime::memory_usage().reserved_bytes,
+            before + 4096
+        );
+        drop(input);
+        assert_eq!(super::super::runtime::memory_usage().reserved_bytes, before);
+        let usage = super::super::runtime::memory_usage();
+        let occupied = super::super::runtime::MEMORY
+            .reserve(usage.limit_bytes - usage.reserved_bytes)
+            .unwrap();
+        assert!(matches!(
+            INPUTS.reserve(1),
+            Err(Error::ResourceBudgetExceeded { .. })
+        ));
+        drop(occupied);
+        assert!(INPUTS.reserve(4096).is_ok(), "总池失败也归还输入子配额");
     }
     #[tokio::test]
     async fn async_generation_keeps_connections_old_until_commit_and_bounds_workers() {
@@ -359,7 +429,14 @@ mod tests {
             Err(Error::Rejected)
         ));
         assert_eq!(old.evaluate(&target).unwrap().policy, Policy::Direct);
-        // 已建立连接持有旧快照，规则切换不打断原连接的读写。
+        // 独立验证新约定：连接只保留既定决策与活动资源；旧规则快照在连接仍工作时即可回收。
+        let old_weak = Arc::downgrade(&old);
+        drop(old);
+        assert!(
+            old_weak.upgrade().is_none(),
+            "活动连接不得间接持有整份旧规则快照"
+        );
+        // 切换不能关闭已开始的连接；新请求已在上面断言使用版本 2 的拒绝规则。
         manager
             .write(opened.connection.id, b"x", 1000)
             .await
@@ -424,7 +501,6 @@ mod tests {
         reopened.close().unwrap();
         drop(reopened);
         drop(service);
-        drop(old);
         std::fs::remove_dir_all(directory).unwrap();
         // 阻塞四个加载器确定性耗尽全局槽位；第五个请求不能创建额外线程。
         let mut running = Vec::new();

@@ -21,7 +21,7 @@ pub enum Policy {
     Reject,
     Proxy,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Transport {
     Tcp,
@@ -44,6 +44,9 @@ pub enum Match {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
+    /// 域名与 TCP/UDP 的 AND 条件；仅 DOMAIN、DOMAIN-SUFFIX 可设置，缺省不限制协议。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<Transport>,
     pub r#type: Match,
     pub value: String,
     pub policy: Policy,

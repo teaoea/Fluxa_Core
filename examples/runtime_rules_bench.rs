@@ -6,6 +6,7 @@ use libfluxa_core::routing::{
 use std::{hint::black_box, time::Instant};
 fn rule(kind: Match, value: String, policy: Policy) -> Rule {
     Rule {
+        protocol: None,
         r#type: kind,
         value,
         policy,

@@ -349,6 +349,7 @@ fn invalid_config_keeps_snapshot_and_machine_failure() {
     let previous = store.snapshot().unwrap();
     let mut invalid = Config::default();
     invalid.rules.push(Rule {
+        protocol: None,
         r#type: Match::Domain,
         value: "bad host".into(),
         policy: Policy::Direct,

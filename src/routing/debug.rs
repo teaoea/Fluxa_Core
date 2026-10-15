@@ -107,6 +107,10 @@ impl Session {
             let deadline = now
                 .checked_add(Duration::from_secs(seconds))
                 .ok_or(Error::InvalidInput)?;
+            // Debug 的协议字段只由专用 IPC 层提供，禁止嵌套第二个条件伪造优先级。
+            if row.rule.protocol.is_some() {
+                return Err(Error::InvalidInput);
+            }
             if row.protocol.is_some()
                 && !matches!(
                     row.rule.r#type,
@@ -361,6 +365,7 @@ mod tests {
         let session = Session::new().unwrap();
         let rule = |lifetime, policy| DebugRule {
             rule: Rule {
+                protocol: None,
                 r#type: Match::Domain,
                 value: "example.com".into(),
                 policy,

@@ -55,7 +55,14 @@ subscriptions:
 # 临时调试规则禁止在本文件声明，只通过本地 API 操作；每条有效期 1–3600 秒。
 # 如需拦截 QUIC，添加：{type: transport, value: quic, policy: reject}
 # tcp/udp 使用相同形式；udp 拦截包含 QUIC，quic 不拦截普通 UDP。
+# protocol 可选：仅 DOMAIN / DOMAIN-SUFFIX 支持 tcp 或 udp，表示 AND；缺省不限制。
+# 同时命中时：正式拦截 > 域名+协议 > 普通域名。调试仍须经专用授权，优先级不变。
+# UDP 不是 QUIC 识别；protocol: quic 明确拒绝，当前 QUIC 使用全域 reject 规则。
 rules:
+  - type: DOMAIN
+    value: scoped.example.net
+    protocol: udp
+    policy: direct
   - type: DOMAIN
     value: ads.example.com
     policy: reject

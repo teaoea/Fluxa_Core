@@ -1502,8 +1502,11 @@ pub extern "C" fn fluxa_engine_abi_version() -> u32 {
 pub extern "C" fn fluxa_engine_capabilities() -> u64 {
     // 位 25 代表整数错误查询及显式结构化命令扩展，原能力位不改义。
     const STRUCTURED_ERROR_CAPABILITY: u64 = 1 << 25;
+    // 位 27：正式域名与 TCP/UDP 组合规则，不改变既有能力位语义。
+    const DOMAIN_TRANSPORT_CAPABILITY: u64 = 1 << 27;
     33554431
         | STRUCTURED_ERROR_CAPABILITY
+        | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {
             1 << 26
         } else {
@@ -2054,9 +2057,9 @@ mod tests {
         assert_eq!(
             fluxa_engine_capabilities(),
             if cfg!(target_os = "macos") {
-                134217727
+                268435455
             } else {
-                67108863
+                201326591
             }
         );
     }

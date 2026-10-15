@@ -1,4 +1,5 @@
 import Foundation
+
 #if canImport(FluxaCore)
   import FluxaCore
 #endif
@@ -21,14 +22,15 @@ public struct NativeKernelErrorParams: Decodable, Sendable {
 }
 
 public enum NativeClientError: LocalizedError {
-  case unavailable, boundary, rejected(String)
+  case unavailable, boundary
+  case rejected(String)
   case kernel(NativeKernelError)
   public var errorDescription: String? {
     switch self {
     case .unavailable: "此平台尚未链接所需的 Rust 引擎能力。"
     case .boundary: "Rust FFI 响应无效或超过资源上限。"
-    case let .rejected(message): message
-    case let .kernel(error): "内核错误代码：\(error.code)"
+    case .rejected(let message): message
+    case .kernel(let error): "内核错误代码：\(error.code)"
     }
   }
 }
@@ -110,11 +112,22 @@ final class NativeCommandClient: Sendable {
   init(requiredCapabilities: UInt64) throws {
     #if canImport(libfluxa_core)
       guard fluxa_engine_abi_version() == 2,
-            fluxa_engine_capabilities() & requiredCapabilities == requiredCapabilities
+        fluxa_engine_capabilities() & requiredCapabilities == requiredCapabilities
       else { throw NativeClientError.unavailable }
       let value = fluxa_engine_create()
       guard value != 0 else { throw NativeClientError.boundary }
       handle = value
+    #else
+      throw NativeClientError.unavailable
+    #endif
+  }
+
+  /// 可选新配置在发送前核对实际二进制能力，不把旧包当成已支持组合规则。
+  func requireDomainTransport() throws {
+    #if canImport(libfluxa_core)
+      let domainTransport: UInt64 = 1 << 27
+      guard fluxa_engine_capabilities() & domainTransport != 0
+      else { throw NativeClientError.unavailable }
     #else
       throw NativeClientError.unavailable
     #endif
@@ -212,18 +225,19 @@ final class NativeCommandClient: Sendable {
         throw NativeClientError.kernel(info)
       }
     #endif
-    let message = switch status {
-    case 1201: "TUN 引擎句柄无效。"
-    case 1021: "TUN 请求的协议或出站尚未支持。"
-    case 1001: "TUN 数据包不合法。"
-    case 8001, 8002: "TUN 超过资源或并发上限。"
-    case 9001: "TUN 会话未打开或已关闭。"
-    case 9002: "TUN 操作已取消。"
-    case 5002, 5003, 5004, 6001, 6003: "TUN 网络或 DNS 处理失败。"
-    case 1101: "TUN 请求被规则拒绝。"
-    case 5001, 6002: "TUN 网络操作超时。"
-    default: "TUN 内部资源错误。"
-    }
+    let message =
+      switch status {
+      case 1201: "TUN 引擎句柄无效。"
+      case 1021: "TUN 请求的协议或出站尚未支持。"
+      case 1001: "TUN 数据包不合法。"
+      case 8001, 8002: "TUN 超过资源或并发上限。"
+      case 9001: "TUN 会话未打开或已关闭。"
+      case 9002: "TUN 操作已取消。"
+      case 5002, 5003, 5004, 6001, 6003: "TUN 网络或 DNS 处理失败。"
+      case 1101: "TUN 请求被规则拒绝。"
+      case 5001, 6002: "TUN 网络操作超时。"
+      default: "TUN 内部资源错误。"
+      }
     throw NativeClientError.rejected(message)
   }
 

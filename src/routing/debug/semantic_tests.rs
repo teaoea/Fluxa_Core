@@ -5,6 +5,7 @@ use crate::{
 };
 fn rule(kind: Match, value: &str, policy: Policy) -> Rule {
     Rule {
+        protocol: None,
         r#type: kind,
         value: value.into(),
         policy,
@@ -240,6 +241,7 @@ fn failed_debug_replacement_keeps_the_authorized_active_rules() {
     let session = Session::new().unwrap();
     let row = |lifetime| DebugRule {
         rule: Rule {
+            protocol: None,
             r#type: Match::Domain,
             value: "example.test".into(),
             policy: Policy::Direct,
@@ -598,4 +600,44 @@ async fn debug_exception_covers_tcp_and_quic_but_clear_restores_actual_data_guar
         .is_err()
     );
     manager.stop().await.unwrap();
+}
+
+#[test]
+fn debug_overlay_still_overrides_formal_domain_transport_reject() {
+    use crate::routing::debug::{DebugRule, Session};
+    let mut formal = rule(Match::DomainSuffix, "example.com", Policy::Reject);
+    formal.protocol = Some(Transport::Tcp);
+    let session = Session::new().unwrap();
+    session
+        .replace(
+            vec![DebugRule {
+                rule: rule(Match::Domain, "a.example.com", Policy::Direct),
+                protocol: None,
+                lifetime_seconds: Some(60),
+            }],
+            None,
+        )
+        .unwrap();
+    let router = Router::compile(Config {
+        rules: vec![formal],
+        ..Config::default()
+    })
+    .unwrap()
+    .with_debug(&session)
+    .unwrap();
+    assert_eq!(
+        router
+            .evaluate(target("a.example.com", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Direct
+    );
+    session.clear().unwrap();
+    assert_eq!(
+        router
+            .evaluate(target("a.example.com", "192.0.2.1"))
+            .unwrap()
+            .policy,
+        Policy::Reject
+    );
 }

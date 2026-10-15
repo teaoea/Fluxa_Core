@@ -103,6 +103,9 @@ public final class NativeRuntimeRulesClient: Sendable {
     settings: RoutingSettings,
     sources: [NativeRuleSource]
   ) throws -> NativeRuntimeRulesJob {
+    if sources.contains(where: { $0.rules?.contains(where: { $0.protocol != nil }) == true }) {
+      try client.requireDomainTransport()
+    }
     let reply = try client.command([
       "operation": "runtime_rules_begin",
       "settings": JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)),
@@ -147,7 +150,7 @@ public final class NativeRuntimeRulesClient: Sendable {
   public func update(inputFile: URL) async throws -> NativeRuntimeRulesSummary {
     let job =
       try await Task
-        .detached(priority: .utility) { try self.beginUpdate(inputFile: inputFile) }.value
+      .detached(priority: .utility) { try self.beginUpdate(inputFile: inputFile) }.value
     return try await waitForJob(id: job.id)
   }
 

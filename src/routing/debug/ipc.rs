@@ -1046,6 +1046,7 @@ mod signed_tests {
         .unwrap();
         let row = WireRule {
             rule: crate::routing::Rule {
+                protocol: None,
                 r#type: crate::routing::Match::IpCidr,
                 value: "127.0.0.1/32".into(),
                 policy: crate::routing::Policy::Direct,
@@ -1154,6 +1155,7 @@ mod signed_tests {
                 .command(&Request::Replace {
                     rules: vec![WireRule {
                         rule: crate::routing::Rule {
+                            protocol: None,
                             r#type: crate::routing::Match::IpCidr,
                             value: "127.0.0.1/32".into(),
                             policy: crate::routing::Policy::Direct,

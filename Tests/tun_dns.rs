@@ -364,6 +364,7 @@ async fn mapping_quota_wrong_owner_udp_block_and_restart() {
             Router::compile(Routing {
                 fallback: Policy::Direct,
                 rules: vec![libfluxa_core::routing::Rule {
+                    protocol: None,
                     r#type: libfluxa_core::routing::Match::Transport,
                     value: "udp".into(),
                     policy: Policy::Reject,

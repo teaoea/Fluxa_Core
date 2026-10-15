@@ -4,8 +4,14 @@ import Network
 /// 来源和类型优先级由 Rust 执行；域名精确匹配与子域匹配必须显式区分。
 public struct RoutingRule: Codable, Equatable, Sendable {
   public enum Match: String, Codable,
-    Sendable { case domain = "DOMAIN", domainSuffix = "DOMAIN-SUFFIX", ipCIDR = "IP-CIDR"
-    case destinationPort = "destination-port", transport, domainKeyword = "DOMAIN-KEYWORD"
+    Sendable
+  {
+    case domain = "DOMAIN"
+    case domainSuffix = "DOMAIN-SUFFIX"
+    case ipCIDR = "IP-CIDR"
+    case destinationPort = "destination-port"
+    case transport
+    case domainKeyword = "DOMAIN-KEYWORD"
   }
 
   public enum Policy: String, Codable, Sendable { case proxy, direct, reject }
@@ -13,51 +19,67 @@ public struct RoutingRule: Codable, Equatable, Sendable {
   public let value: String
   public let policy: Policy
   public let outbound: String?
+  /// 由 Rust 执行域名与 TCP/UDP 的 AND 匹配；nil 保持普通域名规则。
+  public let `protocol`: RoutingTransport?
 
-  public init(type: Match, value: String, policy: Policy, outbound: String? = nil) throws {
+  public init(
+    type: Match, value: String, policy: Policy, outbound: String? = nil,
+    protocol: RoutingTransport? = nil
+  ) throws {
+    if `protocol` != nil, type != .domain, type != .domainSuffix {
+      throw CoreError.invalidRequest("协议组合只允许域名或域名后缀")
+    }
     guard !value.isEmpty,
-          value.utf8.count <= 253 else { throw CoreError.invalidRequest("规则值为空或过长") }
+      value.utf8.count <= 253
+    else { throw CoreError.invalidRequest("规则值为空或过长") }
     if let outbound {
       guard policy == .proxy, !outbound.isEmpty, outbound.utf8.count <= 64,
-            outbound.utf8.allSatisfy({ byte in
-              (48 ... 57).contains(byte) || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte) || [45, 46, 95].contains(byte)
-            }) else { throw CoreError.invalidRequest("出站标识无效") }
+        outbound.utf8.allSatisfy({ byte in
+          (48...57).contains(byte) || (65...90).contains(byte)
+            || (97...122).contains(byte) || [45, 46, 95].contains(byte)
+        })
+      else { throw CoreError.invalidRequest("出站标识无效") }
     }
     if type == .destinationPort {
       let parts = value.split(separator: "-", omittingEmptySubsequences: false)
-      guard (1 ... 2).contains(parts.count),
-            let first = UInt16(parts[0]), first > 0,
-            let last = UInt16(parts.last ?? ""), last >= first
+      guard (1...2).contains(parts.count),
+        let first = UInt16(parts[0]), first > 0,
+        let last = UInt16(parts.last ?? ""), last >= first
       else { throw CoreError.invalidRequest("目标端口规则无效") }
     } else if type == .transport {
       guard ["tcp", "udp", "quic"].contains(value),
-            policy == .reject else { throw CoreError.invalidRequest("传输类型规则无效") }
+        policy == .reject
+      else { throw CoreError.invalidRequest("传输类型规则无效") }
     } else if type == .domainKeyword {
-      guard value.utf8.allSatisfy({ byte in
-        (48 ... 57).contains(byte) || (65 ... 90).contains(byte)
-          || (97 ... 122).contains(byte) || [45, 46].contains(byte)
-      }) else { throw CoreError.invalidRequest("域名关键词无效") }
+      guard
+        value.utf8.allSatisfy({ byte in
+          (48...57).contains(byte) || (65...90).contains(byte)
+            || (97...122).contains(byte) || [45, 46].contains(byte)
+        })
+      else { throw CoreError.invalidRequest("域名关键词无效") }
     } else if type == .ipCIDR {
       let parts = value.split(separator: "/")
       guard parts.count == 2, let prefix = Int(parts[1]),
-            (IPv4Address(String(parts[0])) != nil && (0 ... 32).contains(prefix))
-            || (IPv6Address(String(parts[0])) != nil && (0 ... 128).contains(prefix))
+        (IPv4Address(String(parts[0])) != nil && (0...32).contains(prefix))
+          || (IPv6Address(String(parts[0])) != nil && (0...128).contains(prefix))
       else {
         throw CoreError.invalidRequest("IP-CIDR 规则无效")
       }
     } else {
-      guard (value.hasSuffix(".") ? String(value.dropLast()) : value).split(
-        separator: ".",
-        omittingEmptySubsequences: false
-      ).allSatisfy({ label in
-        !label.isEmpty && label.count <= 63 && label.first != "-" && label.last != "-"
-          && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
-      }) else { throw CoreError.invalidRequest("域名规则无效") }
+      guard
+        (value.hasSuffix(".") ? String(value.dropLast()) : value).split(
+          separator: ".",
+          omittingEmptySubsequences: false
+        ).allSatisfy({ label in
+          !label.isEmpty && label.count <= 63 && label.first != "-" && label.last != "-"
+            && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+        })
+      else { throw CoreError.invalidRequest("域名规则无效") }
     }
     self.type = type
     self.value = value.lowercased()
     self.policy = policy
     self.outbound = outbound
+    self.protocol = `protocol`
   }
 }

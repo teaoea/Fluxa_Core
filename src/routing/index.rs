@@ -16,6 +16,29 @@ impl Default for Candidates {
     }
 }
 impl Candidates {
+    /// 先排除另一个协议的所有组合候选，再判断域名是否命中、是否需要 DNS。
+    pub fn for_transport(mut self, transport: Transport) -> Self {
+        let excluded = match transport {
+            Transport::Tcp => [
+                RuleClass::RejectUdp,
+                RuleClass::LocalDomainUdp,
+                RuleClass::RemoteDomainUdp,
+                RuleClass::LocalSuffixUdp,
+                RuleClass::RemoteSuffixUdp,
+            ],
+            Transport::Udp => [
+                RuleClass::RejectTcp,
+                RuleClass::LocalDomainTcp,
+                RuleClass::RemoteDomainTcp,
+                RuleClass::LocalSuffixTcp,
+                RuleClass::RemoteSuffixTcp,
+            ],
+        };
+        for class in excluded {
+            self.0[class as usize] = NONE;
+        }
+        self
+    }
     pub fn add(&mut self, class: usize, id: u32) {
         self.0[class] = self.0[class].min(id);
     }
@@ -393,7 +416,7 @@ impl Index {
         let mut values = self.ports.query(port);
         values.merge(self.transports[usize::from(transport == Transport::Udp)]);
         if let Some(name) = name {
-            let domains = self.domain_candidates(name);
+            let domains = self.domain_candidates(name).for_transport(transport);
             let hit = domains.0.iter().any(|value| *value != NONE);
             values.merge(domains);
             // 用户确定域名命中后跳过所有 IP 规则，包括 IP 拦截。

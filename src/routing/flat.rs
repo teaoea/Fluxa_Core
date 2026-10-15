@@ -3,7 +3,7 @@
 use super::index::{Candidates, Index, NONE};
 use super::{Entry, MAX_RULES, RuleClass};
 use crate::{
-    budget::ByteBudget,
+    budget::ByteLease,
     error::{Error, Result},
     routing::{Matcher, Transport},
 };
@@ -13,11 +13,12 @@ use std::{
 };
 
 // 在临时树/队列/序列化区段分配之前预留；持久快照缓冲区由 runtime 单独持有预算。
-static BUILD_MEMORY: ByteBudget = ByteBudget::new(256 * 1024 * 1024);
+use super::MEMORY as BUILD_MEMORY;
+const MAX_BUILD_BYTES: usize = 256 * 1024 * 1024;
 const BUILD_BASE_BYTES: usize = 4096;
-const BUILD_RULE_BYTES: usize = 512;
+const BUILD_RULE_BYTES: usize = 768;
 const BUILD_KEYWORD_BYTE_FACTOR: usize = 384;
-const BUILD_SUFFIX_LABEL_BYTES: usize = 160;
+const BUILD_SUFFIX_LABEL_BYTES: usize = 256;
 const WORD: usize = 4;
 const PREFIX_KEY_BYTES: usize = 16;
 const PREFIX_LENGTH_OFFSET: usize = PREFIX_KEY_BYTES;
@@ -121,6 +122,7 @@ fn hash(value: &str) -> usize {
 /// 这里的零拷贝指索引解析；文件到用户缓冲区仍有一次系统读取复制。
 pub(super) struct FlatIndex {
     bytes: Vec<u8>,
+    _memory: Option<ByteLease>,
     ranges: [(usize, usize); SECTION_COUNT],
     roots: [u32; 2],
     keyword_first_bytes: [u64; BYTE_MASK_WORDS],
@@ -145,6 +147,9 @@ impl FlatIndex {
         &self.bytes
     }
     pub(super) fn parse(bytes: Vec<u8>, entries: &[Entry]) -> Result<Self> {
+        Self::parse_owned(bytes, entries, None)
+    }
+    fn parse_owned(bytes: Vec<u8>, entries: &[Entry], memory: Option<ByteLease>) -> Result<Self> {
         if bytes.len() < HEADER_BYTES {
             return Err(invalid());
         }
@@ -171,6 +176,7 @@ impl FlatIndex {
         ];
         let mut result = Self {
             bytes,
+            _memory: memory,
             ranges,
             roots,
             keyword_first_bytes: [0; BYTE_MASK_WORDS],
@@ -640,7 +646,7 @@ impl FlatIndex {
             values.merge(candidates(ports, (low - 1) * PORT_BYTES + WORD));
         }
         if let Some(name) = name {
-            let domains = self.domain_candidates(name);
+            let domains = self.domain_candidates(name).for_transport(transport);
             values.merge(domains);
             if domains.any() {
                 return values;
@@ -687,7 +693,10 @@ impl Builder {
                 })
                 .ok_or(Error::ResourceLimit)
         })?;
-        let _temporary = BUILD_MEMORY.reserve(estimate)?;
+        if estimate > MAX_BUILD_BYTES {
+            return Err(Error::ResourceLimit);
+        }
+        let mut memory = BUILD_MEMORY.reserve(estimate)?;
         let mut sections: [Vec<u8>; SECTION_COUNT] = std::array::from_fn(|_| Vec::new());
         let mut strings = Vec::new();
         let mut string = |value: &str| -> Result<[u32; 2]> {
@@ -887,6 +896,10 @@ impl Builder {
         for section in sections {
             bytes.extend_from_slice(&section);
         }
-        FlatIndex::parse(bytes, entries)
+        if bytes.capacity() > estimate {
+            return Err(Error::ResourceLimit);
+        }
+        memory.shrink_to(bytes.capacity());
+        FlatIndex::parse_owned(bytes, entries, Some(memory))
     }
 }

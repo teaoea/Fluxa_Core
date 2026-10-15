@@ -24,6 +24,7 @@ fn dns(port: u16) -> DNSConfig {
 }
 fn rule(kind: Match, value: &str, policy: Policy) -> Rule {
     Rule {
+        protocol: None,
         r#type: kind,
         value: value.into(),
         policy,
@@ -314,4 +315,51 @@ async fn routed_dns_deadline_and_close_cancel_before_dial() {
     .unwrap();
     manager.close_all().await.unwrap();
     assert!(matches!(task.await.unwrap(), Err(Error::Cancelled)));
+}
+
+#[tokio::test]
+async fn formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp() {
+    let fixture = support::fixture().await;
+    let resolver = Resolver::new(dns(fixture.port)).unwrap();
+    let manager = Manager::default();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut scoped = rule(Match::Domain, "connect.example.test", Policy::Reject);
+    scoped.protocol = Some(Transport::Udp);
+    let route = router(vec![
+        scoped,
+        rule(Match::Domain, "connect.example.test", Policy::Direct),
+    ]);
+    let opened = manager
+        .connect_routed(
+            &route,
+            Some(&resolver),
+            target(listener.local_addr().unwrap().port()),
+        )
+        .await
+        .unwrap();
+    let (mut peer, _) = listener.accept().await.unwrap();
+    manager
+        .write(opened.connection.id, b"scope", 1000)
+        .await
+        .unwrap();
+    let mut body = [0; 5];
+    peer.read_exact(&mut body).await.unwrap();
+    assert_eq!(&body, b"scope");
+    manager.close(opened.connection.id).await.unwrap();
+    let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let mut request = target(udp.local_addr().unwrap().port());
+    request.target.transport = Transport::Udp;
+    let before_dns = fixture.count.load(Ordering::SeqCst);
+    assert!(matches!(
+        manager
+            .connect_routed(&route, Some(&resolver), request)
+            .await,
+        Err(Error::Rejected)
+    ));
+    assert_eq!(fixture.count.load(Ordering::SeqCst), before_dns);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), udp.recv_from(&mut body))
+            .await
+            .is_err()
+    );
 }

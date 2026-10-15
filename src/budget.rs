@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(crate) struct ByteBudget {
     limit: usize,
     used: AtomicUsize,
+    peak: AtomicUsize,
 }
 pub(crate) struct ByteLease {
     budget: &'static ByteBudget,
@@ -14,10 +15,19 @@ impl ByteBudget {
         Self {
             limit,
             used: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
         }
     }
+    /// 只读观测准入计数；峰值是成功预留的高水位，不是整个进程 RSS。
+    pub(crate) fn usage(&self) -> (usize, usize) {
+        (
+            self.used.load(Ordering::Acquire),
+            self.peak.load(Ordering::Acquire),
+        )
+    }
     pub fn reserve(&'static self, bytes: usize) -> Result<ByteLease> {
-        self.used
+        let previous = self
+            .used
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 used.checked_add(bytes).filter(|total| *total <= self.limit)
             })
@@ -25,6 +35,7 @@ impl ByteBudget {
                 actual: bytes as u64,
                 limit: self.limit as u64,
             })?;
+        self.peak.fetch_max(previous + bytes, Ordering::Relaxed);
         Ok(ByteLease {
             budget: self,
             bytes,
@@ -32,6 +43,11 @@ impl ByteBudget {
     }
 }
 impl ByteLease {
+    /// 查询当前租约真实预留额，用于实际缓冲释放后的收缩检查。
+    pub(crate) fn reserved_bytes(&self) -> usize {
+        self.bytes
+    }
+
     /// 仅缩减已预留预算；缓冲区完成后归还多余容量，不重新申请配额。
     pub(crate) fn shrink_to(&mut self, bytes: usize) {
         assert!(bytes <= self.bytes, "预算只能缩减");

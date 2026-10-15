@@ -13,3 +13,5 @@ H1 dev 源码修复：会话异步关闭主动撤销权限并等待活动资源�
 当前未完成事项及暂停状态统一见 [TODO](Documentation/TODO.md)。
 
 - Debug 专用本地 IPC、身份与逐操作授权、期限及 Rust/C/Swift 迁移见 [安全契约](Documentation/Debug本地IPC安全契约.md)；本轮 dev 源码交付及未测平台见对应验收记录。
+
+[正式域名与传输协议组合、预算校准及构建验收](Documentation/规则组合与资源验收.md)：可选 protocol 字段只支持 DOMAIN / DOMAIN-SUFFIX 与 TCP/UDP 的 AND，示例见 examples/domain_transport.rs；缓存版本 2 需由原来源重建。
