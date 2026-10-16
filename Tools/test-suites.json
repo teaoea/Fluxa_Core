@@ -957,7 +957,11 @@
       "declared_cases": [
         "reordered_duplicate_overlap_wrap_and_finish",
         "fixed_window_zero_and_open_after_consume",
-        "transmit_preserves_unacked_bytes_and_wraps"
+        "transmit_preserves_unacked_bytes_and_wraps",
+        "sack_blocks_merge_recent_first_and_survive_wrap",
+        "sack_bitmap_matches_independent_presence_model",
+        "sack_never_reports_bytes_beyond_known_fin",
+        "sack_bitmap_word_and_ring_boundaries_after_consume"
       ]
     },
     {
@@ -980,7 +984,11 @@
         "active_half_close_accepts_final_return_bytes_and_fin",
         "round_trip_estimate_adapts_and_retransmission_is_not_a_sample",
         "finish_waits_for_bounded_flight_ledger_space",
-        "duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline"
+        "duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline",
+        "sack_reports_out_of_order_and_requires_negotiation",
+        "sack_selects_multiple_holes_without_releasing_unacked_bytes",
+        "sack_reneging_rto_and_unsent_ranges_are_safe",
+        "sack_negotiated_duplicate_ack_fallback_and_mtu_budget"
       ]
     },
     {
@@ -1026,7 +1034,9 @@
         "exact_fields_roundtrip_for_both_address_families",
         "invalid_window_mss_and_checksum_are_rejected",
         "malformed_options_and_urgent_data_never_enter_state_machine",
-        "deterministic_truncated_and_mutated_packets_never_panic"
+        "deterministic_truncated_and_mutated_packets_never_panic",
+        "sack_options_have_independent_wire_layout_and_strict_bounds",
+        "sack_malformed_options_rejected_after_valid_checksum"
       ]
     },
     {

@@ -2,6 +2,8 @@
 //! 测试类型：单元测试、TCP 边界回归测试
 //! 测试对象：src/tun/tcp/state.rs
 //! 测试内容：syn_retransmission_and_acknowledgement_validation；receive_reordering_duplicate_and_window_update；segmentation_partial_ack_and_retransmit_preserve_payload；zero_window_probe_and_reopen_does_not_consume_data；half_close_keeps_return_data_then_fin_and_time_wait；reset_requires_expected_sequence_and_far_packet_cannot_release_tx；duplicate_ack_triggers_fast_retransmit_without_waiting_for_timer；exponential_retry_budget_exhausts_with_explicit_timeout；active_half_close_accepts_final_return_bytes_and_fin；round_trip_estimate_adapts_and_retransmission_is_not_a_sample；finish_waits_for_bounded_flight_ledger_space；duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline。
+//! 测试内容：sack_reports_out_of_order_and_requires_negotiation；sack_selects_multiple_holes_without_releasing_unacked_bytes；sack_reneging_rto_and_unsent_ranges_are_safe。
+//! 测试内容：sack_negotiated_duplicate_ack_fallback_and_mtu_budget。
 //! 测试依据：TCP 序号、窗口和有界资源契约；RFC 9293；RFC 6298。
 //! 前置条件：本地内存及确定性虚拟时钟，无外部服务。
 use super::*;
@@ -20,6 +22,8 @@ fn segment(
         flags: Flags(flags),
         window,
         maximum_segment: None,
+        sack_permitted: false,
+        sacks: crate::tun::tcp::wire::Sacks::default(),
         payload,
     }
 }
@@ -308,4 +312,165 @@ fn duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline() {
         state.emit(now + Duration::from_secs(30)),
         Err(Error::NetworkTimeout)
     ));
+}
+
+fn sack_ready(initial: u32) -> (State, Instant) {
+    let now = Instant::now();
+    let mut syn = segment(100, 0, Flags::SYN, 10000, &[]);
+    syn.maximum_segment = Some(100);
+    syn.sack_permitted = true;
+    let mut state = State::new(&syn, initial, 1500, Duration::from_secs(1), now).unwrap();
+    let reply = state.emit(now).unwrap().unwrap();
+    assert!(wire::decode(&reply.bytes, 1500).unwrap().sack_permitted);
+    state
+        .process(
+            &segment(101, initial.wrapping_add(1), Flags::ACK, 10000, &[]),
+            now,
+        )
+        .unwrap();
+    (state, now)
+}
+#[test]
+fn sack_reports_out_of_order_and_requires_negotiation() {
+    for enabled in [false, true] {
+        let (mut state, now) = if enabled {
+            sack_ready(500)
+        } else {
+            ready(10000)
+        };
+        state
+            .process(&segment(110, 501, Flags::ACK, 10000, b"xyz"), now)
+            .unwrap();
+        let packet = state.emit(now).unwrap().unwrap();
+        let parsed = wire::decode(&packet.bytes, 1500).unwrap();
+        assert_eq!(parsed.acknowledgement, 101);
+        if enabled {
+            assert_eq!(parsed.sacks.blocks(), &[(110, 113)]);
+        } else {
+            assert!(parsed.sacks.blocks().is_empty());
+        }
+    }
+}
+#[test]
+fn sack_selects_multiple_holes_without_releasing_unacked_bytes() {
+    for initial in [500, u32::MAX - 450] {
+        let (mut state, now) = sack_ready(initial);
+        let first = initial.wrapping_add(1);
+        let payload: Vec<u8> = (0..1000).map(|i| (i % 251) as u8).collect();
+        state.output(&payload).unwrap();
+        for _ in 0..10 {
+            state.emit(now).unwrap().unwrap();
+        }
+        let mut ack = segment(101, first, Flags::ACK, 10000, &[]);
+        ack.sacks
+            .push(first.wrapping_add(100), first.wrapping_add(300))
+            .unwrap();
+        ack.sacks
+            .push(first.wrapping_add(400), first.wrapping_add(1000))
+            .unwrap();
+        state
+            .process(&ack, now + Duration::from_millis(10))
+            .unwrap();
+        for offset in [0, 300] {
+            let packet = state
+                .emit(now + Duration::from_millis(10))
+                .unwrap()
+                .unwrap();
+            let segment = wire::decode(&packet.bytes, 1500).unwrap();
+            assert_eq!(segment.sequence, first.wrapping_add(offset as u32));
+            assert_eq!(segment.payload, &payload[offset..offset + 100]);
+        }
+        assert!(
+            state
+                .emit(now + Duration::from_millis(10))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(state.output_capacity(), CAPACITY - 1000);
+        state
+            .process(&ack, now + Duration::from_millis(11))
+            .unwrap();
+        assert!(
+            state
+                .emit(now + Duration::from_millis(11))
+                .unwrap()
+                .is_none()
+        );
+        ack.acknowledgement = first.wrapping_add(400);
+        state
+            .process(&ack, now + Duration::from_millis(12))
+            .unwrap();
+        assert_eq!(state.output_capacity(), CAPACITY - 600);
+        assert!(state.recovery);
+        ack.acknowledgement = first.wrapping_add(1000);
+        ack.sacks = wire::Sacks::default();
+        state
+            .process(&ack, now + Duration::from_millis(13))
+            .unwrap();
+        assert_eq!(state.output_capacity(), CAPACITY);
+        assert!(!state.recovery);
+    }
+}
+#[test]
+fn sack_reneging_rto_and_unsent_ranges_are_safe() {
+    let (mut state, now) = sack_ready(500);
+    state.output(&[9; 500]).unwrap();
+    for _ in 0..5 {
+        state.emit(now).unwrap().unwrap();
+    }
+    let mut ack = segment(101, 501, Flags::ACK, 10000, &[]);
+    ack.sacks.push(501, 2000).unwrap();
+    state.process(&ack, now).unwrap();
+    assert!(state.outstanding.iter().all(|s| !s.sacked));
+    ack.sacks = wire::Sacks::default();
+    ack.sacks.push(601, 1001).unwrap();
+    state.process(&ack, now).unwrap();
+    state.emit(now).unwrap().unwrap();
+    assert_eq!(state.output_capacity(), CAPACITY - 500);
+    state.emit(now + Duration::from_secs(1)).unwrap().unwrap();
+    assert!(state.outstanding.iter().all(|s| !s.sacked && !s.repaired));
+    assert_eq!(state.output_capacity(), CAPACITY - 500);
+    ack.sacks = wire::Sacks::default();
+    ack.sacks.push(601, 651).unwrap();
+    state.process(&ack, now + Duration::from_secs(1)).unwrap();
+    assert!(state.outstanding.iter().all(|s| !s.sacked));
+}
+
+#[test]
+fn sack_negotiated_duplicate_ack_fallback_and_mtu_budget() {
+    let (mut state, now) = sack_ready(500);
+    state.output(&[1; 1000]).unwrap();
+    for _ in 0..10 {
+        state.emit(now).unwrap().unwrap();
+    }
+    for _ in 0..3 {
+        state
+            .process(&segment(101, 501, Flags::ACK, 10000, &[]), now)
+            .unwrap();
+    }
+    let retry = state.emit(now).unwrap().unwrap();
+    assert_eq!(wire::decode(&retry.bytes, 1500).unwrap().sequence, 501);
+    assert!(state.emit(now).unwrap().is_none());
+    assert!(std::mem::size_of::<Sent>() * 64 + std::mem::size_of::<State>() < 16384);
+    let mut syn = segment(100, 0, Flags::SYN, 65535, &[]);
+    syn.sack_permitted = true;
+    syn.maximum_segment = Some(9000);
+    let mut state = State::new(&syn, 500, 1280, Duration::from_secs(1), now).unwrap();
+    state.emit(now).unwrap();
+    state
+        .process(&segment(101, 501, Flags::ACK, 65535, &[]), now)
+        .unwrap();
+    state.output(&[1; 3000]).unwrap();
+    for offset in [100, 200, 300, 400] {
+        state
+            .process(&segment(101 + offset, 501, Flags::ACK, 65535, b"x"), now)
+            .unwrap();
+    }
+    let p = state.emit(now).unwrap().unwrap();
+    assert!(p.bytes.len() <= 1280);
+    let p = state.emit(now).unwrap().unwrap();
+    assert!(p.bytes.len() <= 1280);
+    let decoded = wire::decode(&p.bytes, 1280).unwrap();
+    assert_eq!(decoded.sacks.blocks().len(), 4);
+    assert!(!decoded.payload.is_empty());
 }

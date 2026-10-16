@@ -1,6 +1,6 @@
 # 测试报告：test_tun_fragment
 
-<!-- fluxa-test-report:{"command": ["/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05", "::test_tun_fragment::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.056377752996922936, "status": "PASS", "discovered": ["tun::fragment::test_tun_fragment::dual_stack_layout_checksum_and_reassembly", "tun::fragment::test_tun_fragment::identifier_exhaustion_and_quiet_period", "tun::fragment::test_tun_fragment::invalid_inputs_and_complete_packet_limit", "tun::fragment::test_tun_fragment::mtu_boundaries_and_single_packet_fast_path", "tun::fragment::test_tun_fragment::partial_allocation_failure_returns_all_packet_budget"], "results": {"tun::fragment::test_tun_fragment::dual_stack_layout_checksum_and_reassembly": "PASS", "tun::fragment::test_tun_fragment::identifier_exhaustion_and_quiet_period": "PASS", "tun::fragment::test_tun_fragment::invalid_inputs_and_complete_packet_limit": "PASS", "tun::fragment::test_tun_fragment::mtu_boundaries_and_single_packet_fast_path": "PASS", "tun::fragment::test_tun_fragment::partial_allocation_failure_returns_all_packet_budget": "PASS"}, "fingerprint": "1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a", "time": "2026-10-16T06:02:43.368834+08:00", "attempt": 1, "suite": "test_tun_fragment", "file": "tests/test_tun_fragment.rs", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05", "::test_tun_fragment::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.05782904400257394, "status": "PASS", "discovered": ["tun::fragment::test_tun_fragment::dual_stack_layout_checksum_and_reassembly", "tun::fragment::test_tun_fragment::identifier_exhaustion_and_quiet_period", "tun::fragment::test_tun_fragment::invalid_inputs_and_complete_packet_limit", "tun::fragment::test_tun_fragment::mtu_boundaries_and_single_packet_fast_path", "tun::fragment::test_tun_fragment::partial_allocation_failure_returns_all_packet_budget"], "results": {"tun::fragment::test_tun_fragment::dual_stack_layout_checksum_and_reassembly": "PASS", "tun::fragment::test_tun_fragment::identifier_exhaustion_and_quiet_period": "PASS", "tun::fragment::test_tun_fragment::invalid_inputs_and_complete_packet_limit": "PASS", "tun::fragment::test_tun_fragment::mtu_boundaries_and_single_packet_fast_path": "PASS", "tun::fragment::test_tun_fragment::partial_allocation_failure_returns_all_packet_budget": "PASS"}, "fingerprint": "5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c", "time": "2026-10-16T10:06:57.954579+08:00", "attempt": 1, "suite": "test_tun_fragment", "file": "tests/test_tun_fragment.rs", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05 ::test_tun_fragment:: --test-threads=1`
-- 执行时间：2026-10-16T06:02:43.368834+08:00
-- 实际耗时：0.056377752996922936 秒
-- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a`
+- 执行时间：2026-10-16T10:06:57.954579+08:00
+- 实际耗时：0.05782904400257394 秒
+- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -50,7 +50,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/var/tmp/fluxa-out-fragment-linux-full/test_tun_fragment.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/var/tmp/fluxa-sack-linux-verified/test_tun_fragment.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

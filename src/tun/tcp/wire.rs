@@ -17,6 +17,25 @@ impl Flags {
         self.0 & bit != 0
     }
 }
+/// TCP 选项最多容纳四个 SACK 区间，长度只由受限 push 修改。
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
+pub struct Sacks {
+    blocks: [(u32, u32); 4],
+    count: u8,
+}
+impl Sacks {
+    pub fn blocks(&self) -> &[(u32, u32)] {
+        &self.blocks[..usize::from(self.count)]
+    }
+    pub fn push(&mut self, left: u32, right: u32) -> Result<()> {
+        if self.count == 4 || right.wrapping_sub(left) == 1 << 31 || !before(left, right) {
+            return Err(Error::InvalidInput);
+        }
+        self.blocks[usize::from(self.count)] = (left, right);
+        self.count += 1;
+        Ok(())
+    }
+}
 pub struct Segment<'a> {
     pub source: SocketAddr,
     pub destination: SocketAddr,
@@ -25,6 +44,8 @@ pub struct Segment<'a> {
     pub window: usize,
     pub flags: Flags,
     pub maximum_segment: Option<u16>,
+    pub sack_permitted: bool,
+    pub sacks: Sacks,
     pub payload: &'a [u8],
 }
 pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
@@ -47,6 +68,8 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
         return Err(Error::Unsupported);
     }
     let mut maximum_segment = None;
+    let mut sack_permitted = false;
+    let mut sacks = Sacks::default();
     let mut offset = ip + 20;
     while offset < ip + header {
         let kind = bytes[offset];
@@ -71,7 +94,29 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
             }
             maximum_segment = Some(size);
         }
-        // 不声明窗口扩大、SACK、时间戳或 ECN 协商；未协商选项不改变状态机。
+        if kind == 4 {
+            if length != 2 || !flags.has(Flags::SYN) || sack_permitted {
+                return Err(Error::InvalidInput);
+            }
+            sack_permitted = true;
+        }
+        if kind == 5 {
+            if flags.has(Flags::SYN)
+                || !flags.has(Flags::ACK)
+                || !(10..=34).contains(&length)
+                || (length - 2) % 8 != 0
+                || !sacks.blocks().is_empty()
+            {
+                return Err(Error::InvalidInput);
+            }
+            for block in bytes[offset + 2..offset + length].as_chunks::<8>().0 {
+                sacks.push(
+                    u32::from_be_bytes(block[..4].try_into().map_err(|_| Error::InvalidInput)?),
+                    u32::from_be_bytes(block[4..].try_into().map_err(|_| Error::InvalidInput)?),
+                )?;
+            }
+        }
+        // 窗口扩大、时间戳和 ECN 尚未协商；未知选项不改变状态机。
         offset += length;
     }
     Ok(Segment {
@@ -90,6 +135,8 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
         window: usize::from(u16::from_be_bytes([bytes[ip + 14], bytes[ip + 15]])),
         flags,
         maximum_segment,
+        sack_permitted,
+        sacks,
         payload: &bytes[ip + header..],
     })
 }
@@ -102,10 +149,14 @@ pub fn encode(segment: &Segment<'_>, mtu: usize) -> Result<Packet> {
         flags,
         window,
         maximum_segment,
+        sack_permitted,
+        sacks,
         payload,
     } = *segment;
     if window > u16::MAX as usize
         || maximum_segment.is_some_and(|size| size < 64 || !flags.has(Flags::SYN))
+        || (sack_permitted && !flags.has(Flags::SYN))
+        || (!sacks.blocks().is_empty() && (flags.has(Flags::SYN) || !flags.has(Flags::ACK)))
     {
         return Err(Error::InvalidInput);
     }
@@ -115,7 +166,27 @@ pub fn encode(segment: &Segment<'_>, mtu: usize) -> Result<Packet> {
         (IpAddr::V6(_), IpAddr::V6(_)) => 40,
         _ => return Err(Error::InvalidInput),
     };
-    let header = 20 + if maximum_segment.is_some() { 4 } else { 0 };
+    let mut options = [0u8; 40];
+    let mut used = 0;
+    if let Some(mss) = maximum_segment {
+        options[..4].copy_from_slice(&[2, 4, (mss >> 8) as u8, mss as u8]);
+        used = 4;
+    }
+    if sack_permitted {
+        options[used..used + 2].copy_from_slice(&[4, 2]);
+        used += 2;
+    }
+    if !sacks.blocks().is_empty() {
+        options[used] = 5;
+        options[used + 1] = (2 + sacks.blocks().len() * 8) as u8;
+        used += 2;
+        for (left, right) in sacks.blocks() {
+            options[used..used + 4].copy_from_slice(&left.to_be_bytes());
+            options[used + 4..used + 8].copy_from_slice(&right.to_be_bytes());
+            used += 8;
+        }
+    }
+    let header = 20 + used.div_ceil(4) * 4;
     let size = ip + header + payload.len();
     if !(tun::MIN_MTU..=tun::MAX_MTU).contains(&mtu)
         || source.port() == 0
@@ -156,9 +227,7 @@ pub fn encode(segment: &Segment<'_>, mtu: usize) -> Result<Packet> {
         bytes[ip + 12] = (header as u8 / 4) << 4;
         bytes[ip + 13] = flags.0;
         bytes[ip + 14..ip + 16].copy_from_slice(&(window as u16).to_be_bytes());
-        if let Some(mss) = maximum_segment {
-            bytes[ip + 20..ip + 24].copy_from_slice(&[2, 4, (mss >> 8) as u8, mss as u8]);
-        }
+        bytes[ip + 20..ip + header].copy_from_slice(&options[..header - 20]);
         bytes[ip + header..].copy_from_slice(payload);
         let check = tun::checksum(
             &bytes[ip..],

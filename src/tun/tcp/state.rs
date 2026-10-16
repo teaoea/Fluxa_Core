@@ -40,6 +40,8 @@ struct Sent {
     kind: SentKind,
     sent_at: Option<Instant>,
     retries: u8,
+    sacked: bool,
+    repaired: bool,
 }
 impl Sent {
     fn length(&self) -> usize {
@@ -61,6 +63,8 @@ pub struct State {
     transmit: Transmit,
     outstanding: VecDeque<Sent>,
     peer_window: usize,
+    sack_enabled: bool,
+    recovery_end: u32,
     window_sequence: u32,
     window_acknowledgement: u32,
     maximum_segment: usize,
@@ -106,6 +110,7 @@ impl State {
             || syn.source.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::BROADCAST)
             || syn.destination.ip() == std::net::IpAddr::V4(std::net::Ipv4Addr::BROADCAST)
             || syn.source.is_ipv4() != syn.destination.is_ipv4()
+            || !syn.sacks.blocks().is_empty()
             || syn.maximum_segment.is_some_and(|value| value < 64)
         {
             return Err(Error::InvalidInput);
@@ -121,13 +126,19 @@ impl State {
         } else {
             1220
         }))
-        .min(mtu - if syn.source.is_ipv4() { 40 } else { 60 });
+        // 为四块 SACK 预留最多 36 字节，重传无需重新切分发送记录。
+        .min(
+            mtu - if syn.source.is_ipv4() { 40 } else { 60 }
+                - if syn.sack_permitted { 36 } else { 0 },
+        );
         let mut outstanding = VecDeque::with_capacity(MAXIMUM_FLIGHT_SEGMENTS);
         outstanding.push_back(Sent {
             sequence: initial,
             kind: SentKind::Syn,
             sent_at: None,
             retries: 0,
+            sacked: false,
+            repaired: false,
         });
         Ok(Self {
             source: syn.destination,
@@ -141,6 +152,8 @@ impl State {
             transmit: Transmit::new(initial.wrapping_add(1)),
             outstanding,
             peer_window: syn.window,
+            sack_enabled: syn.sack_permitted,
+            recovery_end: initial,
             window_sequence: syn.sequence,
             window_acknowledgement: initial,
             maximum_segment,
@@ -335,10 +348,11 @@ impl State {
                 self.observe_round_trip(sample);
             }
             self.retransmit = self.base_retransmit;
-            if self.recovery {
+            if self.recovery && (!self.sack_enabled || !before(acknowledgement, self.recovery_end))
+            {
                 self.congestion_window = self.slow_start_threshold;
                 self.recovery = false;
-            } else if data != 0 {
+            } else if data != 0 && !self.recovery {
                 let increment = if self.congestion_window < self.slow_start_threshold {
                     data.min(self.maximum_segment)
                 } else {
@@ -353,16 +367,26 @@ impl State {
         {
             self.duplicate_acknowledgements =
                 self.duplicate_acknowledgements.saturating_add(1).min(4);
-            if self.duplicate_acknowledgements == 3 {
+            if self.duplicate_acknowledgements == 3 && !self.sack_enabled {
                 self.slow_start_threshold =
                     (distance(self.next, self.acknowledged) / 2).max(2 * self.maximum_segment);
                 self.congestion_window =
                     (self.slow_start_threshold + 3 * self.maximum_segment).min(CAPACITY);
                 self.fast_retransmit = true;
                 self.recovery = true;
-            } else if self.recovery {
+            } else if self.recovery && !self.sack_enabled {
                 self.congestion_window =
                     (self.congestion_window + self.maximum_segment).min(CAPACITY);
+            }
+        }
+        if self.sack_enabled && self.established && acknowledgement == self.acknowledged {
+            self.observe_sacks(&segment.sacks);
+            if !self.recovery && self.sack_losses().iter().any(|lost| *lost) {
+                self.slow_start_threshold =
+                    (distance(self.next, self.acknowledged) / 2).max(2 * self.maximum_segment);
+                self.congestion_window = self.slow_start_threshold.min(CAPACITY);
+                self.recovery = true;
+                self.recovery_end = self.next;
             }
         }
         if self.established && (!segment.payload.is_empty() || segment.flags.has(Flags::FIN)) {
@@ -377,6 +401,62 @@ impl State {
             self.time_wait_until = Some(now + self.time_wait);
         }
         Ok(())
+    }
+    /// SACK 只是提示；只标记完全覆盖的已发送数据记录，不释放正文或推进累计 ACK。
+    fn observe_sacks(&mut self, sacks: &wire::Sacks) {
+        for &(left, right) in sacks.blocks() {
+            if before(left, self.acknowledged) || before(self.next, right) {
+                continue;
+            }
+            for sent in &mut self.outstanding {
+                if matches!(sent.kind, SentKind::Data(_))
+                    && !before(sent.sequence, left)
+                    && !before(right, sent.sequence.wrapping_add(sent.length() as u32))
+                {
+                    sent.sacked = true;
+                }
+            }
+        }
+    }
+    /// 逆序累计更高序号的选择确认，一次遍历最多 64 个发送记录。
+    fn sack_losses(&self) -> [bool; MAXIMUM_FLIGHT_SEGMENTS] {
+        let mut losses = [false; MAXIMUM_FLIGHT_SEGMENTS];
+        let mut blocks = 0;
+        let mut bytes = 0;
+        for (index, sent) in self.outstanding.iter().enumerate().rev() {
+            losses[index] = !sent.sacked
+                && !sent.repaired
+                && matches!(sent.kind, SentKind::Data(_))
+                && (blocks >= 3
+                    || bytes >= 3 * self.maximum_segment
+                    || (index == 0 && self.duplicate_acknowledgements >= 3));
+            if sent.sacked {
+                blocks += 1;
+                bytes += sent.length();
+            }
+        }
+        losses
+    }
+    fn sack_retry(&self) -> Option<usize> {
+        if !self.sack_enabled || !self.recovery {
+            return None;
+        }
+        // 有界 pipe 估算：已 SACK 或判为丢失且未重传的不再占 pipe；重传仍计入。
+        let losses = self.sack_losses();
+        let pipe: usize = self
+            .outstanding
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| !s.sacked && (s.repaired || !losses[*i]))
+            .map(|(_, s)| s.length())
+            .sum();
+        (0..self.outstanding.len()).find(|&i| {
+            let first_fast = i == 0
+                && self.duplicate_acknowledgements >= 3
+                && !self.outstanding.iter().any(|s| s.repaired);
+            losses[i]
+                && (pipe + self.outstanding[i].length() <= self.congestion_window || first_fast)
+        })
     }
     fn observe_round_trip(&mut self, sample: Duration) {
         let sample = sample.min(MAXIMUM_RETRANSMIT);
@@ -409,6 +489,15 @@ impl State {
                 flags: Flags(flags),
                 window: usize::from(self.receive.window()),
                 maximum_segment,
+                sack_permitted: self.sack_enabled && flags & Flags::SYN != 0,
+                sacks: if self.sack_enabled
+                    && self.established
+                    && flags & (Flags::SYN | Flags::RST) == 0
+                {
+                    self.receive.sacks()
+                } else {
+                    wire::Sacks::default()
+                },
                 payload,
             },
             self.mtu,
@@ -418,7 +507,7 @@ impl State {
         if self.closed {
             return None;
         }
-        if self.acknowledgement_pending || self.fast_retransmit {
+        if self.acknowledgement_pending || self.fast_retransmit || self.sack_retry().is_some() {
             return Some(now);
         }
         if let Some(until) = self.time_wait_until {
@@ -469,11 +558,18 @@ impl State {
             self.closed = true;
             return Ok(None);
         }
-        let retry = self.outstanding.front().is_some_and(|sent| {
+        let timer_due = self.outstanding.front().is_some_and(|sent| {
             sent.sent_at.is_none()
-                || now.duration_since(sent.sent_at.unwrap_or(now)) >= self.retransmit
-        }) || self.fast_retransmit;
-        if retry && let Some(sent) = self.outstanding.front() {
+                || now.saturating_duration_since(sent.sent_at.unwrap_or(now)) >= self.retransmit
+        });
+        let retry_index = if timer_due || self.fast_retransmit {
+            Some(0)
+        } else {
+            self.sack_retry()
+        };
+        if let Some(index) = retry_index
+            && let Some(sent) = self.outstanding.get(index)
+        {
             if sent.retries >= MAXIMUM_RETRIES {
                 return Err(Error::NetworkTimeout);
             }
@@ -496,12 +592,21 @@ impl State {
                 ),
             };
             let packet = self.packet(sequence, flags, mss, &payload)?;
-            let timed = sent.sent_at.is_some() && !self.fast_retransmit;
-            let sent = self.outstanding.front_mut().ok_or(Error::Internal)?;
+            let timed = timer_due && sent.sent_at.is_some() && !self.fast_retransmit;
+            if timed {
+                // 对端可以撤回 SACK；RTO 清除全部提示，不能永久跳过旧数据。
+                for entry in &mut self.outstanding {
+                    entry.sacked = false;
+                    entry.repaired = false;
+                }
+                self.duplicate_acknowledgements = 0;
+            }
+            let sent = self.outstanding.get_mut(index).ok_or(Error::Internal)?;
             if sent.sent_at.is_some() {
                 sent.retries += 1;
             }
             sent.sent_at = Some(now);
+            sent.repaired = !timed && self.sack_enabled && matches!(sent.kind, SentKind::Data(_));
             self.fast_retransmit = false;
             if timed {
                 if matches!(sent.kind, SentKind::Syn) {
@@ -545,6 +650,8 @@ impl State {
                 kind: SentKind::Data(count),
                 sent_at: Some(now),
                 retries: 0,
+                sacked: false,
+                repaired: false,
             });
             self.transmit.sent += count;
             self.next = self.next.wrapping_add(count as u32);
@@ -563,6 +670,8 @@ impl State {
                 kind: SentKind::Fin,
                 sent_at: Some(now),
                 retries: 0,
+                sacked: false,
+                repaired: false,
             });
             self.passive_close = self.receive.finished;
             self.finish_sequence = Some(sequence);

@@ -25,7 +25,7 @@ Swift 封装及测试仅位于 Fluxa 的 `Packages/FluxaKernelBridge/`。`Native
 
 入站有界 IP 分片重组及 IPv6 扩展头处理见 [IP 重组说明](IPReassembly.md)。
 
-未实现：输出 IP 分片、紧急数据、TCP Fast Open 数据型 SYN、窗口扩大、SACK、时间戳、ECN 协商、PMTU/ICMP 处理及所有 TCP 扩展。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
+未实现：输出 IP 分片、紧急数据、TCP Fast Open 数据型 SYN、窗口扩大、时间戳、ECN 协商、PMTU/ICMP 处理及所有 TCP 扩展。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
 
 ## 资源预算与关闭契约
 
@@ -65,3 +65,7 @@ Linux 夹具覆盖系统 TCP 客户端、IPv4/IPv6、1 MiB 双向、半关闭、
 ## UDP 返回分片
 
 UDP 返回超过 MTU 时的有界源分片、队列语义与测试入口见 [出站 IP 分片](OutboundFragmentation.md)。TCP 仍按 MSS 分段。
+
+## SACK
+
+SACK 协商、接收端乱序区间与发送端选择恢复见 [SACK 说明](TCPSACK.md)。部分覆盖保守重传，不宣称完整 RFC 6675 恢复。

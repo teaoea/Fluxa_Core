@@ -1,6 +1,6 @@
 # 测试报告：test_tun_tcp_buffer
 
-<!-- fluxa-test-report:{"command": ["/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05", "::test_tun_tcp_buffer::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.012330803001532331, "status": "PASS", "discovered": ["tun::tcp::buffer::test_tun_tcp_buffer::fixed_window_zero_and_open_after_consume", "tun::tcp::buffer::test_tun_tcp_buffer::reordered_duplicate_overlap_wrap_and_finish", "tun::tcp::buffer::test_tun_tcp_buffer::transmit_preserves_unacked_bytes_and_wraps"], "results": {"tun::tcp::buffer::test_tun_tcp_buffer::fixed_window_zero_and_open_after_consume": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::reordered_duplicate_overlap_wrap_and_finish": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::transmit_preserves_unacked_bytes_and_wraps": "PASS"}, "fingerprint": "1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a", "time": "2026-10-16T06:02:43.368834+08:00", "attempt": 1, "suite": "test_tun_tcp_buffer", "file": "tests/test_tun_tcp_buffer.rs", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05", "::test_tun_tcp_buffer::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.028666919002716895, "status": "PASS", "discovered": ["tun::tcp::buffer::test_tun_tcp_buffer::fixed_window_zero_and_open_after_consume", "tun::tcp::buffer::test_tun_tcp_buffer::reordered_duplicate_overlap_wrap_and_finish", "tun::tcp::buffer::test_tun_tcp_buffer::sack_bitmap_matches_independent_presence_model", "tun::tcp::buffer::test_tun_tcp_buffer::sack_bitmap_word_and_ring_boundaries_after_consume", "tun::tcp::buffer::test_tun_tcp_buffer::sack_blocks_merge_recent_first_and_survive_wrap", "tun::tcp::buffer::test_tun_tcp_buffer::sack_never_reports_bytes_beyond_known_fin", "tun::tcp::buffer::test_tun_tcp_buffer::transmit_preserves_unacked_bytes_and_wraps"], "results": {"tun::tcp::buffer::test_tun_tcp_buffer::fixed_window_zero_and_open_after_consume": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::reordered_duplicate_overlap_wrap_and_finish": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::sack_bitmap_matches_independent_presence_model": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::sack_bitmap_word_and_ring_boundaries_after_consume": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::sack_blocks_merge_recent_first_and_survive_wrap": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::sack_never_reports_bytes_beyond_known_fin": "PASS", "tun::tcp::buffer::test_tun_tcp_buffer::transmit_preserves_unacked_bytes_and_wraps": "PASS"}, "fingerprint": "5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c", "time": "2026-10-16T10:06:57.954579+08:00", "attempt": 1, "suite": "test_tun_tcp_buffer", "file": "tests/test_tun_tcp_buffer.rs", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/var/tmp/fluxa-tcp-test/target/debug/deps/libfluxa_core-708c11e6d1f81a05 ::test_tun_tcp_buffer:: --test-threads=1`
-- 执行时间：2026-10-16T06:02:43.368834+08:00
-- 实际耗时：0.012330803001532331 秒
-- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a`
+- 执行时间：2026-10-16T10:06:57.954579+08:00
+- 实际耗时：0.028666919002716895 秒
+- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -22,13 +22,17 @@
 | --- | --- | --- |
 | `tun::tcp::buffer::test_tun_tcp_buffer::fixed_window_zero_and_open_after_consume` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `tun::tcp::buffer::test_tun_tcp_buffer::reordered_duplicate_overlap_wrap_and_finish` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::tcp::buffer::test_tun_tcp_buffer::sack_bitmap_matches_independent_presence_model` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::tcp::buffer::test_tun_tcp_buffer::sack_bitmap_word_and_ring_boundaries_after_consume` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::tcp::buffer::test_tun_tcp_buffer::sack_blocks_merge_recent_first_and_survive_wrap` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::tcp::buffer::test_tun_tcp_buffer::sack_never_reports_bytes_beyond_known_fin` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `tun::tcp::buffer::test_tun_tcp_buffer::transmit_preserves_unacked_bytes_and_wraps` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：3
-- 实际执行完成：3
-- 通过：3
+- 实际发现：7
+- 实际执行完成：7
+- 通过：7
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -48,7 +52,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/var/tmp/fluxa-out-fragment-linux-full/test_tun_tcp_buffer.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/var/tmp/fluxa-sack-linux-verified/test_tun_tcp_buffer.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

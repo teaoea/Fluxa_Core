@@ -1,5 +1,5 @@
 //! 固定容量 TCP 收发环；乱序位图不按输入增加节点，首个到达的字节保留。
-use super::wire::{before, distance};
+use super::wire::{Sacks, before, distance};
 use crate::error::{Error, Result};
 use zeroize::Zeroizing;
 pub const CAPACITY: usize = 32768;
@@ -10,6 +10,7 @@ pub struct Receive {
     base: u32,
     next: u32,
     finish: Option<u32>,
+    recent: [Option<u32>; 4],
     pub finished: bool,
 }
 impl Receive {
@@ -21,6 +22,7 @@ impl Receive {
             base: sequence,
             next: sequence,
             finish: None,
+            recent: [None; 4],
             finished: false,
         }
     }
@@ -40,6 +42,7 @@ impl Receive {
         if self.finished {
             return;
         }
+        let mut trigger = None;
         for (offset, byte) in bytes.iter().enumerate() {
             let seq = sequence.wrapping_add(offset as u32);
             if before(seq, self.base) || self.finish.is_some_and(|end| !before(seq, end)) {
@@ -49,6 +52,7 @@ impl Receive {
             if delta >= CAPACITY {
                 continue;
             }
+            trigger.get_or_insert(seq);
             let index = (self.head + delta) % CAPACITY;
             if !self.occupied(index) {
                 self.bytes[index] = *byte;
@@ -70,6 +74,91 @@ impl Receive {
             self.next = self.next.wrapping_add(1);
         }
         self.finished = self.finish == Some(self.next);
+        if let Some(sequence) = trigger
+            && !before(sequence, self.next)
+        {
+            self.recent.rotate_right(1);
+            self.recent[0] = Some(sequence);
+        }
+    }
+    /// 从逻辑偏移读取连续 64 个存在位；环回绕只涉及两个已分配位图字。
+    fn bits(&self, offset: usize) -> u64 {
+        let index = (self.head + offset) % CAPACITY;
+        let bit = index % 64;
+        let word = index / 64;
+        let low = self.present[word] >> bit;
+        if bit == 0 {
+            low
+        } else {
+            low | (self.present[(word + 1) % self.present.len()] << (64 - bit))
+        }
+    }
+    fn block(&self, sequence: u32) -> Option<(u32, u32)> {
+        let lower = distance(self.next, self.base);
+        let mut start = distance(sequence, self.base);
+        let limit = self.finish.map_or(CAPACITY, |end| distance(end, self.base));
+        if start < lower || start >= limit || !self.occupied((self.head + start) % CAPACITY) {
+            return None;
+        }
+        let mut end = start;
+        while start > lower {
+            let n = (start - lower).min(64);
+            let count = (self.bits(start - n) << (64 - n)).leading_ones() as usize;
+            start -= count;
+            if count < n {
+                break;
+            }
+        }
+        while end < limit {
+            let n = (limit - end).min(64);
+            let count = (self.bits(end).trailing_ones() as usize).min(n);
+            end += count;
+            if count < n {
+                break;
+            }
+        }
+        Some((
+            self.base.wrapping_add(start as u32),
+            self.base.wrapping_add(end as u32),
+        ))
+    }
+    /// 最近触发块优先，随后重复最近块；不足四块时按位图补齐，不按报文分配节点。
+    pub fn sacks(&self) -> Sacks {
+        let mut out = Sacks::default();
+        if self.finished {
+            return out;
+        }
+        for sequence in self.recent.iter().flatten() {
+            if let Some((left, right)) = self.block(*sequence)
+                && !out.blocks().contains(&(left, right))
+            {
+                // block 仅由有限接收窗口构造，必为合法的模序号区间。
+                if out.push(left, right).is_err() {
+                    return out;
+                }
+            }
+        }
+        let mut offset = distance(self.next, self.base);
+        let limit = self.finish.map_or(CAPACITY, |end| distance(end, self.base));
+        while out.blocks().len() < 4 && offset < limit {
+            let zero = (self.bits(offset).trailing_zeros() as usize).min((limit - offset).min(64));
+            offset += zero;
+            if offset == limit {
+                break;
+            }
+            if zero == 64 {
+                continue;
+            }
+            if let Some((left, right)) = self.block(self.base.wrapping_add(offset as u32)) {
+                if !out.blocks().contains(&(left, right)) && out.push(left, right).is_err() {
+                    break;
+                }
+                offset = distance(right, self.base);
+            } else {
+                break;
+            }
+        }
+        out
     }
     pub fn copy_pending(&self, maximum: usize) -> Zeroizing<Vec<u8>> {
         let count = maximum.min(self.pending());

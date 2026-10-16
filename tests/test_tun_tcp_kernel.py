@@ -1,7 +1,7 @@
 # 测试文件：tests/test_tun_tcp_kernel.py
 # 测试类型：集成测试、真实 Linux 系统 TCP 互通
 # 测试对象：src/tun/tcp/、src/tun/session.rs 与 examples/tun_tcp_kernel.rs
-# 测试内容：IPv4/IPv6；1 MiB；握手丢包、数据丢包、乱序和半关闭。
+# 测试内容：IPv4/IPv6；1 MiB；握手丢包、数据丢包、同窗口双缺口、乱序和半关闭。
 # 测试依据：RFC 9293；Fake-IP 恢复及不改变用户系统网络的隔离约束。
 # 前置条件：隔离 Linux netns、root、/dev/net/tun、iproute2；不是 macOS VPN 测试。
 #!/usr/bin/env python3
@@ -82,11 +82,12 @@ def run(binary):
     mappings = ready[1:]
     errors = []
     fault = {"syn": True, "data": False, "reorder": False, "held": None, "reordered": False}
+    multi_seen = set()
     lock = threading.Lock()
     output = bytearray()
     active = threading.Event()
     active.set()
-    counts = {"syn_dropped": 0, "data_dropped": 0, "reordered": 0}
+    counts = {"syn_dropped": 0, "data_dropped": 0, "reordered": 0, "multiple_dropped":0}
 
     def write_packet(packet):
         # 一次 write 对应一个 TUN 包，不能拼接或部分交付。
@@ -131,6 +132,13 @@ def run(binary):
                         flags = packet[ip + 13]
                         header = (packet[ip + 12] >> 4) * 4
                         with lock:
+                            if fault.get("multiple",False) and len(packet)>ip+header:
+                                seq=struct.unpack("!I",packet[ip+4:ip+8])[0]
+                                if seq not in multi_seen:
+                                    multi_seen.add(seq)
+                                    if len(multi_seen) in (1,4):
+                                        counts["multiple_dropped"]+=1
+                                        continue
                             if flags & 0x12 == 0x12 and fault["syn"]:
                                 fault["syn"] = False
                                 counts["syn_dropped"] += 1
@@ -160,10 +168,11 @@ def run(binary):
     bridge = threading.Thread(target=transport, daemon=True)
     bridge.start()
     try:
-        for index, (address, mode) in enumerate([(mappings[0], "normal"), (mappings[1], "normal"), (mappings[0], "loss"), (mappings[0], "reorder")]):
+        for index, (address, mode) in enumerate([(mappings[0], "normal"), (mappings[1], "normal"), (mappings[0], "loss"), (mappings[0], "reorder"), (mappings[0], "multiple-loss")]):
             with lock:
                 fault["data"] = mode == "loss"
                 fault["reorder"] = mode == "reorder"
+                fault["multiple"] = mode == "multiple-loss"
             client = socket.socket(socket.AF_INET6 if ":" in address else socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(20)
             if ":" in address:
@@ -194,7 +203,7 @@ def run(binary):
                 assert received == payload + b"after-half-close", (mode, len(received))
                 assert not errors, (errors, list(diagnostics))
             print(f"真实 Linux TCP：{address}，{mode}，1 MiB 双向与半关闭通过", flush=True)
-        assert counts == {"syn_dropped": 1, "data_dropped": 1, "reordered": 1}, counts
+        assert counts == {"syn_dropped": 1, "data_dropped": 1, "reordered": 1, "multiple_dropped":2}, counts
         print("握手丢包、数据丢包重传、乱序及系统客户端字节完整性通过", flush=True)
     finally:
         active.clear()

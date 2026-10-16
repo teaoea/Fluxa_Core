@@ -1,6 +1,6 @@
 # 测试报告：test_fixture_quic_packet
 
-<!-- fluxa-test-report:{"status": "NOT RUN", "discovered": [], "results": {}, "note": "本次 Rust 执行未运行此目标；夹具不作为独立测试用例，外部/Swift 需对应执行器。", "fingerprint": "1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a", "time": "2026-10-16T06:00:09.031753+08:00", "attempt": 1, "suite": "test_fixture_quic_packet", "file": "tests/test_fixture_quic_packet.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"status": "NOT RUN", "discovered": [], "results": {}, "note": "本次 Rust 执行未运行此目标；夹具不作为独立测试用例，外部/Swift 需对应执行器。", "fingerprint": "5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c", "time": "2026-10-16T10:06:37.444762+08:00", "attempt": 1, "suite": "test_fixture_quic_packet", "file": "tests/test_fixture_quic_packet.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：fixture_python
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：``
-- 执行时间：2026-10-16T06:00:09.031753+08:00
+- 执行时间：2026-10-16T10:06:37.444762+08:00
 - 实际耗时：未执行 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0def89eb75b8414df7d33055d2059ad7d6c12dd6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`1c0cfa0c6501fd2757e90f18260954fccfa017c152bc9763703b8d5d1313c71a`
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c`
 - 总体状态：**NOT RUN**
 - 原始进程退出状态：未执行
 
@@ -45,7 +45,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-out-fragment-full-evidence/test_fixture_quic_packet.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-sack-rust-verified/test_fixture_quic_packet.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
