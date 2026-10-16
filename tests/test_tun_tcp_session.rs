@@ -4,6 +4,7 @@
 //! 测试内容：real_ipv4_ipv6_data_and_half_close；rejection_invalid_input_and_close_never_dial；dns_tcp_length_framing_and_real_resolver；automatic_fake_ip_uses_original_return_address；concurrent_close_with_full_output_releases_actual_resources_and_quotas；close_cancels_pending_tcp_dns_and_revokes_retained_resolver；network_update_preserves_active_stream_and_rejects_new_flow；invalid_handshake_packets_do_not_refresh_idle_deadline；absolute_handshake_deadline_cancels_pending_real_dns_before_dial。
 //! 测试内容：scaled_flow_budget_failure_is_atomic_and_close_releases_ring。
 //! 测试内容：real_ipv4_ipv6_data_and_half_close；rejection_invalid_input_and_close_never_dial；dns_tcp_length_framing_and_real_resolver；automatic_fake_ip_uses_original_return_address；concurrent_close_with_full_output_releases_actual_resources_and_quotas；close_cancels_pending_tcp_dns_and_revokes_retained_resolver；network_update_preserves_active_stream_and_rejects_new_flow；invalid_handshake_packets_do_not_refresh_idle_deadline；absolute_handshake_deadline_cancels_pending_real_dns_before_dial；scaled_flow_budget_failure_is_atomic_and_close_releases_ring。
+//! 测试内容：completed_tasks_reaping_preserves_live_tcp_data：回收完成的维护任务后，现有 TCP 流仍能完成真实读写。
 //! 测试依据：RFC 9293；RFC 7766；会话生命周期与资源所有权隔离原则。
 //! 前置条件：允许绑定本机回环 TCP/UDP；不修改系统 VPN。
 //! 虚拟侧独立构造 TCP/IP 向量；出站使用真实系统 TCP 服务，覆盖往返及半关闭。
@@ -791,5 +792,61 @@ async fn scaled_flow_budget_failure_is_atomic_and_close_releases_ring() {
         session.submit(&syn, None),
         Err(Error::InvalidState)
     ));
+    drop(owner);
+}
+
+#[tokio::test]
+async fn completed_tasks_reaping_preserves_live_tcp_data() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let destination = listener.local_addr().unwrap();
+    let source = "192.0.2.1:12345".parse().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = [0; 5];
+        socket.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"alive");
+        socket.write_all(b"ok").await.unwrap();
+        let mut ignored = Vec::new();
+        let _ = socket.read_to_end(&mut ignored).await;
+    });
+    let (_, owner, session) = setup(Policy::Direct, None);
+    let mut sequence = handshake(&session, source, destination).await;
+    for _ in 0..256 {
+        let task = owner.spawn(async {}).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !task.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // 走 TCP 自身接收路径回收，不能要求前端调用 UDP 接收或主动清理。
+        let _ = session.receive().unwrap();
+    }
+    session
+        .submit(
+            &packet(source, destination, 101, sequence, 16, b"alive"),
+            None,
+        )
+        .unwrap();
+    let mut body = Vec::new();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while body.len() < 2 {
+            let response = next(&session).await.unwrap();
+            let segment = wire::decode(&response.bytes, 1500).unwrap();
+            if !segment.payload.is_empty() {
+                body.extend_from_slice(segment.payload);
+                sequence = sequence.wrapping_add(segment.payload.len() as u32);
+            }
+            session
+                .submit(&packet(source, destination, 106, sequence, 16, &[]), None)
+                .unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(body, b"ok");
+    session.close().await.unwrap();
+    server.await.unwrap();
     drop(owner);
 }

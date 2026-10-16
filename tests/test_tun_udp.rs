@@ -11,6 +11,11 @@
 //! - oversize_response_is_an_error_and_drop_cancels_blocked_output：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //!
 //! 测试内容：fragmented_returns_preserve_datagrams_and_close_discards_pending。
+//! - completed_workers_are_reaped_without_aborting_active_tasks：验证运行期任务回收、有界登记及活动任务连续性。
+//! - registered_task_limit_includes_pending_cancellation_and_recovers：验证运行期任务回收、有界登记及活动任务连续性。
+//! - udp_flow_churn_reaps_before_registering_new_worker：验证运行期任务回收、有界登记及活动任务连续性。
+//! - completed_worker_panic_is_observed_once：验证运行期任务回收、有界登记及活动任务连续性。
+//!
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
 //! 前置条件：本地测试需文件/回环套接字权限；平台限定及忽略项以实际登记为准。
@@ -517,5 +522,209 @@ async fn fragmented_returns_preserve_datagrams_and_close_discards_pending() {
         assert!(output.pending.is_empty());
         assert!(output.channel.is_empty());
         assert!(matches!(session.receive(), Err(Error::InvalidState)));
+    }
+}
+
+mod task_registration_contract {
+    use super::super::*;
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    use tokio::{net::UdpSocket, sync::oneshot};
+    async fn finished(handle: &tokio::task::AbortHandle) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !handle.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    fn session() -> Session {
+        Session::new(Arc::new(Manager::default()), Options::default()).unwrap()
+    }
+    #[tokio::test]
+    async fn completed_workers_are_reaped_without_aborting_active_tasks() {
+        let owner = session();
+        let active = owner.spawn(std::future::pending()).unwrap();
+        // 远多于登记上限的完成总量不应累积为进程生命周期内的永久额度。
+        for _ in 0..512 {
+            let task = owner.spawn(async {}).unwrap();
+            assert!(owner.inner.tasks.lock().unwrap().len() <= 2);
+            finished(&task).await;
+            assert!(!active.is_finished());
+        }
+        assert!(owner.receive().unwrap().is_none());
+        assert_eq!(owner.inner.tasks.lock().unwrap().len(), 1);
+        owner.close().await.unwrap();
+        assert!(active.is_finished());
+        assert!(owner.inner.tasks.lock().unwrap().is_empty());
+        assert!(matches!(owner.spawn(async {}), Err(Error::InvalidState)));
+    }
+    struct Held(Arc<AtomicUsize>);
+    impl Held {
+        fn new(count: &Arc<AtomicUsize>) -> Self {
+            count.fetch_add(1, Ordering::SeqCst);
+            Self(count.clone())
+        }
+    }
+    impl Drop for Held {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    #[tokio::test]
+    async fn registered_task_limit_includes_pending_cancellation_and_recovers() {
+        let owner = session();
+        let count = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        let mut release = Vec::new();
+        for _ in 0..MAX_SESSION_TASKS {
+            let (sender, receiver) = oneshot::channel::<()>();
+            let held = Held::new(&count);
+            tasks.push(
+                owner
+                    .spawn(async move {
+                        let _held = held;
+                        let _ = receiver.await;
+                    })
+                    .unwrap(),
+            );
+            release.push(sender);
+        }
+        let rejected = Held::new(&count);
+        let authority = owner.authority();
+        let operation = authority.enter(authority.identity()).unwrap();
+        assert!(matches!(
+            owner.spawn(async move {
+                // 模拟真实 TCP Context；拒绝时需析构同一会话的 Operation，不能重入锁死。
+                let _operation = operation;
+                let _held = rejected;
+            }),
+            Err(Error::ResourceLimit)
+        ));
+        assert_eq!(count.load(Ordering::SeqCst), MAX_SESSION_TASKS);
+        assert_eq!(owner.inner.tasks.lock().unwrap().len(), MAX_SESSION_TASKS);
+        release.remove(0).send(()).unwrap();
+        finished(&tasks[0]).await;
+        let replacement = owner.spawn(std::future::pending()).unwrap();
+        assert_eq!(owner.inner.tasks.lock().unwrap().len(), MAX_SESSION_TASKS);
+        for task in &tasks[1..] {
+            assert!(!task.is_finished());
+        }
+        // abort 请求不等于任务完成；回收只消费真正完成项，不能提前凭请求归还名额。
+        replacement.abort();
+        assert_eq!(owner.inner.tasks.lock().unwrap().len(), MAX_SESSION_TASKS);
+        finished(&replacement).await;
+        let next = owner.spawn(std::future::pending()).unwrap();
+        assert_eq!(owner.inner.tasks.lock().unwrap().len(), MAX_SESSION_TASKS);
+        let (a, b) = tokio::join!(owner.close(), owner.close());
+        a.unwrap();
+        b.unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+        assert!(next.is_finished());
+        assert!(owner.inner.tasks.lock().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn udp_flow_churn_reaps_before_registering_new_worker() {
+        let manager = Arc::new(Manager::default());
+        manager
+            .configure_network(
+                None,
+                Some(Arc::new(
+                    crate::routing::Router::compile(crate::routing::Config {
+                        fallback: crate::routing::Policy::Direct,
+                        ..crate::routing::Config::default()
+                    })
+                    .unwrap(),
+                )),
+                crate::outbound::Limits::default(),
+            )
+            .unwrap();
+        let owner = Session::new(
+            manager,
+            Options {
+                maximum_flows: 1,
+                idle_timeout_ms: 50,
+                ..Options::default()
+            },
+        )
+        .unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let destination = peer.local_addr().unwrap();
+        let active = owner.spawn(std::future::pending()).unwrap();
+        for index in 0..48_u16 {
+            let source = SocketAddr::new("192.0.2.1".parse().unwrap(), 10000 + index);
+            let packet = encode(source, destination, b"ok", 1500).unwrap();
+            owner.submit(&packet.bytes, None).await.unwrap();
+            // 必须在 receive 之前检查，否则接收侧回收会掩盖 UDP 登记入口仍泄漏的错误。
+            assert!(owner.inner.tasks.lock().unwrap().len() <= 2);
+            let mut bytes = [0; 2];
+            let (_, address) =
+                tokio::time::timeout(Duration::from_secs(2), peer.recv_from(&mut bytes))
+                    .await
+                    .unwrap()
+                    .unwrap();
+            peer.send_to(&bytes, address).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if owner.receive().unwrap().is_some() {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let task = owner
+                .inner
+                .state
+                .lock()
+                .unwrap()
+                .flows
+                .values()
+                .next()
+                .unwrap()
+                .task
+                .clone();
+            finished(&task).await;
+            assert!(!active.is_finished());
+        }
+        owner.close().await.unwrap();
+        assert!(owner.inner.tasks.lock().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn completed_worker_panic_is_observed_once() {
+        let owner = session();
+        let before = format!("{:?}", crate::error::diagnostics::snapshot());
+        let task = owner
+            .spawn(async {
+                panic!("注入工作任务故障，验证受控诊断");
+            })
+            .unwrap();
+        finished(&task).await;
+        // is_finished 与 JoinSet 的完成通知发布不是同一个时刻；必须等实际 join 回收。
+        // 保留两秒硬期限，不能用一次轮询未取到完成项推断诊断被吞没。
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                assert!(owner.receive().unwrap().is_none());
+                if owner.inner.tasks.lock().unwrap().is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let after = format!("{:?}", crate::error::diagnostics::snapshot());
+        assert_ne!(before, after);
+        assert!(owner.receive().unwrap().is_none());
+        assert_eq!(
+            after,
+            format!("{:?}", crate::error::diagnostics::snapshot())
+        );
+        assert!(owner.inner.tasks.lock().unwrap().is_empty());
+        owner.close().await.unwrap();
     }
 }

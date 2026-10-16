@@ -590,7 +590,11 @@
         "options_and_return_packet_limits_are_strict",
         "fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address",
         "oversize_response_is_an_error_and_drop_cancels_blocked_output",
-        "fragmented_returns_preserve_datagrams_and_close_discards_pending"
+        "fragmented_returns_preserve_datagrams_and_close_discards_pending",
+        "completed_workers_are_reaped_without_aborting_active_tasks",
+        "registered_task_limit_includes_pending_cancellation_and_recovers",
+        "udp_flow_churn_reaps_before_registering_new_worker",
+        "completed_worker_panic_is_observed_once"
       ]
     },
     {
@@ -1023,7 +1027,8 @@
         "network_update_preserves_active_stream_and_rejects_new_flow",
         "invalid_handshake_packets_do_not_refresh_idle_deadline",
         "absolute_handshake_deadline_cancels_pending_real_dns_before_dial",
-        "scaled_flow_budget_failure_is_atomic_and_close_releases_ring"
+        "scaled_flow_budget_failure_is_atomic_and_close_releases_ring",
+        "completed_tasks_reaping_preserves_live_tcp_data"
       ]
     },
     {

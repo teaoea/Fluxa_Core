@@ -166,6 +166,8 @@ impl Session {
     pub fn receive(&self) -> Result<Option<Packet>> {
         let authority = self.owner.authority();
         let _operation = authority.enter(authority.identity())?;
+        // 完成的 TCP/UDP 子任务统一回收；不触碰仍在转发的流，也不改变单流错误通道。
+        self.owner.reap_tasks()?;
         if self.state.lock().map_err(|_| Error::Internal)?.closed {
             return Err(Error::InvalidState);
         }

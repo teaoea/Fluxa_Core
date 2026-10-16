@@ -1,6 +1,6 @@
 # 测试报告：test_tun_udp
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-1494eed5db643679", "::test_tun_udp::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.5376206249999882, "status": "PASS", "discovered": ["tun::udp::test_tun_udp::fragmented_returns_preserve_datagrams_and_close_discards_pending", "tun::udp::test_tun_udp::public_contract::bounded_flows_idle_reuse_backpressure_and_close_release_resources", "tun::udp::test_tun_udp::public_contract::fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address", "tun::udp::test_tun_udp::public_contract::new_flows_use_new_rules_existing_flows_keep_snapshot", "tun::udp::test_tun_udp::public_contract::options_and_return_packet_limits_are_strict", "tun::udp::test_tun_udp::public_contract::oversize_response_is_an_error_and_drop_cancels_blocked_output", "tun::udp::test_tun_udp::public_contract::real_ipv4_ipv6_multiple_datagrams_and_empty_payload", "tun::udp::test_tun_udp::public_contract::reject_missing_configuration_proxy_and_invalid_packets_do_not_send"], "results": {"tun::udp::test_tun_udp::fragmented_returns_preserve_datagrams_and_close_discards_pending": "PASS", "tun::udp::test_tun_udp::public_contract::bounded_flows_idle_reuse_backpressure_and_close_release_resources": "PASS", "tun::udp::test_tun_udp::public_contract::fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address": "PASS", "tun::udp::test_tun_udp::public_contract::new_flows_use_new_rules_existing_flows_keep_snapshot": "PASS", "tun::udp::test_tun_udp::public_contract::options_and_return_packet_limits_are_strict": "PASS", "tun::udp::test_tun_udp::public_contract::oversize_response_is_an_error_and_drop_cancels_blocked_output": "PASS", "tun::udp::test_tun_udp::public_contract::real_ipv4_ipv6_multiple_datagrams_and_empty_payload": "PASS", "tun::udp::test_tun_udp::public_contract::reject_missing_configuration_proxy_and_invalid_packets_do_not_send": "PASS"}, "fingerprint": "b0d9cf1d146c16629d16ec189f573f171b934ef9ba879d70d56835c03fd4a304", "time": "2026-10-16T11:05:33.822306+08:00", "attempt": 1, "suite": "test_tun_udp", "file": "tests/test_tun_udp.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d8e44846fe2de2fffc7d33b4d6ef7a4350fc94c3", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-1494eed5db643679", "::test_tun_udp::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 3.172367666999989, "status": "PASS", "discovered": ["tun::udp::test_tun_udp::fragmented_returns_preserve_datagrams_and_close_discards_pending", "tun::udp::test_tun_udp::public_contract::bounded_flows_idle_reuse_backpressure_and_close_release_resources", "tun::udp::test_tun_udp::public_contract::fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address", "tun::udp::test_tun_udp::public_contract::new_flows_use_new_rules_existing_flows_keep_snapshot", "tun::udp::test_tun_udp::public_contract::options_and_return_packet_limits_are_strict", "tun::udp::test_tun_udp::public_contract::oversize_response_is_an_error_and_drop_cancels_blocked_output", "tun::udp::test_tun_udp::public_contract::real_ipv4_ipv6_multiple_datagrams_and_empty_payload", "tun::udp::test_tun_udp::public_contract::reject_missing_configuration_proxy_and_invalid_packets_do_not_send", "tun::udp::test_tun_udp::task_registration_contract::completed_worker_panic_is_observed_once", "tun::udp::test_tun_udp::task_registration_contract::completed_workers_are_reaped_without_aborting_active_tasks", "tun::udp::test_tun_udp::task_registration_contract::registered_task_limit_includes_pending_cancellation_and_recovers", "tun::udp::test_tun_udp::task_registration_contract::udp_flow_churn_reaps_before_registering_new_worker"], "results": {"tun::udp::test_tun_udp::fragmented_returns_preserve_datagrams_and_close_discards_pending": "PASS", "tun::udp::test_tun_udp::public_contract::bounded_flows_idle_reuse_backpressure_and_close_release_resources": "PASS", "tun::udp::test_tun_udp::public_contract::fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address": "PASS", "tun::udp::test_tun_udp::public_contract::new_flows_use_new_rules_existing_flows_keep_snapshot": "PASS", "tun::udp::test_tun_udp::public_contract::options_and_return_packet_limits_are_strict": "PASS", "tun::udp::test_tun_udp::public_contract::oversize_response_is_an_error_and_drop_cancels_blocked_output": "PASS", "tun::udp::test_tun_udp::public_contract::real_ipv4_ipv6_multiple_datagrams_and_empty_payload": "PASS", "tun::udp::test_tun_udp::public_contract::reject_missing_configuration_proxy_and_invalid_packets_do_not_send": "PASS", "tun::udp::test_tun_udp::task_registration_contract::completed_worker_panic_is_observed_once": "PASS", "tun::udp::test_tun_udp::task_registration_contract::completed_workers_are_reaped_without_aborting_active_tasks": "PASS", "tun::udp::test_tun_udp::task_registration_contract::registered_task_limit_includes_pending_cancellation_and_recovers": "PASS", "tun::udp::test_tun_udp::task_registration_contract::udp_flow_churn_reaps_before_registering_new_worker": "PASS"}, "fingerprint": "dd43ee0d4224e0147a02ec33fe5579aa85cf0d056e1fda591ecb523d2f4d28c1", "time": "2026-10-16T14:47:37.820320+08:00", "attempt": 1, "suite": "test_tun_udp", "file": "tests/test_tun_udp.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "bb00aba968e0bd4d23278cb38a6733f6cb7a11bd", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-1494eed5db643679 ::test_tun_udp:: --test-threads=1`
-- 执行时间：2026-10-16T11:05:33.822306+08:00
-- 实际耗时：0.5376206249999882 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d8e44846fe2de2fffc7d33b4d6ef7a4350fc94c3", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`b0d9cf1d146c16629d16ec189f573f171b934ef9ba879d70d56835c03fd4a304`
+- 执行时间：2026-10-16T14:47:37.820320+08:00
+- 实际耗时：3.172367666999989 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "bb00aba968e0bd4d23278cb38a6733f6cb7a11bd", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`dd43ee0d4224e0147a02ec33fe5579aa85cf0d056e1fda591ecb523d2f4d28c1`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -28,12 +28,16 @@
 | `tun::udp::test_tun_udp::public_contract::oversize_response_is_an_error_and_drop_cancels_blocked_output` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `tun::udp::test_tun_udp::public_contract::real_ipv4_ipv6_multiple_datagrams_and_empty_payload` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `tun::udp::test_tun_udp::public_contract::reject_missing_configuration_proxy_and_invalid_packets_do_not_send` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::udp::test_tun_udp::task_registration_contract::completed_worker_panic_is_observed_once` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::udp::test_tun_udp::task_registration_contract::completed_workers_are_reaped_without_aborting_active_tasks` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::udp::test_tun_udp::task_registration_contract::registered_task_limit_includes_pending_cancellation_and_recovers` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `tun::udp::test_tun_udp::task_registration_contract::udp_flow_churn_reaps_before_registering_new_worker` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：8
-- 实际执行完成：8
-- 通过：8
+- 实际发现：12
+- 实际执行完成：12
+- 通过：12
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -53,7 +57,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-f01-delivery-evidence/test_tun_udp.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-f02-final-evidence/test_tun_udp.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

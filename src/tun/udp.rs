@@ -22,6 +22,21 @@ use tokio::sync::{mpsc, watch};
 
 static SESSIONS: ByteBudget = ByteBudget::new(8);
 static FLOWS: ByteBudget = ByteBudget::new(64);
+/// 每会话统一任务登记上限；同时覆盖 TCP/UDP 流、维护任务和尚未完成取消的任务。
+/// 正常每协议最多 32 流，128 为维护与退出重叠保留余量；完成项回收后才判断名额。
+/// 这不是流数量或优先级，不能用移除流表项/AbortHandle 已取消代替真实任务完成。
+const MAX_SESSION_TASKS: usize = 128;
+
+fn reap_completed(tasks: &mut tokio::task::JoinSet<()>) {
+    // JoinSet 的完成节点必须被 join 消费；仅检查 AbortHandle::is_finished 不会回收它。
+    // 只取已完成项，不等待、不 abort 活动流；panic 保留诊断，正常取消沿用关闭语义。
+    while let Some(result) = tasks.try_join_next() {
+        crate::error::diagnostics::observe_join(
+            result,
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
+    }
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -122,6 +137,29 @@ struct SessionInner {
     tasks: Mutex<tokio::task::JoinSet<()>>,
 }
 impl SessionInner {
+    /// UDP 流、TCP 流和维护任务必须经此入口，防止某一协议绕过完成项回收或总量限制。
+    fn spawn_task(
+        &self,
+        future: impl std::future::Future<Output = ()> + Send + 'static,
+    ) -> Result<tokio::task::AbortHandle> {
+        let runtime = crate::lifecycle::runtime()?;
+        // future 可能持有本会话的 Operation；拒绝时必须在权限锁和任务锁之外析构。
+        // 若直接把 future 移入回调，满额分支会在持有权限锁时 Drop Operation，造成重入死锁。
+        let mut pending = Some(future);
+        self.authority.with_active(self.authority.identity(), || {
+            let mut tasks = self.tasks.lock().map_err(|_| Error::Internal)?;
+            reap_completed(&mut tasks);
+            if tasks.len() >= MAX_SESSION_TASKS {
+                return Err(Error::ResourceLimit);
+            }
+            Ok(tasks.spawn_on(pending.take().ok_or(Error::Internal)?, runtime.handle()))
+        })
+    }
+    fn reap_tasks(&self) -> Result<()> {
+        let mut tasks = self.tasks.lock().map_err(|_| Error::Internal)?;
+        reap_completed(&mut tasks);
+        Ok(())
+    }
     pub fn new(manager: Arc<Manager>, options: Options) -> Result<Self> {
         options.validate()?;
         crate::lifecycle::runtime()?;
@@ -305,16 +343,13 @@ impl SessionInner {
                 return Err(Error::Cancelled);
             }
             let id = connection.id;
-            let task = self.tasks.lock().map_err(|_| Error::Internal)?.spawn_on(
-                receive_loop(
-                    connection,
-                    key,
-                    self.options.clone(),
-                    self.sender.clone(),
-                    self.cancel.subscribe(),
-                ),
-                crate::lifecycle::runtime()?.handle(),
-            );
+            let task = self.spawn_task(receive_loop(
+                connection,
+                key,
+                self.options.clone(),
+                self.sender.clone(),
+                self.cancel.subscribe(),
+            ))?;
             state.flows.insert(key, Flow { id, task });
             id
         };
@@ -376,6 +411,8 @@ impl SessionInner {
     /// 非阻塞取出一个包；异步网络错误同样返回，不能伪装为队列为空。
     pub fn receive(&self) -> Result<Option<Packet>> {
         let _operation = self.authority.enter(self.authority.identity())?;
+        // 接收轮询也回收完成项；没有后续新流时不必等到会话关闭才释放登记节点。
+        self.reap_tasks()?;
         if self.state.lock().map_err(|_| Error::Internal)?.closed {
             return Err(Error::InvalidState);
         }
@@ -456,16 +493,11 @@ impl Session {
         &self,
         future: impl std::future::Future<Output = ()> + Send + 'static,
     ) -> Result<tokio::task::AbortHandle> {
-        self.inner
-            .authority
-            .with_active(self.inner.authority.identity(), || {
-                Ok(self
-                    .inner
-                    .tasks
-                    .lock()
-                    .map_err(|_| Error::Internal)?
-                    .spawn_on(future, crate::lifecycle::runtime()?.handle()))
-            })
+        self.inner.spawn_task(future)
+    }
+    /// TCP 接收与 UDP 接收共用同一任务登记表；不新增后台任务或把回收交给宿主。
+    pub(crate) fn reap_tasks(&self) -> Result<()> {
+        self.inner.reap_tasks()
     }
     pub(crate) fn request_close(&self) -> Result<()> {
         self.inner.request_close()
