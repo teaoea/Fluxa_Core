@@ -155,16 +155,20 @@ mitm:
   # hosts
   # 针对域名进行解密，如果hosts配置和exclude-hosts有冲突，优先适用exclude-hosts
   # 使用通配符，例如*.chatgpt.com，会解密chatgpt.com，a.chatgpt.com
-  # 未使用通配符，例如chatgpt.com，只会解密chatgpt.com，不会解密a.chatgpt.com
-  # 如果输入*、*.com等，不会生效，且不会对任何域名进行解密，全局解密为调试功能，禁止通过配置实现相同功能
-  hosts: [] 
+  # 未使用通配符，例如wechat.com，只会解密wechat.com，不会解密a.wechat.com
+  # 如果输入*、*.com等，属于无效条目，默认忽略，且不会对任何域名进行解密，全局解密为调试功能，禁止通过配置实现相同功能
+  hosts:
+    - "*.chatgpt.com"
+    - "wechat.com"
   # exclude-hosts
   # 开启全局解密之后，会忽略hosts，但是不会对exclude-hosts配置的域名进行解密，防止配置了SSL Pinning应用无法正常使用
   # 优先级顺序：exclude-hosts -> 全局解密 -> hosts
   # 使用通配符，例如*.chatgpt.com，会绕过chatgpt.com，a.chatgpt.com
-  # 未使用通配符，例如chatgpt.com，只会绕过chatgpt.com，不会绕过a.chatgpt.com
-  # 如果输入*、*.com等，不会生效，不会绕过任何域名
-  exclude-hosts: ["*.chatgpt.com"]
+  # 未使用通配符，例如wechat.com，只会绕过wechat.com，不会绕过a.wechat.com
+  # 如果输入*、*.com等，属于无效条目，默认忽略，不会绕过任何域名
+  exclude-hosts:
+    - "*.chatgpt.com"
+    - "wechat.com"
 
 # 主配置仅展示改写列表；插件专属 ui、browser-scripts 需使用 kind: plugin。
 # 示例不包含任意远程 JS、节点凭据或 CA 私钥。
