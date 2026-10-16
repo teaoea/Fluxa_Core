@@ -52,7 +52,7 @@ mod public_contract {
     // 2. `budget_invariants_hold_at_any_time`：任意时刻 `reserved <= peak <= limit`，且 `limit` 为既定的 512 MiB。
     //
     // ## 断言依据
-    // `AGENTS.md`「资源、任务、连接和缓冲区必须有上限」，以及 `Documentation/规则组合与资源验收.md`
+    // `AGENTS.md`「资源、任务、连接和缓冲区必须有上限」，以及 `Documentation/RuntimeRules.md`
     // 登记的既有验收口径：512 MiB 统一准入池、失败后必须归还、压力结束池占用归零。
     // 预期不取自当前实现的输出。
     //

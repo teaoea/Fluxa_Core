@@ -24,4 +24,4 @@ Rust 下载要求配置 DNS。Fluxa 优先传入主配置 DNS；macOS 未配置�
 
 ## 规则订阅内容
 
-规则订阅使用 Clash classical `payload` 列表，见根目录 rules.yaml。每行仅两列，类型严格大写。主配置订阅元数据增加 `policy`（默认 proxy）及可选 `outbound`；非代理不得指定出站。原始 payload 保留，后台合并、去重、裁剪后存入 SQLite，实时匹配使用内存快照。
+规则订阅使用 Clash classical `payload` 列表，见根目录 rules.yaml。每行仅两列，类型严格大写。主配置订阅元数据增加 `policy`（默认 proxy）及可选 `outbound`；非代理不得指定出站。原始 payload 保留，后台合并、去重、裁剪后生成二进制平铺缓存，实时匹配使用不可变快照。

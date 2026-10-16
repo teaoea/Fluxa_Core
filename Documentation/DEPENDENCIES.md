@@ -10,6 +10,6 @@ DNS 使用固定 Hickory resolver/proto/net 0.26.3，选择 MIT 许可；原始�
 
 VLESS/REALITY/Vision 由自有 Rust 代码实现；ring 0.17.14、x25519-dalek 2.0.1、ml-kem 0.3.2（秘密清零）仅提供密码原语。指纹公开字段参考固定 uTLS 提交 ff1b50fbbe9a6dff1dcb1cfc0493bd5b0f073f67，保留 BSD 声明，不链接其 Go 实现。独立 Xray v26.3.27 只用于互通测试，不进入交付物。新增依赖及原文声明见 LICESE.md 与 Notices/。ml-kem 上游未独立审计，此处不宣称完成密码学或许可分发审计。
 
-运行时规则缓存已移除 rusqlite 与 SQLite 链接依赖，采用自有小端二进制平铺索引；SHA-256 复用现有 ring。历史上游声明保留于 Notices/，不代表当前仍链接这些组件。
+运行时规则缓存采用自有小端二进制平铺索引；SHA-256 复用现有 ring。历史上游声明保留于 Notices/，不代表当前仍链接其中的组件。
 
 离线 GeoIP 使用 maxminddb 0.32.0（ISC），关闭默认 mmap 与 unsafe-str-decode 功能；新增传递依赖 ipnetwork 0.21.1（MIT/Apache-2.0）。许可证原文保存于 Notices/maxminddb 与 Notices/ipnetwork。MMDB 数据库不属于 crate，宿主分发免费 DB-IP Lite 时须另行保留 CC BY 4.0 署名。

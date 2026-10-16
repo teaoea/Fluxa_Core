@@ -45,4 +45,4 @@ TCP DNS 入站、TCP TUN 流、分片、系统 Network Extension 尚未交付。
 
 GitHub 发布运行 38413891311 首次成功；crate、框架和门面业务代码对应相同源码。App v2.4.0 固定远程 2.2.1，88 项回归无失败（初始两项条件化跳过，XUDP 已另行通过；私有节点仍未测），新增 DNS/Fake-IP 客户端两项通过。本机 Release 构建及签名校验通过。系统 VPN、最低 macOS 14、Intel 与其他平台仍未运行验收。
 
-H1 生命周期修复示例：`cargo run --example fake_ip_reconfigure`；验证旧对象仍被引用时关闭完成后 `/16` 扩为 `/15`、IPv6 不复用及旧地址无映射，不启动系统 VPN。完整审查见 [H1-FakeIP生命周期修复.md](H1-FakeIP生命周期修复.md)。
+H1 生命周期修复示例：`cargo run --example fake_ip_reconfigure`；验证旧对象仍被引用时关闭完成后 `/16` 扩为 `/15`、IPv6 不复用及旧地址无映射，不启动系统 VPN。生命周期与关闭约定见 [DNS 技术说明](DNS.md) 和 [TUN 技术说明](TUN.md)。
