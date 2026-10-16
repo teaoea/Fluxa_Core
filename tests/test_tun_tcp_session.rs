@@ -2,6 +2,8 @@
 //! 测试类型：单元测试、跨模块网络互通与生命周期回归测试
 //! 测试对象：src/tun/tcp/session.rs；TCP/IP → DNS/Fake-IP → 路由 → 共用出站契约
 //! 测试内容：real_ipv4_ipv6_data_and_half_close；rejection_invalid_input_and_close_never_dial；dns_tcp_length_framing_and_real_resolver；automatic_fake_ip_uses_original_return_address；concurrent_close_with_full_output_releases_actual_resources_and_quotas；close_cancels_pending_tcp_dns_and_revokes_retained_resolver；network_update_preserves_active_stream_and_rejects_new_flow；invalid_handshake_packets_do_not_refresh_idle_deadline；absolute_handshake_deadline_cancels_pending_real_dns_before_dial。
+//! 测试内容：scaled_flow_budget_failure_is_atomic_and_close_releases_ring。
+//! 测试内容：real_ipv4_ipv6_data_and_half_close；rejection_invalid_input_and_close_never_dial；dns_tcp_length_framing_and_real_resolver；automatic_fake_ip_uses_original_return_address；concurrent_close_with_full_output_releases_actual_resources_and_quotas；close_cancels_pending_tcp_dns_and_revokes_retained_resolver；network_update_preserves_active_stream_and_rejects_new_flow；invalid_handshake_packets_do_not_refresh_idle_deadline；absolute_handshake_deadline_cancels_pending_real_dns_before_dial；scaled_flow_budget_failure_is_atomic_and_close_releases_ring。
 //! 测试依据：RFC 9293；RFC 7766；会话生命周期与资源所有权隔离原则。
 //! 前置条件：允许绑定本机回环 TCP/UDP；不修改系统 VPN。
 //! 虚拟侧独立构造 TCP/IP 向量；出站使用真实系统 TCP 服务，覆盖往返及半关闭。
@@ -741,4 +743,53 @@ async fn absolute_handshake_deadline_cancels_pending_real_dns_before_dial() {
     assert!(manager.status().unwrap().sessions.is_empty());
     drop(context);
     session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn scaled_flow_budget_failure_is_atomic_and_close_releases_ring() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let source = "192.0.2.1:12345".parse().unwrap();
+    let destination = listener.local_addr().unwrap();
+    let mut syn = packet(source, destination, 100, 0, 2, &[]);
+    syn.extend_from_slice(&[1, 3, 3, 7]);
+    syn[32] = 0x60;
+    syn[2..4].copy_from_slice(&44u16.to_be_bytes());
+    syn[10..12].fill(0);
+    let sum = checksum(&syn[..20]);
+    syn[10..12].copy_from_slice(&sum.to_be_bytes());
+    syn[36..38].fill(0);
+    let mut pseudo = syn[12..20].to_vec();
+    pseudo.extend_from_slice(&[0, 6, 0, 24]);
+    pseudo.extend_from_slice(&syn[20..]);
+    let sum = checksum(&pseudo);
+    syn[36..38].copy_from_slice(&sum.to_be_bytes());
+    let (_, owner, session) = setup(Policy::Direct, None);
+    let held = super::MEMORY
+        .reserve(8 * 1024 * 1024 - 384 * 1024 + 1)
+        .unwrap();
+    assert!(matches!(
+        session.submit(&syn, None),
+        Err(Error::ResourceBudgetExceeded { .. })
+    ));
+    assert!(session.state.lock().unwrap().flows.is_empty());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), listener.accept())
+            .await
+            .is_err()
+    );
+    drop(held);
+    session.submit(&syn, None).unwrap();
+    let response = next(&session).await.unwrap();
+    assert_eq!(
+        wire::decode(&response.bytes, 1500).unwrap().window_scale,
+        Some(2)
+    );
+    assert_eq!(super::MEMORY.usage().0, 384 * 1024);
+    session.close().await.unwrap();
+    assert_eq!(super::MEMORY.usage().0, 0);
+    assert!(matches!(
+        session.submit(&syn, None),
+        Err(Error::InvalidState)
+    ));
+    drop(owner);
 }

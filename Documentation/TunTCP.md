@@ -15,7 +15,7 @@ Swift 封装及测试仅位于 Fluxa 的 `Packages/FluxaKernelBridge/`。`Native
 ## TCP 与 DNS 行为
 
 - IPv4/IPv6 端点、校验和、头部长度、MSS 与选项边界严格校验。
-- 处理 SYN/SYN-ACK/ACK、32 位序号回绕、固定窗口、乱序及重复数据、分段、部分确认、重传、拥塞窗口、零窗口探测、FIN/RST、半关闭与 TIME-WAIT。
+- 处理 SYN/SYN-ACK/ACK、32 位序号回绕、协商窗口扩大、乱序及重复数据、分段、部分确认、重传、拥塞窗口、零窗口探测、FIN/RST、半关闭与 TIME-WAIT。
 - 重复 SYN 立即重发仍计入五次重试预算；半开流有包含出站准备的独立 30 秒握手上限，无效入包不能刷新空闲期限。
 - RTT 估计与 RTO 使用 RFC 6298 的平滑/偏差及 Karn 原则；默认初始 1 秒、RTO 上限 60 秒，超时指数退避，最多五次重传后明确失败。SYN 超时后的数据 RTO 使用 3 秒起点，新的无歧义样本可更新它。
 - TCP DNS 仅处理配置的虚拟 DNS 端点，必须收齐两字节长度和完整查询帧，再调用同一所属解析器；处理多次查询但每流最多保留一份待发送响应。虚拟 DNS 生成响应与普通 TCP 上游路径分离。
@@ -25,7 +25,7 @@ Swift 封装及测试仅位于 Fluxa 的 `Packages/FluxaKernelBridge/`。`Native
 
 入站有界 IP 分片重组及 IPv6 扩展头处理见 [IP 重组说明](IPReassembly.md)。
 
-未实现：输出 IP 分片、紧急数据、TCP Fast Open 数据型 SYN、窗口扩大、时间戳、ECN 协商、PMTU/ICMP 处理及所有 TCP 扩展。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
+未实现：紧急数据、TCP Fast Open 数据型 SYN、时间戳、ECN 协商及 PMTU/ICMP 处理。出站 UDP IP 分片、SACK 与窗口扩大已有独立说明。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
 
 ## 资源预算与关闭契约
 
@@ -69,3 +69,5 @@ UDP 返回超过 MTU 时的有界源分片、队列语义与测试入口见 [出
 ## SACK
 
 SACK 协商、接收端乱序区间与发送端选择恢复见 [SACK 说明](TCPSACK.md)。部分覆盖保守重传，不宣称完整 RFC 6675 恢复。
+
+窗口扩大已与当前 SACK/分片路径整合，协商、资源及验收边界见 [TCPWindowScale.md](TCPWindowScale.md)。

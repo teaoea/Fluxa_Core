@@ -65,6 +65,7 @@ pub struct State {
     peer_window: usize,
     sack_enabled: bool,
     recovery_end: u32,
+    peer_scale: Option<u8>,
     window_sequence: u32,
     window_acknowledgement: u32,
     maximum_segment: usize,
@@ -112,6 +113,7 @@ impl State {
             || syn.source.is_ipv4() != syn.destination.is_ipv4()
             || !syn.sacks.blocks().is_empty()
             || syn.maximum_segment.is_some_and(|value| value < 64)
+            || syn.window_scale.is_some_and(|value| value > 14)
         {
             return Err(Error::InvalidInput);
         }
@@ -148,12 +150,13 @@ impl State {
             initial,
             acknowledged: initial,
             next: initial.wrapping_add(1),
-            receive: Receive::new(syn.sequence.wrapping_add(1)),
+            receive: Receive::new(syn.sequence.wrapping_add(1), syn.window_scale.is_some()),
             transmit: Transmit::new(initial.wrapping_add(1)),
             outstanding,
             peer_window: syn.window,
             sack_enabled: syn.sack_permitted,
             recovery_end: initial,
+            peer_scale: syn.window_scale,
             window_sequence: syn.sequence,
             window_acknowledgement: initial,
             maximum_segment,
@@ -273,16 +276,16 @@ impl State {
             return Ok(());
         }
         let next_receive = self.receive.next();
+        let advertised_right = next_receive.wrapping_add(self.effective_receive_window() as u32);
         let length = segment.payload.len() + usize::from(segment.flags.has(Flags::FIN));
         let sequence_acceptable = if length == 0 {
             segment.sequence == next_receive
                 || (!before(segment.sequence, next_receive)
-                    && distance(segment.sequence, next_receive)
-                        < usize::from(self.receive.window()))
+                    && distance(segment.sequence, next_receive) < self.effective_receive_window())
         } else {
             // 旧重复包回应 ACK；它不能更新发送确认或窗口。
             !before(segment.sequence, next_receive)
-                && distance(segment.sequence, next_receive) < usize::from(self.receive.window())
+                && distance(segment.sequence, next_receive) < self.effective_receive_window()
                 || (before(segment.sequence, next_receive)
                     && before(next_receive, segment.sequence.wrapping_add(length as u32)))
         };
@@ -307,7 +310,7 @@ impl State {
             || (self.window_sequence == segment.sequence
                 && !before(acknowledgement, self.window_acknowledgement))
         {
-            self.peer_window = segment.window;
+            self.peer_window = segment.window << self.peer_scale.unwrap_or(0);
             self.window_sequence = segment.sequence;
             self.window_acknowledgement = acknowledgement;
         }
@@ -390,10 +393,18 @@ impl State {
             }
         }
         if self.established && (!segment.payload.is_empty() || segment.flags.has(Flags::FIN)) {
+            let right = advertised_right;
+            let accepted = if before(segment.sequence, right) {
+                distance(right, segment.sequence).min(segment.payload.len())
+            } else {
+                0
+            };
             self.receive.accept(
                 segment.sequence,
-                segment.payload,
-                segment.flags.has(Flags::FIN),
+                &segment.payload[..accepted],
+                segment.flags.has(Flags::FIN)
+                    && accepted == segment.payload.len()
+                    && before(segment.sequence.wrapping_add(accepted as u32), right),
             );
             self.acknowledgement_pending = true;
         }
@@ -473,6 +484,13 @@ impl State {
             + (self.round_trip_variation * 4).max(Duration::from_millis(1)))
         .clamp(INITIAL_RETRANSMIT, MAXIMUM_RETRANSMIT);
     }
+    fn effective_receive_window(&self) -> usize {
+        if !self.established {
+            return self.receive.window().min(u16::MAX as usize);
+        }
+        let shift = if self.peer_scale.is_some() { 2 } else { 0 };
+        (self.receive.window().min((u16::MAX as usize) << shift) >> shift) << shift
+    }
     fn packet(
         &self,
         sequence: u32,
@@ -487,7 +505,11 @@ impl State {
                 sequence,
                 acknowledgement: self.receive.next(),
                 flags: Flags(flags),
-                window: usize::from(self.receive.window()),
+                window: if flags & Flags::SYN != 0 {
+                    self.receive.window().min(u16::MAX as usize)
+                } else {
+                    self.effective_receive_window() >> if self.peer_scale.is_some() { 2 } else { 0 }
+                },
                 maximum_segment,
                 sack_permitted: self.sack_enabled && flags & Flags::SYN != 0,
                 sacks: if self.sack_enabled
@@ -498,6 +520,7 @@ impl State {
                 } else {
                     wire::Sacks::default()
                 },
+                window_scale: (flags & Flags::SYN != 0 && self.peer_scale.is_some()).then_some(2),
                 payload,
             },
             self.mtu,

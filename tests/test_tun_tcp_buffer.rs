@@ -5,12 +5,13 @@
 //! 测试内容：sack_blocks_merge_recent_first_and_survive_wrap；sack_bitmap_matches_independent_presence_model。
 //! 测试内容：sack_never_reports_bytes_beyond_known_fin。
 //! 测试内容：sack_bitmap_word_and_ring_boundaries_after_consume。
+//! 测试内容：reordered_duplicate_overlap_wrap_and_finish；fixed_window_zero_and_open_after_consume；transmit_preserves_unacked_bytes_and_wraps；sack_blocks_merge_recent_first_and_survive_wrap；sack_bitmap_matches_independent_presence_model；sack_never_reports_bytes_beyond_known_fin；sack_bitmap_word_and_ring_boundaries_after_consume；scaled_receive_ring_is_bounded_and_reopens_after_consumption；scaled_sack_blocks_cross_old_capacity_and_ring_wrap。
 //! 测试依据：TCP 序号、窗口和有界资源契约；RFC 9293；RFC 6298。
 //! 前置条件：本地内存及确定性虚拟时钟，无外部服务。
 use super::*;
 #[test]
 fn reordered_duplicate_overlap_wrap_and_finish() {
-    let mut buffer = Receive::new(u32::MAX - 2);
+    let mut buffer = Receive::new(u32::MAX - 2, false);
     buffer.accept(1, b"ef", true);
     assert_eq!(buffer.pending(), 0);
     buffer.accept(u32::MAX - 2, b"abcd", false);
@@ -25,7 +26,7 @@ fn reordered_duplicate_overlap_wrap_and_finish() {
 }
 #[test]
 fn fixed_window_zero_and_open_after_consume() {
-    let mut buffer = Receive::new(10);
+    let mut buffer = Receive::new(10, false);
     buffer.accept(10, &vec![1; CAPACITY], false);
     assert_eq!(buffer.window(), 0);
     buffer.accept(10u32.wrapping_add(CAPACITY as u32), b"x", false);
@@ -47,7 +48,7 @@ fn transmit_preserves_unacked_bytes_and_wraps() {
 
 #[test]
 fn sack_blocks_merge_recent_first_and_survive_wrap() {
-    let mut buffer = Receive::new(u32::MAX - 9);
+    let mut buffer = Receive::new(u32::MAX - 9, false);
     let base = u32::MAX - 9;
     buffer.accept(base.wrapping_add(20), b"abcd", false);
     buffer.accept(base.wrapping_add(40), b"efgh", false);
@@ -78,7 +79,7 @@ fn sack_blocks_merge_recent_first_and_survive_wrap() {
 #[test]
 fn sack_bitmap_matches_independent_presence_model() {
     let base = u32::MAX - 100;
-    let mut buffer = Receive::new(base);
+    let mut buffer = Receive::new(base, false);
     let mut present = vec![false; CAPACITY];
     let mut rng = 17u32;
     for _ in 0..2000 {
@@ -102,7 +103,7 @@ fn sack_bitmap_matches_independent_presence_model() {
 
 #[test]
 fn sack_never_reports_bytes_beyond_known_fin() {
-    let mut b = Receive::new(100);
+    let mut b = Receive::new(100, false);
     b.accept(150, b"past-fin", false);
     b.accept(120, b"before", true);
     assert_eq!(b.sacks().blocks(), &[(120, 126)]);
@@ -110,7 +111,7 @@ fn sack_never_reports_bytes_beyond_known_fin() {
 
 #[test]
 fn sack_bitmap_word_and_ring_boundaries_after_consume() {
-    let mut b = Receive::new(0);
+    let mut b = Receive::new(0, false);
     b.accept(0, &[1; 135], false);
     b.consume(135).unwrap();
     b.accept(200, &[1; 130], false);
@@ -122,4 +123,31 @@ fn sack_bitmap_word_and_ring_boundaries_after_consume() {
             (200, 330)
         ]
     );
+}
+
+#[test]
+fn scaled_receive_ring_is_bounded_and_reopens_after_consumption() {
+    let mut buffer = Receive::new(u32::MAX - 65535, true);
+    assert_eq!(buffer.window(), 131072);
+    buffer.accept(u32::MAX - 65535, &vec![7; 131073], false);
+    assert_eq!(buffer.pending(), 131072);
+    assert_eq!(buffer.window(), 0);
+    assert_eq!(buffer.copy_pending(131073).len(), 131072);
+    buffer.consume(65536).unwrap();
+    assert_eq!(buffer.window(), 65536);
+    assert!(buffer.consume(65537).is_err());
+}
+
+/// 扩大窗口与 SACK 共用同一接收位图，跨越旧 32 KiB 边界及环回绕。
+#[test]
+fn scaled_sack_blocks_cross_old_capacity_and_ring_wrap() {
+    let mut b = Receive::new(0, true);
+    b.accept(0, &vec![1; 131000], false);
+    b.consume(131000).unwrap();
+    b.accept(131000 + 70000, &[2; 100], false);
+    b.accept(131000 + 130900, &[3; 100], false);
+    assert_eq!(b.sacks().blocks(), &[(261900, 262000), (201000, 201100)]);
+    b.accept(131000, &vec![1; 70000], false);
+    assert_eq!(b.next(), 201100);
+    assert_eq!(b.sacks().blocks(), &[(261900, 262000)]);
 }

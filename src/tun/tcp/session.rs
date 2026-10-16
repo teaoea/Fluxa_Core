@@ -127,7 +127,13 @@ impl Session {
         if state.flows.len() >= self.options.maximum_flows {
             return Err(Error::ResourceLimit);
         }
-        let lease = MEMORY.reserve(FLOW_MEMORY)?;
+        // WS 协商后接收环从 32 KiB 扩至 128 KiB，位图增加 12 KiB；
+        // 每流预留增至 384 KiB，全局仍为 8 MiB，不因协商绕过预算。
+        let lease = MEMORY.reserve(if segment.window_scale.is_some() {
+            384 * 1024
+        } else {
+            FLOW_MEMORY
+        })?;
         let (snapshot, generation) = self.owner.route_context(key.destination.ip(), generation)?;
         snapshot.check_transport(Transport::Tcp)?;
         let dns = self.owner.dns_context(key.destination)?;

@@ -14,10 +14,11 @@ pub struct Receive {
     pub finished: bool,
 }
 impl Receive {
-    pub fn new(sequence: u32) -> Self {
+    pub fn new(sequence: u32, scaled: bool) -> Self {
+        let capacity = if scaled { 131072 } else { CAPACITY };
         Self {
-            bytes: Zeroizing::new(vec![0; CAPACITY]),
-            present: vec![0; CAPACITY / 64],
+            bytes: Zeroizing::new(vec![0; capacity]),
+            present: vec![0; capacity / 64],
             head: 0,
             base: sequence,
             next: sequence,
@@ -29,8 +30,8 @@ impl Receive {
     pub fn next(&self) -> u32 {
         self.next.wrapping_add(u32::from(self.finished))
     }
-    pub fn window(&self) -> u16 {
-        (CAPACITY - distance(self.next, self.base)) as u16
+    pub fn window(&self) -> usize {
+        self.bytes.len() - distance(self.next, self.base)
     }
     pub fn pending(&self) -> usize {
         distance(self.next, self.base)
@@ -49,11 +50,11 @@ impl Receive {
                 continue;
             }
             let delta = distance(seq, self.base);
-            if delta >= CAPACITY {
+            if delta >= self.bytes.len() {
                 continue;
             }
             trigger.get_or_insert(seq);
-            let index = (self.head + delta) % CAPACITY;
+            let index = (self.head + delta) % self.bytes.len();
             if !self.occupied(index) {
                 self.bytes[index] = *byte;
                 self.present[index / 64] |= 1 << (index % 64);
@@ -62,14 +63,14 @@ impl Receive {
         let end = sequence.wrapping_add(bytes.len() as u32);
         if finish
             && !before(end, self.next)
-            && distance(end, self.base) < CAPACITY
+            && distance(end, self.base) < self.bytes.len()
             && self.finish.is_none()
         {
             self.finish = Some(end);
         }
-        while distance(self.next, self.base) < CAPACITY
+        while distance(self.next, self.base) < self.bytes.len()
             && self.finish != Some(self.next)
-            && self.occupied((self.head + distance(self.next, self.base)) % CAPACITY)
+            && self.occupied((self.head + distance(self.next, self.base)) % self.bytes.len())
         {
             self.next = self.next.wrapping_add(1);
         }
@@ -83,7 +84,7 @@ impl Receive {
     }
     /// 从逻辑偏移读取连续 64 个存在位；环回绕只涉及两个已分配位图字。
     fn bits(&self, offset: usize) -> u64 {
-        let index = (self.head + offset) % CAPACITY;
+        let index = (self.head + offset) % self.bytes.len();
         let bit = index % 64;
         let word = index / 64;
         let low = self.present[word] >> bit;
@@ -96,8 +97,11 @@ impl Receive {
     fn block(&self, sequence: u32) -> Option<(u32, u32)> {
         let lower = distance(self.next, self.base);
         let mut start = distance(sequence, self.base);
-        let limit = self.finish.map_or(CAPACITY, |end| distance(end, self.base));
-        if start < lower || start >= limit || !self.occupied((self.head + start) % CAPACITY) {
+        let limit = self
+            .finish
+            .map_or(self.bytes.len(), |end| distance(end, self.base));
+        if start < lower || start >= limit || !self.occupied((self.head + start) % self.bytes.len())
+        {
             return None;
         }
         let mut end = start;
@@ -139,7 +143,9 @@ impl Receive {
             }
         }
         let mut offset = distance(self.next, self.base);
-        let limit = self.finish.map_or(CAPACITY, |end| distance(end, self.base));
+        let limit = self
+            .finish
+            .map_or(self.bytes.len(), |end| distance(end, self.base));
         while out.blocks().len() < 4 && offset < limit {
             let zero = (self.bits(offset).trailing_zeros() as usize).min((limit - offset).min(64));
             offset += zero;
@@ -164,7 +170,7 @@ impl Receive {
         let count = maximum.min(self.pending());
         Zeroizing::new(
             (0..count)
-                .map(|i| self.bytes[(self.head + i) % CAPACITY])
+                .map(|i| self.bytes[(self.head + i) % self.bytes.len()])
                 .collect(),
         )
     }
@@ -173,11 +179,11 @@ impl Receive {
             return Err(Error::InvalidState);
         }
         for offset in 0..count {
-            let index = (self.head + offset) % CAPACITY;
+            let index = (self.head + offset) % self.bytes.len();
             self.bytes[index] = 0;
             self.present[index / 64] &= !(1 << (index % 64));
         }
-        self.head = (self.head + count) % CAPACITY;
+        self.head = (self.head + count) % self.bytes.len();
         self.base = self.base.wrapping_add(count as u32);
         Ok(())
     }

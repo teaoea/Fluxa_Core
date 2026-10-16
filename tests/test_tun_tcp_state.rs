@@ -4,6 +4,7 @@
 //! 测试内容：syn_retransmission_and_acknowledgement_validation；receive_reordering_duplicate_and_window_update；segmentation_partial_ack_and_retransmit_preserve_payload；zero_window_probe_and_reopen_does_not_consume_data；half_close_keeps_return_data_then_fin_and_time_wait；reset_requires_expected_sequence_and_far_packet_cannot_release_tx；duplicate_ack_triggers_fast_retransmit_without_waiting_for_timer；exponential_retry_budget_exhausts_with_explicit_timeout；active_half_close_accepts_final_return_bytes_and_fin；round_trip_estimate_adapts_and_retransmission_is_not_a_sample；finish_waits_for_bounded_flight_ledger_space；duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline。
 //! 测试内容：sack_reports_out_of_order_and_requires_negotiation；sack_selects_multiple_holes_without_releasing_unacked_bytes；sack_reneging_rto_and_unsent_ranges_are_safe。
 //! 测试内容：sack_negotiated_duplicate_ack_fallback_and_mtu_budget。
+//! 测试内容：syn_retransmission_and_acknowledgement_validation；receive_reordering_duplicate_and_window_update；segmentation_partial_ack_and_retransmit_preserve_payload；zero_window_probe_and_reopen_does_not_consume_data；half_close_keeps_return_data_then_fin_and_time_wait；reset_requires_expected_sequence_and_far_packet_cannot_release_tx；duplicate_ack_triggers_fast_retransmit_without_waiting_for_timer；exponential_retry_budget_exhausts_with_explicit_timeout；active_half_close_accepts_final_return_bytes_and_fin；round_trip_estimate_adapts_and_retransmission_is_not_a_sample；finish_waits_for_bounded_flight_ledger_space；duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline；sack_reports_out_of_order_and_requires_negotiation；sack_selects_multiple_holes_without_releasing_unacked_bytes；sack_reneging_rto_and_unsent_ranges_are_safe；sack_negotiated_duplicate_ack_fallback_and_mtu_budget；scaled_windows_only_apply_after_syn_and_both_sides_negotiate；scaled_rounding_never_accepts_bytes_outside_advertised_window。
 //! 测试依据：TCP 序号、窗口和有界资源契约；RFC 9293；RFC 6298。
 //! 前置条件：本地内存及确定性虚拟时钟，无外部服务。
 use super::*;
@@ -22,6 +23,7 @@ fn segment(
         flags: Flags(flags),
         window,
         maximum_segment: None,
+        window_scale: None,
         sack_permitted: false,
         sacks: crate::tun::tcp::wire::Sacks::default(),
         payload,
@@ -473,4 +475,66 @@ fn sack_negotiated_duplicate_ack_fallback_and_mtu_budget() {
     let decoded = wire::decode(&p.bytes, 1280).unwrap();
     assert_eq!(decoded.sacks.blocks().len(), 4);
     assert!(!decoded.payload.is_empty());
+}
+
+#[test]
+fn scaled_windows_only_apply_after_syn_and_both_sides_negotiate() {
+    let now = Instant::now();
+    let mut syn = segment(100, 0, Flags::SYN, 2000, &[]);
+    syn.window_scale = Some(7);
+    let mut state = State::new(&syn, 500, 1500, Duration::from_millis(50), now).unwrap();
+    assert_eq!(state.peer_window, 2000, "SYN 的窗口字段不得缩放");
+    assert_eq!(state.effective_receive_window(), 65535);
+    state
+        .process(&segment(70000, 501, Flags::ACK, 3000, &[]), now)
+        .unwrap();
+    assert_eq!(
+        state.phase(),
+        Phase::SynReceived,
+        "不能用尚未通告的扩大窗口完成握手"
+    );
+    let first = state.emit(now).unwrap().unwrap();
+    let first = wire::decode(&first.bytes, 1500).unwrap();
+    assert_eq!(first.window_scale, Some(2));
+    assert_eq!(first.window, 65535);
+    state
+        .process(&segment(101, 501, Flags::ACK, 3000, &[]), now)
+        .unwrap();
+    assert_eq!(state.peer_window, 384000);
+    assert_eq!(state.receive.window(), 131072);
+    state.consume_input(0).unwrap();
+    let ack = state.emit(now).unwrap().unwrap();
+    let ack = wire::decode(&ack.bytes, 1500).unwrap();
+    assert_eq!(ack.window_scale, None);
+    assert_eq!(ack.window, 32768);
+    let (plain, _) = ready(3000);
+    assert_eq!(plain.peer_window, 3000);
+    assert_eq!(plain.receive.window(), 32768);
+    syn.window_scale = Some(15);
+    assert!(matches!(
+        State::new(&syn, 500, 1500, Duration::from_millis(50), now),
+        Err(Error::InvalidInput)
+    ));
+}
+
+#[test]
+fn scaled_rounding_never_accepts_bytes_outside_advertised_window() {
+    let now = Instant::now();
+    let mut syn = segment(100, 0, Flags::SYN, 2000, &[]);
+    syn.window_scale = Some(7);
+    let mut state = State::new(&syn, 500, 1500, Duration::from_millis(50), now).unwrap();
+    state.emit(now).unwrap();
+    state
+        .process(&segment(101, 501, Flags::ACK, 3000, &[]), now)
+        .unwrap();
+    state.receive.accept(101, &vec![1; 131066], false);
+    assert_eq!(state.receive.window(), 6);
+    assert_eq!(state.effective_receive_window(), 4);
+    state
+        .process(&segment(131167, 501, Flags::ACK, 3000, b"abcdefgh"), now)
+        .unwrap();
+    assert_eq!(state.receive.pending(), 131070);
+    assert_eq!(&state.input(131072)[131066..], b"abcd");
+    let ack = state.emit(now).unwrap().unwrap();
+    assert_eq!(wire::decode(&ack.bytes, 1500).unwrap().window, 0);
 }

@@ -1,7 +1,7 @@
 # 测试文件：tests/test_tun_tcp_kernel.py
 # 测试类型：集成测试、真实 Linux 系统 TCP 互通
 # 测试对象：src/tun/tcp/、src/tun/session.rs 与 examples/tun_tcp_kernel.rs
-# 测试内容：IPv4/IPv6；1 MiB；握手丢包、数据丢包、同窗口双缺口、乱序和半关闭。
+# 测试内容：WS=2 与未缩放 SYN 窗口独立检查；IPv4/IPv6；1 MiB；握手丢包、数据丢包、同窗口双缺口、乱序和半关闭。
 # 测试依据：RFC 9293；Fake-IP 恢复及不改变用户系统网络的隔离约束。
 # 前置条件：隔离 Linux netns、root、/dev/net/tun、iproute2；不是 macOS VPN 测试。
 #!/usr/bin/env python3
@@ -131,6 +131,23 @@ def run(binary):
                         ip = 20 if packet[0] >> 4 == 4 else 40
                         flags = packet[ip + 13]
                         header = (packet[ip + 12] >> 4) * 4
+                        if flags & 0x12 == 0x12:
+                            options = {}
+                            offset = ip + 20
+                            while offset < ip + header:
+                                kind = packet[offset]
+                                if kind == 0:
+                                    break
+                                if kind == 1:
+                                    offset += 1
+                                    continue
+                                length = packet[offset + 1]
+                                assert length >= 2 and offset + length <= ip + header
+                                options[kind] = packet[offset:offset + length]
+                                offset += length
+                            assert options.get(3) == bytes([3, 3, 2]), options
+                            assert struct.unpack("!H", packet[ip + 14:ip + 16])[0] == 65535
+                            assert options.get(4) == bytes([4, 2]), options
                         with lock:
                             if fault.get("multiple",False) and len(packet)>ip+header:
                                 seq=struct.unpack("!I",packet[ip+4:ip+8])[0]

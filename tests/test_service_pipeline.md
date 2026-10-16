@@ -1,6 +1,6 @@
 # 测试报告：test_service_pipeline
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/test_service_pipeline-171a9cc54c9af892", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.21438570899999831, "status": "PASS", "discovered": ["cancellation_interrupts_tls_and_plain_requests_and_releases_resources", "configured_rejection_never_dials_and_reconfiguration_recovers", "idle_expiry_also_interrupts_managed_tls", "service_requires_explicit_route_and_dns", "unsupported_proxy_is_not_direct"], "results": {"cancellation_interrupts_tls_and_plain_requests_and_releases_resources": "PASS", "configured_rejection_never_dials_and_reconfiguration_recovers": "PASS", "idle_expiry_also_interrupts_managed_tls": "PASS", "service_requires_explicit_route_and_dns": "PASS", "unsupported_proxy_is_not_direct": "PASS"}, "fingerprint": "5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c", "time": "2026-10-16T10:06:37.444762+08:00", "attempt": 1, "suite": "test_service_pipeline", "file": "tests/test_service_pipeline.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/test_service_pipeline-171a9cc54c9af892", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.22385037500001204, "status": "PASS", "discovered": ["cancellation_interrupts_tls_and_plain_requests_and_releases_resources", "configured_rejection_never_dials_and_reconfiguration_recovers", "idle_expiry_also_interrupts_managed_tls", "service_requires_explicit_route_and_dns", "unsupported_proxy_is_not_direct"], "results": {"cancellation_interrupts_tls_and_plain_requests_and_releases_resources": "PASS", "configured_rejection_never_dials_and_reconfiguration_recovers": "PASS", "idle_expiry_also_interrupts_managed_tls": "PASS", "service_requires_explicit_route_and_dns": "PASS", "unsupported_proxy_is_not_direct": "PASS"}, "fingerprint": "555f654b2f60ea5813d83153d22eb6993dc4fa0ee1b5a7c52436147868551bb0", "time": "2026-10-16T10:38:54.059991+08:00", "attempt": 1, "suite": "test_service_pipeline", "file": "tests/test_service_pipeline.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d92d9f2d678b1284600f398defb0393a584a1e58", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/private/tmp/fluxa-tcp-latest/target/debug/deps/test_service_pipeline-171a9cc54c9af892 --test-threads=1`
-- 执行时间：2026-10-16T10:06:37.444762+08:00
-- 实际耗时：0.21438570899999831 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "769a8afd53ac269e6545233c8ec5515de2c4745f", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`5347bf6b24a14449f71d68e85b9c355d4a8211693f7ab52851f026f1910f557c`
+- 执行时间：2026-10-16T10:38:54.059991+08:00
+- 实际耗时：0.22385037500001204 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d92d9f2d678b1284600f398defb0393a584a1e58", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`555f654b2f60ea5813d83153d22eb6993dc4fa0ee1b5a7c52436147868551bb0`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -50,7 +50,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-sack-rust-verified/test_service_pipeline.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-ws-final-rust/test_service_pipeline.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

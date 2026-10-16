@@ -961,7 +961,9 @@
         "sack_blocks_merge_recent_first_and_survive_wrap",
         "sack_bitmap_matches_independent_presence_model",
         "sack_never_reports_bytes_beyond_known_fin",
-        "sack_bitmap_word_and_ring_boundaries_after_consume"
+        "sack_bitmap_word_and_ring_boundaries_after_consume",
+        "scaled_receive_ring_is_bounded_and_reopens_after_consumption",
+        "scaled_sack_blocks_cross_old_capacity_and_ring_wrap"
       ]
     },
     {
@@ -988,7 +990,9 @@
         "sack_reports_out_of_order_and_requires_negotiation",
         "sack_selects_multiple_holes_without_releasing_unacked_bytes",
         "sack_reneging_rto_and_unsent_ranges_are_safe",
-        "sack_negotiated_duplicate_ack_fallback_and_mtu_budget"
+        "sack_negotiated_duplicate_ack_fallback_and_mtu_budget",
+        "scaled_windows_only_apply_after_syn_and_both_sides_negotiate",
+        "scaled_rounding_never_accepts_bytes_outside_advertised_window"
       ]
     },
     {
@@ -1008,7 +1012,8 @@
         "close_cancels_pending_tcp_dns_and_revokes_retained_resolver",
         "network_update_preserves_active_stream_and_rejects_new_flow",
         "invalid_handshake_packets_do_not_refresh_idle_deadline",
-        "absolute_handshake_deadline_cancels_pending_real_dns_before_dial"
+        "absolute_handshake_deadline_cancels_pending_real_dns_before_dial",
+        "scaled_flow_budget_failure_is_atomic_and_close_releases_ring"
       ]
     },
     {
@@ -1036,7 +1041,8 @@
         "malformed_options_and_urgent_data_never_enter_state_machine",
         "deterministic_truncated_and_mutated_packets_never_panic",
         "sack_options_have_independent_wire_layout_and_strict_bounds",
-        "sack_malformed_options_rejected_after_valid_checksum"
+        "sack_malformed_options_rejected_after_valid_checksum",
+        "window_scale_wire_negotiation_clamp_and_invalid_lengths"
       ]
     },
     {

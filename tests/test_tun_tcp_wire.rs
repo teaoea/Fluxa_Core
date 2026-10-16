@@ -4,6 +4,7 @@
 //! 测试内容：exact_fields_roundtrip_for_both_address_families；invalid_window_mss_and_checksum_are_rejected；malformed_options_and_urgent_data_never_enter_state_machine；deterministic_truncated_and_mutated_packets_never_panic。
 //! 测试内容：sack_options_have_independent_wire_layout_and_strict_bounds。
 //! 测试内容：sack_malformed_options_rejected_after_valid_checksum。
+//! 测试内容：exact_fields_roundtrip_for_both_address_families；invalid_window_mss_and_checksum_are_rejected；malformed_options_and_urgent_data_never_enter_state_machine；deterministic_truncated_and_mutated_packets_never_panic；sack_options_have_independent_wire_layout_and_strict_bounds；sack_malformed_options_rejected_after_valid_checksum；window_scale_wire_negotiation_clamp_and_invalid_lengths。
 //! 测试依据：RFC 9293 TCP 头部、选项及校验和约束；不可信输入不得 panic。
 //! 前置条件：纯本地内存，不触网。
 use super::*;
@@ -28,6 +29,7 @@ fn syn(v6: bool) -> Segment<'static> {
         window: 32768,
         flags: Flags(Flags::SYN),
         maximum_segment: Some(1200),
+        window_scale: None,
         sack_permitted: false,
         sacks: crate::tun::tcp::wire::Sacks::default(),
         payload: &[],
@@ -185,5 +187,48 @@ fn sack_malformed_options_rejected_after_valid_checksum() {
         } // 右边界等于左边界。
         repaired(&mut b);
         assert!(decode(&b, 1500).is_err());
+    }
+}
+
+#[test]
+fn window_scale_wire_negotiation_clamp_and_invalid_lengths() {
+    for v6 in [false, true] {
+        let mut input = syn(v6);
+        input.window_scale = Some(9);
+        let mut packet = encode(&input, 1500).unwrap();
+        let ip = if v6 { 40 } else { 20 };
+        assert_eq!(packet.bytes.len(), ip + 28);
+        assert_eq!(&packet.bytes[ip + 24..ip + 28], &[3, 3, 9, 0]);
+        assert_eq!(decode(&packet.bytes, 1500).unwrap().window_scale, Some(9));
+        for (flags, length, shift, expected) in
+            [(Flags::SYN, 3, 255, Some(14)), (Flags::ACK, 3, 9, None)]
+        {
+            packet.bytes[ip + 13] = flags;
+            if flags == Flags::ACK {
+                packet.bytes[ip + 20..ip + 24].fill(1);
+            }
+            packet.bytes[ip + 25] = length;
+            packet.bytes[ip + 26] = shift;
+            packet.bytes[ip + 16..ip + 18].fill(0);
+            let sum = tun::checksum(
+                &packet.bytes[ip..],
+                tun::pseudo_sum(&packet.bytes, if v6 { 6 } else { 4 }, 6, 28),
+            );
+            packet.bytes[ip + 16..ip + 18].copy_from_slice(&sum.to_be_bytes());
+            assert_eq!(decode(&packet.bytes, 1500).unwrap().window_scale, expected);
+        }
+        packet.bytes[ip + 25] = 2;
+        packet.bytes[ip + 16..ip + 18].fill(0);
+        let sum = tun::checksum(
+            &packet.bytes[ip..],
+            tun::pseudo_sum(&packet.bytes, if v6 { 6 } else { 4 }, 6, 28),
+        );
+        packet.bytes[ip + 16..ip + 18].copy_from_slice(&sum.to_be_bytes());
+        assert!(matches!(
+            decode(&packet.bytes, 1500),
+            Err(Error::InvalidInput)
+        ));
+        input.window_scale = Some(15);
+        assert!(matches!(encode(&input, 1500), Err(Error::InvalidInput)));
     }
 }

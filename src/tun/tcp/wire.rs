@@ -44,6 +44,7 @@ pub struct Segment<'a> {
     pub window: usize,
     pub flags: Flags,
     pub maximum_segment: Option<u16>,
+    pub window_scale: Option<u8>,
     pub sack_permitted: bool,
     pub sacks: Sacks,
     pub payload: &'a [u8],
@@ -68,6 +69,7 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
         return Err(Error::Unsupported);
     }
     let mut maximum_segment = None;
+    let mut window_scale = None;
     let mut sack_permitted = false;
     let mut sacks = Sacks::default();
     let mut offset = ip + 20;
@@ -94,6 +96,15 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
             }
             maximum_segment = Some(size);
         }
+        if kind == 3 {
+            if length != 3 || (flags.has(Flags::SYN) && window_scale.is_some()) {
+                return Err(Error::InvalidInput);
+            }
+            // RFC 7323：仅 SYN 协商；超出标准范围的移位钳制为 14。
+            if flags.has(Flags::SYN) {
+                window_scale = Some(bytes[offset + 2].min(14));
+            }
+        }
         if kind == 4 {
             if length != 2 || !flags.has(Flags::SYN) || sack_permitted {
                 return Err(Error::InvalidInput);
@@ -116,7 +127,7 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
                 )?;
             }
         }
-        // 窗口扩大、时间戳和 ECN 尚未协商；未知选项不改变状态机。
+        // 时间戳和 ECN 尚未协商；未知选项不改变状态机。
         offset += length;
     }
     Ok(Segment {
@@ -135,6 +146,7 @@ pub fn decode(bytes: &[u8], mtu: usize) -> Result<Segment<'_>> {
         window: usize::from(u16::from_be_bytes([bytes[ip + 14], bytes[ip + 15]])),
         flags,
         maximum_segment,
+        window_scale,
         sack_permitted,
         sacks,
         payload: &bytes[ip + header..],
@@ -149,12 +161,14 @@ pub fn encode(segment: &Segment<'_>, mtu: usize) -> Result<Packet> {
         flags,
         window,
         maximum_segment,
+        window_scale,
         sack_permitted,
         sacks,
         payload,
     } = *segment;
     if window > u16::MAX as usize
         || maximum_segment.is_some_and(|size| size < 64 || !flags.has(Flags::SYN))
+        || window_scale.is_some_and(|value| value > 14 || !flags.has(Flags::SYN))
         || (sack_permitted && !flags.has(Flags::SYN))
         || (!sacks.blocks().is_empty() && (flags.has(Flags::SYN) || !flags.has(Flags::ACK)))
     {
@@ -171,6 +185,10 @@ pub fn encode(segment: &Segment<'_>, mtu: usize) -> Result<Packet> {
     if let Some(mss) = maximum_segment {
         options[..4].copy_from_slice(&[2, 4, (mss >> 8) as u8, mss as u8]);
         used = 4;
+    }
+    if let Some(shift) = window_scale {
+        options[used..used + 3].copy_from_slice(&[3, 3, shift]);
+        used += 3;
     }
     if sack_permitted {
         options[used..used + 2].copy_from_slice(&[4, 2]);
