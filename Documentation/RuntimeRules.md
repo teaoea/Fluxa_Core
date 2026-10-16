@@ -205,3 +205,22 @@ protocol 可在 API 中限定 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD 的 TCP/UD
 2026-10-12 唯一 40 标签后缀压力输入：10000 条实际全进程峰值约 164.7 MiB，旧标签系数的准入估计不足以覆盖这轮观察到的峰值，已将每标签估算由 256 调整为 512 字节。长关键词 10000 条峰值约 113.3 MiB，保留每字符 64 字节估算。50000 条这两类输入在索引构建前受控返回 ResourceLimit；不能把规则数量上限解释为所有形态都能接受十万条。
 
 系数是保守准入估算而非分配器硬配额；单机样本不能证明所有并发和输入形态下都低于 512 MiB。历史测试矩阵、原始测量结果及未测项见 [规则性能测试](规则性能测试.md)。
+
+## 主配置的远程来源字段
+
+远程规则集使用 `rule-providers` 列表，节点使用 `proxy-providers`，插件使用 `plugin-providers`；`kind` 分别必须为 `rules`、`nodes`、`plugin`，三类合计最多 64 项。旧 `subscriptions` 字段不再接受，旧配置按每项 kind 拆分迁移。各条目字段及每日 UTC `update-time` 计划不变，规则集正文仍为 Clash classical `payload`。主配置由 App 严格解析，并非 Rust 运行时生成文档或 API 来源字段；本次不改变规则匹配、来源顺序、资源预算或下载行为。
+
+```yaml
+proxy-providers: []
+plugin-providers: []
+rule-providers:
+  - id: daily-rules
+    name: 每日远程规则
+    url: https://example.com/fluxa/rules.yaml
+    kind: rules
+    enabled: false
+    policy: proxy
+    update-time: "12:00"
+```
+
+字段类型、未知或重复字段、错放 kind 及远程文档嵌套来源均拒绝；没有新增 `type`、`behavior`、`path` 或 `interval`，不表示支持完整 Clash 配置。根目录两份完整示例使用相同的来源字段 schema；App 尚未接入的其他字段不在本次跨仓库兼容性验证范围内。

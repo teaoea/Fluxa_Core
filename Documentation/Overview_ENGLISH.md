@@ -71,3 +71,5 @@ FFI reserves a response slot, byte quota, and serialization buffer before execut
 运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](错误代码体系设计.md)。
 
 未完成任务与当前暂停状态见 [TODO.md](TODO.md)。
+
+Host configuration uses `rule-providers` for remote rule sets, `proxy-providers` for nodes, and `plugin-providers` for plugins. The old `subscriptions` field is rejected. Item fields and daily UTC `update-time` schedules are unchanged; see [subscription configuration](Subscriptions.md).

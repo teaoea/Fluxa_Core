@@ -22,8 +22,12 @@ geoip_url: null # 不启用 GeoIP；启用时改为下面明确的 URL。
 # 出站支持 TCP 与单目标 XUDP；XUDP 空报文和超过 7526 字节的报文明拒，任意 Mux 未实现，不回退直连。
 nodes: []
 
+# 远程规则集使用 rule-providers；节点订阅使用 proxy-providers；插件使用 plugin-providers。
+# 三者均为列表，仅允许对应 kind；旧 subscriptions 字段已移除。
 # 订阅原始内容分别保留。enabled 仅控制自动更新及规则是否参与。
-subscriptions:
+proxy-providers: []
+plugin-providers: []
+rule-providers:
   - id: daily-rules
     name: Daily remote rules
     url: https://example.com/fluxa/rules.yaml

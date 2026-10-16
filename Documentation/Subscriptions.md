@@ -25,3 +25,22 @@ Rust 下载要求配置 DNS。Fluxa 优先传入主配置 DNS；macOS 未配置�
 ## 规则订阅内容
 
 规则订阅使用 Clash classical `payload` 列表，见根目录 rules.yaml。每行仅两列，类型严格大写。主配置订阅元数据增加 `policy`（默认 proxy）及可选 `outbound`；非代理不得指定出站。原始 payload 保留，后台合并、去重、裁剪后生成二进制平铺缓存，实时匹配使用不可变快照。
+
+## 主配置的远程来源字段
+
+远程规则集使用 `rule-providers` 列表，节点使用 `proxy-providers`，插件使用 `plugin-providers`；`kind` 分别必须为 `rules`、`nodes`、`plugin`，三类合计最多 64 项。旧 `subscriptions` 字段不再接受，旧配置按每项 kind 拆分迁移。各条目字段及每日 UTC `update-time` 计划不变，规则集正文仍为 Clash classical `payload`。主配置由 App 严格解析，并非 Rust 运行时生成文档或 API 来源字段；本次不改变规则匹配、来源顺序、资源预算或下载行为。
+
+```yaml
+proxy-providers: []
+plugin-providers: []
+rule-providers:
+  - id: daily-rules
+    name: 每日远程规则
+    url: https://example.com/fluxa/rules.yaml
+    kind: rules
+    enabled: false
+    policy: proxy
+    update-time: "12:00"
+```
+
+字段类型、未知或重复字段、错放 kind 及远程文档嵌套来源均拒绝；没有新增 `type`、`behavior`、`path` 或 `interval`，不表示支持完整 Clash 配置。根目录两份完整示例使用相同的来源字段 schema；App 尚未接入的其他字段不在本次跨仓库兼容性验证范围内。
