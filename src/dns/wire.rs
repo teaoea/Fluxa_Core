@@ -55,6 +55,8 @@ pub(super) fn malformed(bytes: &[u8]) -> Result<Vec<u8>> {
 }
 impl Resolver {
     pub async fn respond(&self, bytes: &[u8], udp: bool) -> Result<Vec<u8>> {
+        // 退休/关闭实例连畸形报文也不能继续提供服务；不能用 FORMERR 成功绕过准入。
+        self.ensure_active()?;
         if !(12..=4096).contains(&bytes.len()) {
             return malformed(bytes);
         }

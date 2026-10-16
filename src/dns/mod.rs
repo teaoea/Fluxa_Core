@@ -74,11 +74,21 @@ struct Resources {
     runtime: ManagedRuntime,
     permit: tokio::sync::SemaphorePermit<'static>,
 }
+/// 一次已准入的内核事务令牌；只在内核内部按作用域持有，不交给前端。
+/// 令牌允许同一建连事务在退休后完成后续 DNS 与提交，但不能越过显式关闭。
+pub(crate) struct ResolverOperation {
+    identity: crate::lifecycle::session::Identity,
+    _active: Operation,
+    _admission: Operation,
+}
 pub struct Resolver {
     resources: RwLock<Option<Resources>>,
     services: Mutex<Vec<Arc<service::Control>>>,
     binding: Mutex<Option<Arc<Authority>>>,
     authority: Arc<Authority>,
+    // 查询准入与 DNS 驱动权限分离：退休只关闭准入，已登记查询仍使用有效驱动完成。
+    // 不能用 Arc 计数代替在途查询计数，也不能在配置替换时直接撤销驱动权限。
+    admission: Arc<Authority>,
     tls: Option<rustls::ClientConfig>,
     anchors: Option<Arc<hickory_resolver::proto::dnssec::TrustAnchors>>,
     _metadata: ByteLease,
@@ -149,6 +159,7 @@ impl Resolver {
             services: Mutex::new(Vec::new()),
             binding: Mutex::new(None),
             authority,
+            admission: Authority::new()?,
             tls,
             anchors,
             _metadata: metadata,
@@ -161,8 +172,13 @@ impl Resolver {
     pub(crate) fn identity(&self) -> crate::lifecycle::session::Identity {
         self.authority.identity()
     }
-    /// 旧快照只能保留数据；查询、绑定和恢复必须验证仍有效的内核权限。
+    /// 旧引用不能发起新操作；已准入事务通过专用令牌完成，不走此新准入检查。
     pub(crate) fn ensure_active(&self) -> Result<()> {
+        self.admission.check(self.admission.identity())?;
+        self.ensure_running()
+    }
+    /// 只供已经登记的查询完成检查使用；退休不撤销它们的执行权，显式关闭仍会撤销。
+    fn ensure_running(&self) -> Result<()> {
         self.authority.check(self.authority.identity())?;
         if let Some(owner) = self.binding_authority()? {
             owner.check(owner.identity())?;
@@ -175,13 +191,69 @@ impl Resolver {
     pub(crate) fn binding_authority(&self) -> Result<Option<Arc<Authority>>> {
         Ok(self.binding.lock().map_err(|_| Error::Internal)?.clone())
     }
-    pub(crate) fn operation(&self) -> Result<Operation> {
-        self.ensure_active()?;
-        self.authority.enter(self.authority.identity())
+    pub(crate) fn operation(&self) -> Result<ResolverOperation> {
+        // 登记与退休互斥；一旦获准，查询可在退休后继续，关闭会话则仍立即取消。
+        let admission = self.admission.enter(self.admission.identity())?;
+        self.ensure_running()?;
+        Ok(ResolverOperation {
+            identity: self.identity(),
+            _active: self.authority.enter(self.authority.identity())?,
+            _admission: admission,
+        })
     }
     pub(crate) fn with_active<T>(&self, commit: impl FnOnce() -> Result<T>) -> Result<T> {
-        self.authority
-            .with_active(self.authority.identity(), commit)
+        self.admission.with_active(self.admission.identity(), || {
+            self.authority
+                .with_active(self.authority.identity(), commit)
+        })
+    }
+    /// 网络配置提交时同步关闭旧实例准入；清理不依赖外部旧快照释放。
+    /// 新旧解析器相同的提交不得调用此方法。已登记查询按原有总期限完成后，
+    /// 内核主动 close 并等待监听/驱动释放；已建立的业务连接不归解析器所有。
+    pub(crate) fn retire(self: &Arc<Self>) -> Result<()> {
+        let executor = crate::lifecycle::runtime()?;
+        if self.admission.revoke()? {
+            let own = self.clone();
+            executor.spawn(async move {
+                let result = async {
+                    own.admission.wait_idle().await?;
+                    own.close().await
+                }
+                .await;
+                let _ = crate::error::diagnostics::observe(
+                    result,
+                    crate::error::diagnostics::DiagnosticSite::Cleanup,
+                );
+            });
+        }
+        Ok(())
+    }
+    pub(crate) fn owns_operation(&self, operation: &ResolverOperation) -> bool {
+        operation.identity == self.identity()
+    }
+    /// 仅接受此解析器先前登记的事务令牌；不能凭旧 Arc 在退休后新建事务。
+    pub(crate) fn commit_operation<T>(
+        &self,
+        operation: &ResolverOperation,
+        commit: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        if operation.identity != self.identity() {
+            return Err(Error::InvalidState);
+        }
+        self.authority.with_active(operation.identity, commit)
+    }
+    /// 后续查询继承已登记建连事务的准入，避免退休发生在目标解析与节点解析之间时误取消事务。
+    pub(crate) async fn resolve_operation(
+        &self,
+        query: Query,
+        synthetic: bool,
+        operation: &ResolverOperation,
+    ) -> Result<Answer> {
+        if operation.identity != self.identity() {
+            return Err(Error::InvalidState);
+        }
+        self.ensure_running()?;
+        self.resolve_admitted(query, synthetic).await
     }
     pub(crate) async fn canceled(&self) {
         self.authority.canceled().await;
@@ -195,10 +267,14 @@ impl Resolver {
     }
     /// 撤销立即发生，清理任务由内核托管；调用方取消等待不会取消实际清理。
     pub async fn close(self: &Arc<Self>) -> Result<()> {
+        // 显式关闭与退休不同：同时撤销准入和驱动，正在查询者按原契约取消。
+        self.admission.revoke()?;
         if self.authority.revoke()? {
             let own = self.clone();
             crate::lifecycle::runtime()?.spawn(async move {
                 let result = own.cleanup().await;
+                // 两套权限都在真实清理完成后结束；不能让准入永远停留在 Closing。
+                let result = own.admission.complete(result).and(result);
                 let _ = crate::error::diagnostics::observe(
                     own.authority.complete(result),
                     crate::error::diagnostics::DiagnosticSite::Cleanup,
@@ -225,6 +301,8 @@ impl Resolver {
             service.stop().await?;
         }
         self.authority.wait_idle().await?;
+        // 事务令牌先释放驱动计数再释放准入计数，两个计数都归零后才能报告完成。
+        self.admission.wait_idle().await?;
         let resources = self.resources.write().await.take();
         if let Some(Resources {
             inner,
@@ -350,7 +428,10 @@ impl Resolver {
         Ok(None)
     }
     async fn resolve_inner(&self, query: Query, synthetic: bool) -> Result<Answer> {
-        let _operation = self.operation()?;
+        let operation = self.operation()?;
+        self.resolve_operation(query, synthetic, &operation).await
+    }
+    async fn resolve_admitted(&self, query: Query, synthetic: bool) -> Result<Answer> {
         let binding = self.binding_authority()?;
         let _binding_operation = binding
             .as_ref()
@@ -360,7 +441,7 @@ impl Resolver {
             biased;
             _ = self.authority.canceled() => Err(Error::InvalidState),
             result = self.resolve_allowed(query, synthetic) => {
-                self.ensure_active()?;
+                self.ensure_running()?;
                 result
             }
         }
@@ -618,12 +699,24 @@ fn validated_query(query: Query) -> Result<(String, RecordType)> {
 
 impl Drop for Resolver {
     fn drop(&mut self) {
+        if let Err(error) = self.admission.revoke() {
+            crate::error::diagnostics::record(
+                error,
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
+        }
         if let Err(error) = self.authority.revoke() {
             crate::error::diagnostics::record(
                 error,
                 crate::error::diagnostics::DiagnosticSite::Cleanup,
             );
         }
+        // Drop 仅是未发布/未显式关闭实例的兜底，不承担配置退休的业务触发。
+        // 服务任务可持有 Resolver；因此正常路径必须由 retire/close 主动打破所有权环。
+        let services = match self.services.get_mut() {
+            Ok(services) => std::mem::take(services),
+            Err(poisoned) => std::mem::take(poisoned.into_inner()),
+        };
         if let Some(Resources {
             inner,
             runtime,
@@ -631,12 +724,22 @@ impl Drop for Resolver {
         }) = self.resources.get_mut().take()
         {
             let owner = self.authority.clone();
+            let admission = self.admission.clone();
             match crate::lifecycle::runtime() {
                 Ok(executor) => {
                     executor.spawn(async move {
+                        let mut result = Ok(());
+                        for service in services {
+                            if let Err(error) = service.stop().await {
+                                result = Err(error);
+                            }
+                        }
                         drop(inner);
-                        let result = runtime.stop().await;
+                        if let Err(error) = runtime.stop().await {
+                            result = Err(error);
+                        }
                         drop(permit);
+                        let result = admission.complete(result).and(result);
                         let _ = crate::error::diagnostics::observe(
                             owner.complete(result),
                             crate::error::diagnostics::DiagnosticSite::Cleanup,

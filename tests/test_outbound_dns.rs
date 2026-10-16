@@ -1,6 +1,6 @@
 //! 测试文件：tests/test_outbound_dns.rs
 //! 测试类型：集成测试、回归测试
-//! 测试对象：src/dns/mod.rs、src/routing/runtime.rs
+//! 测试对象：src/dns/mod.rs、src/outbound.rs、src/outbound/configuration.rs、src/outbound/resolution.rs、src/outbound/execution.rs、src/routing/runtime.rs
 //! 测试内容：
 //! - all_dns_transports_feed_real_tcp_and_reuse_cache：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - family_fallback_and_udp_use_configured_records：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -8,6 +8,10 @@
 //! - total_deadline_and_close_all_cancel_pending_dns：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - dnssec_failure_cannot_reach_outbound：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//!
+//! - established_connection_survives_dns_replacement：配置替换和清除 DNS 后，旧连接继续真实回环读写，旧解析器拒绝新查询。
+//!
+//! - admitted_connection_finishes_when_dns_retires_mid_query：通过 DNS 报文屏障在解析中替换配置，旧事务仍成功提交并可读写。
 //!
 //! 测试依据：保留原有公开接口契约及全部断言；测试文件原注释保留在下方，L3 必须独立核对。
 //!
@@ -260,4 +264,118 @@ async fn explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns() {
     let _peer = listener.accept().await.unwrap();
     manager.close(opened.id).await.unwrap();
     assert_eq!(fixture.count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn established_connection_survives_dns_replacement() {
+    let fixture = support::fixture().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = [0; 2];
+        socket.read_exact(&mut bytes).await.unwrap();
+        socket.write_all(&bytes).await.unwrap();
+    });
+    let manager = Manager::default();
+    let old = Arc::new(
+        Resolver::new(config(Server::Udp {
+            address: format!("127.0.0.1:{}", fixture.port),
+        }))
+        .unwrap(),
+    );
+    manager.configure_dns(Some(old.clone())).unwrap();
+    let snapshot = manager.network_snapshot().unwrap();
+    let opened = manager
+        .connect_configured_domain(target(port, Transport::Tcp))
+        .await
+        .unwrap();
+    let new = Arc::new(
+        Resolver::new(config(Server::Udp {
+            address: format!("127.0.0.1:{}", fixture.port),
+        }))
+        .unwrap(),
+    );
+    manager.configure_dns(Some(new.clone())).unwrap();
+    assert!(matches!(
+        old.resolve(libfluxa_core::dns::Query {
+            name: "example.test".into(),
+            query_type: "A".into(),
+        })
+        .await,
+        Err(Error::InvalidState)
+    ));
+    new.resolve(libfluxa_core::dns::Query {
+        name: "alias.connect.example.test".into(),
+        query_type: "A".into(),
+    })
+    .await
+    .unwrap();
+    manager.configure_dns(None).unwrap();
+    manager.write(opened.id, b"ok", 1000).await.unwrap();
+    assert_eq!(
+        &*manager.read(opened.id, 2, 1000).await.unwrap().bytes,
+        b"ok"
+    );
+    manager.close(opened.id).await.unwrap();
+    peer.await.unwrap();
+    assert!(snapshot.resolver.is_some());
+    old.close().await.unwrap();
+    new.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn admitted_connection_finishes_when_dns_retires_mid_query() {
+    let fixture = support::fixture().await;
+    let upstream = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let address = upstream.local_addr().unwrap();
+    let destination = format!("127.0.0.1:{}", fixture.port);
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut bytes = [0; 4096];
+        let (len, peer) = upstream.recv_from(&mut bytes).await.unwrap();
+        arrived_tx.send(()).unwrap();
+        released.await.unwrap();
+        upstream.send_to(&bytes[..len], destination).await.unwrap();
+        let (len, _) = upstream.recv_from(&mut bytes).await.unwrap();
+        upstream.send_to(&bytes[..len], peer).await.unwrap();
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut byte = [0];
+        socket.read_exact(&mut byte).await.unwrap();
+        socket.write_all(&byte).await.unwrap();
+    });
+    let manager = Arc::new(Manager::default());
+    let resolver = Arc::new(
+        Resolver::new(config(Server::Udp {
+            address: address.to_string(),
+        }))
+        .unwrap(),
+    );
+    manager.configure_dns(Some(resolver.clone())).unwrap();
+    let own = manager.clone();
+    let connecting = tokio::spawn(async move {
+        own.connect_configured_domain(target(port, Transport::Tcp))
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), arrived)
+        .await
+        .unwrap()
+        .unwrap();
+    manager.configure_dns(None).unwrap();
+    release.send(()).unwrap();
+    let opened = connecting.await.unwrap().unwrap();
+    manager.write(opened.id, b"x", 1000).await.unwrap();
+    assert_eq!(
+        &*manager.read(opened.id, 1, 1000).await.unwrap().bytes,
+        b"x"
+    );
+    manager.close(opened.id).await.unwrap();
+    server.await.unwrap();
+    peer.await.unwrap();
+    resolver.close().await.unwrap();
 }

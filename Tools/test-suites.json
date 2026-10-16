@@ -64,7 +64,11 @@
       ],
       "module": "test_dns_mod",
       "declared_cases": [
-        "observation_lock_failure_is_internal_not_dns_timeout"
+        "observation_lock_failure_is_internal_not_dns_timeout",
+        "retirement_drains_admitted_query_without_cancelling_it",
+        "replacement_reclaims_services_and_quota_with_old_snapshots_alive",
+        "failed_or_same_resolver_update_keeps_admission_active",
+        "explicit_close_cancels_query_during_retirement"
       ]
     },
     {
@@ -721,6 +725,10 @@
       "kind": "integration",
       "sources": [
         "src/dns/mod.rs",
+        "src/outbound.rs",
+        "src/outbound/configuration.rs",
+        "src/outbound/resolution.rs",
+        "src/outbound/execution.rs",
         "src/routing/runtime.rs"
       ],
       "target": "test_outbound_dns",
@@ -730,7 +738,9 @@
         "rejected_policy_synthetic_and_negative_answers_never_connect",
         "total_deadline_and_close_all_cancel_pending_dns",
         "dnssec_failure_cannot_reach_outbound",
-        "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns"
+        "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns",
+        "established_connection_survives_dns_replacement",
+        "admitted_connection_finishes_when_dns_retires_mid_query"
       ]
     },
     {

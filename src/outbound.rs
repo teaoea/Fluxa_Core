@@ -236,7 +236,9 @@ impl Manager {
         let snapshot = self.network_snapshot()?;
         snapshot.check_transport(transport)?;
         Ok(self
-            .establish_with(snapshot, duration(milliseconds)?, dial(address, transport))
+            .establish_with(snapshot, duration(milliseconds)?, async |_| {
+                dial(address, transport).await
+            })
             .await?
             .id)
     }
@@ -262,7 +264,9 @@ impl Manager {
             return Err(Error::Unsupported);
         }
         Ok(self
-            .establish_with(snapshot, duration(milliseconds)?, dial(address, transport))
+            .establish_with(snapshot, duration(milliseconds)?, async |_| {
+                dial(address, transport).await
+            })
             .await?
             .id)
     }
@@ -270,11 +274,11 @@ impl Manager {
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
-        future: impl std::future::Future<Output = Result<Dialed>>,
+        future: impl AsyncFnOnce(Option<&crate::dns::ResolverOperation>) -> Result<Dialed>,
     ) -> Result<Opened> {
         let configuration = snapshot.clone();
-        self.establish_guarded(snapshot, deadline, async {
-            let dialed = future.await?;
+        self.establish_guarded(snapshot, deadline, async |permission| {
+            let dialed = future(permission).await?;
             let target = crate::routing::Target {
                 domain: None,
                 address: Some(dialed.2.ip().to_string()),
@@ -298,7 +302,9 @@ impl Manager {
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
-        future: impl std::future::Future<Output = Result<(Dialed, crate::routing::TrafficProtection)>>,
+        future: impl AsyncFnOnce(
+            Option<&crate::dns::ResolverOperation>,
+        ) -> Result<(Dialed, crate::routing::TrafficProtection)>,
     ) -> Result<Opened> {
         crate::lifecycle::runtime()?;
         snapshot.ensure_active()?;
@@ -307,7 +313,7 @@ impl Manager {
             .as_ref()
             .map(|owner| owner.enter(owner.identity()))
             .transpose()?;
-        let _dns_operation = snapshot
+        let dns_operation = snapshot
             .resolver
             .as_ref()
             .map(|resolver| resolver.operation())
@@ -338,7 +344,7 @@ impl Manager {
             _ = generation.changed() => return Err(Error::Cancelled),
             _ = revoked => return Err(Error::InvalidState),
             _ = dns_revoked => return Err(Error::InvalidState),
-            result = timeout(deadline, future) => result.map_err(|_| Error::NetworkTimeout)??,
+            result = timeout(deadline, future(dns_operation.as_ref())) => result.map_err(|_| Error::NetworkTimeout)??,
         };
         resources::reap(&self.state)?;
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
@@ -358,7 +364,7 @@ impl Manager {
             .as_ref()
             .map(|owner| owner.enter(owner.identity()))
             .transpose()?;
-        let id = snapshot.commit(|| {
+        let id = snapshot.commit(dns_operation.as_ref(), || {
             protection.check(false)?;
             state
                 .registry

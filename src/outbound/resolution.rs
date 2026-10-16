@@ -74,13 +74,18 @@ pub(super) async fn resolve(
     name: &str,
     family: Family,
     real: bool,
+    permission: Option<&crate::dns::ResolverOperation>,
 ) -> Result<Vec<IpAddr>> {
     let query = |kind: &str| Query {
         name: name.into(),
         query_type: kind.into(),
     };
     let lookup = |query| async move {
-        if real {
+        if let Some(permission) =
+            permission.filter(|permission| resolver.owns_operation(permission))
+        {
+            resolver.resolve_operation(query, !real, permission).await
+        } else if real {
             resolver.resolve_real(query).await
         } else {
             resolver.resolve(query).await
@@ -201,8 +206,8 @@ impl Manager {
         if name.parse::<IpAddr>().is_ok() {
             return Err(Error::InvalidInput);
         }
-        self.establish_with(snapshot, deadline, async {
-            let addresses = resolve(resolver, &name, target.family, real).await?;
+        self.establish_with(snapshot, deadline, async |permission| {
+            let addresses = resolve(resolver, &name, target.family, real, permission).await?;
             candidates(
                 addresses
                     .into_iter()

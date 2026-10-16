@@ -230,8 +230,24 @@ impl Manager {
             replacement.router = Some(Arc::new((**router).clone().with_debug(session)?));
         }
         replacement.revision = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        if let Some(resolver) = &replacement.resolver {
+            resolver.ensure_active()?;
+        }
         let revision = replacement.revision;
-        state.network = Arc::new(replacement);
+        let replacement = Arc::new(replacement);
+        // 所有校验先完成，再在同一配置锁内退休旧解析器并发布新快照。
+        // Arc::ptr_eq 只判断“配置是否仍指向同一实例”，绝不用引用数量判断资源占用。
+        // 退休停止新查询、等待已登记查询后由内核清理，不关闭已经建立的业务连接。
+        // 限额/路由更新复用同一解析器，不得误退休；失败提交不得改变旧解析器权限。
+        if let Some(old) = &state.network.resolver
+            && !replacement
+                .resolver
+                .as_ref()
+                .is_some_and(|new| Arc::ptr_eq(old, new))
+        {
+            old.retire()?;
+        }
+        state.network = replacement;
         Ok(revision)
     }
 }
@@ -268,7 +284,11 @@ impl NetworkSnapshot {
         Ok(self.session.clone().or(binding))
     }
     /// 与会话撤销串行登记真实连接；Socket 建立后权限失效必须回滚，不能发布句柄。
-    pub(crate) fn commit<T>(&self, publish: impl FnOnce() -> Result<T>) -> Result<T> {
+    pub(crate) fn commit<T>(
+        &self,
+        operation: Option<&crate::dns::ResolverOperation>,
+        publish: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
         let binding = self
             .resolver
             .as_ref()
@@ -283,7 +303,9 @@ impl NetworkSnapshot {
         let owner = self.session.as_ref().or(binding.as_ref());
         let publish = || {
             if let Some(resolver) = &self.resolver {
-                resolver.with_active(publish)
+                // establish_guarded 在任何 await 前登记令牌，并持有至本次提交结束。
+                // 退休允许它完成；显式关闭仍通过驱动 Authority 拒绝提交。
+                resolver.commit_operation(operation.ok_or(Error::InvalidState)?, publish)
             } else {
                 publish()
             }
