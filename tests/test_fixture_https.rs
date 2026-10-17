@@ -14,7 +14,10 @@ pub(crate) mod geoip_data;
 use libfluxa_core::http;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair, KeyUsagePurpose};
 use rustls::{ServerConfig, pki_types::PrivatePkcs8KeyDer};
-use std::sync::Arc;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     net::TcpListener,
@@ -23,8 +26,15 @@ use tokio::{
 use tokio_rustls::TlsAcceptor;
 
 // 同一测试夹具由独立协议目标与二进制夹具程序引用，各目标使用所需字段。
+#[derive(Default)]
+pub struct ProviderFixture {
+    pub bodies: Mutex<std::collections::BTreeMap<String, String>>,
+    pub requests: AtomicUsize,
+    pub delay: AtomicBool,
+}
 #[allow(dead_code)]
 pub struct Fixture {
+    pub provider: Arc<ProviderFixture>,
     pub network: Arc<libfluxa_core::outbound::Manager>,
     _dns: dns::Fixture,
     pub port: u16,
@@ -88,6 +98,8 @@ async fn fixture_with_provider(
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    let provider = Arc::new(ProviderFixture::default());
+    let server_provider = provider.clone();
     let task = tokio::spawn(async move {
         let mut sessions = JoinSet::new();
         loop {
@@ -95,9 +107,10 @@ async fn fixture_with_provider(
                 accepted = listener.accept() => {
                     let Ok((socket, _)) = accepted else { break; };
                     let acceptor = acceptor.clone();
+                    let provider=server_provider.clone();
                     sessions.spawn(async move {
                         let Ok(tls) = acceptor.accept(socket).await else { return; };
-                        respond(tls).await;
+                        respond(tls,provider).await;
                     });
                 }
                 _ = sessions.join_next(), if !sessions.is_empty() => {}
@@ -106,6 +119,7 @@ async fn fixture_with_provider(
     });
     let (_dns, network) = configured_network().await;
     Fixture {
+        provider,
         network,
         _dns,
         port,
@@ -115,7 +129,7 @@ async fn fixture_with_provider(
     }
 }
 
-async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
+async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S, provider: Arc<ProviderFixture>) {
     let mut tls = BufReader::new(stream);
     let Ok(head) = http::read_head(&mut tls).await else {
         return;
@@ -125,6 +139,28 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S) {
     };
     let parts = head.parts();
     let path = parts.get(1).copied().unwrap_or("/");
+    if path.starts_with("/provider-") {
+        provider.requests.fetch_add(1, Ordering::SeqCst);
+        if provider.delay.load(Ordering::SeqCst) {
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            return;
+        }
+        let body = provider
+            .bodies
+            .lock()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| "rules: []".into());
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = tls.write_all(response.as_bytes()).await;
+        let _ = tls.shutdown().await;
+        return;
+    }
     if path == "/wait" {
         tokio::time::sleep(std::time::Duration::from_secs(120)).await;
         return;
@@ -189,7 +225,7 @@ pub async fn plain_fixture() -> PlainFixture {
             tokio::select! {
                 accepted = listener.accept() => {
                     let Ok((socket, _)) = accepted else { break; };
-                    sessions.spawn(respond(socket));
+                    sessions.spawn(respond(socket,Arc::new(ProviderFixture::default())));
                 }
                 _ = sessions.join_next(), if !sessions.is_empty() => {}
             }

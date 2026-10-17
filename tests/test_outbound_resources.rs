@@ -2,11 +2,11 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/outbound/resources.rs
 //! 测试内容：
-//! - idle_expiry_cancels_blocked_read_and_releases_peer：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - datagram_activity_and_timeout_have_distinct_idle_semantics：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - quota_reconfiguration_preserves_live_connections_and_isolation：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - atomic_network_replacement_keeps_snapshot_and_live_endpoint：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - in_flight_dns_retains_original_network_snapshot：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - idle_expiry_cancels_blocked_read_and_releases_peer：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - datagram_activity_and_timeout_have_distinct_idle_semantics：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - quota_reconfiguration_preserves_live_connections_and_isolation：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - atomic_network_replacement_keeps_snapshot_and_live_endpoint：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - in_flight_dns_retains_original_network_snapshot：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //!
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
@@ -39,6 +39,12 @@ mod public_contract {
         Arc::new(
             Router::compile(Config {
                 mode,
+                // global 现在由 final/fallback 决定；本用例明确选择代理，保留原未实现代理失败断言。
+                fallback: if mode == Mode::Global {
+                    Policy::Proxy
+                } else {
+                    Policy::Reject
+                },
                 outbound: (mode == Mode::Global).then(|| "unimplemented".into()),
                 ..Config::default()
             })

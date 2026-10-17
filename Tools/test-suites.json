@@ -52,7 +52,8 @@
         "capacity_and_exclude_are_bounded",
         "allocation_is_stable_reversible_and_does_not_rewind",
         "excluded_literals_and_root_are_not_mapped",
-        "capacity_limit_is_enforced"
+        "capacity_limit_is_enforced",
+        "automatic_capacity_respects_both_subnets_and_internal_ceiling"
       ]
     },
     {
@@ -149,7 +150,10 @@
         "output_buffers_obey_budget_and_handle_type",
         "admission_failure_keeps_tcp_bytes_and_returns_reservations",
         "admission_failure_keeps_tun_return_packet",
-        "nested_runtime_does_not_detach_failed_http_calls"
+        "nested_runtime_does_not_detach_failed_http_calls",
+        "main_configuration_validation_is_read_only_and_structured",
+        "main_configuration_apply_is_atomic_and_status_is_read_only",
+        "provider_commands_use_real_tls_and_keep_process_rules_ignored"
       ]
     },
     {
@@ -168,7 +172,8 @@
         "configured_url_is_strict_and_never_defaults",
         "configured_https_download_integrity_budget_and_no_match",
         "all_user_assigned_geoip_failure_codes_are_exact",
-        "reachable_corruption_is_rejected_and_query_fault_is_not_no_match"
+        "reachable_corruption_is_rejected_and_query_fault_is_not_no_match",
+        "ready_database_binds_country_rules_and_source_priority"
       ]
     },
     {
@@ -440,7 +445,9 @@
         "expiry_cancels_pending_io_without_frontend_cleanup",
         "manager_uses_one_valid_debug_owner_across_control_endpoints",
         "debug_exception_covers_tcp_and_quic_but_clear_restores_actual_data_guard",
-        "debug_overlay_still_overrides_formal_domain_transport_reject"
+        "debug_overlay_still_overrides_formal_domain_transport_reject",
+        "debug_type_order_precedes_policy_and_keeps_scoped_port_boundaries",
+        "debug_precedes_formal_quic_payload_requirement"
       ]
     },
     {
@@ -470,7 +477,9 @@
         "scenario_14_domain_normalization_never_misses",
         "control_rewrite_with_recomputed_digest_still_loads",
         "previous_cache_layout_requires_explicit_rebuild",
-        "collision_fallback_preserves_other_sections"
+        "collision_fallback_preserves_other_sections",
+        "scoped_port_forest_roundtrip_preserves_conditions",
+        "scoped_port_roots_reject_semantic_tampering"
       ]
     },
     {
@@ -486,7 +495,9 @@
         "audit_migration_and_input_leases_are_bounded",
         "audit_registry_uses_weak_owners_and_releases_handles",
         "shared_pool_covers_compilation_flattening_cache_io_and_retained_snapshots",
-        "rule_class_slots_never_define_decision_priority"
+        "rule_class_slots_never_define_decision_priority",
+        "scoped_quic_requires_real_packet_and_preserves_priority_in_flat_index",
+        "process_facts_preserve_source_type_and_special_reject_contract"
       ]
     },
     {
@@ -776,7 +787,7 @@
         "known_rejection_proxy_and_missing_dns_never_connect_or_fallback",
         "domain_match_skips_ip_rejection_in_both_orders",
         "numeric_udp_skips_dns_and_direct_mode_preserves_rejection",
-        "mixed_address_policies_reject_before_any_candidate_is_dialed",
+        "mixed_address_rejection_excludes_only_blocked_ip",
         "fake_ip_route_matches_restored_domain_and_real_cidr_with_generation",
         "fake_preallocation_exclusion_does_not_touch_dns",
         "routed_dns_deadline_and_close_cancel_before_dial",
@@ -852,9 +863,9 @@
         "strict_yaml_round_trip_unknown_duplicate_alias_and_depth",
         "failed_update_preserves_disk_and_snapshot_and_close_releases_owner",
         "port_partial_overlap_stays_and_full_coverage_is_pruned",
-        "exact_domain_precedes_earlier_suffix_across_source_layers",
+        "source_precedes_type_but_exact_precedes_suffix_within_source",
         "pruned_index_agrees_with_unpruned_reference_including_original_origin",
-        "keyword_reject_overrides_domain_actions_and_domain_hit_skips_ip",
+        "keyword_reject_is_ordinary_and_domain_hit_skips_ip",
         "domain_branch_skips_ip_and_respects_domain_type_and_source_priority",
         "domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject",
         "clash_payload_is_strict_uppercase_and_supports_both_address_families",
@@ -864,7 +875,7 @@
         "binary_cache_matches_all_matcher_shapes_before_and_after_reopen",
         "generation_input_accepts_structured_and_clash_sources",
         "empty_clash_payload_still_validates_outbound_metadata",
-        "audit_primary_domain_and_ip_precede_local_port",
+        "audit_source_and_port_priority_matrix",
         "audit_global_transport_only_allows_reject_and_quic_is_not_udp",
         "audit_document_trust_requires_original_sources",
         "audit_invalid_documents_are_rejected_with_low_sensitive_locations",
@@ -878,7 +889,11 @@
         "scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rules",
         "scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout",
         "both_complete_yaml_examples_strictly_compile_formal_rules",
-        "duplicate_vec_capacity_is_accounted_without_false_rejection"
+        "duplicate_vec_capacity_is_accounted_without_false_rejection",
+        "local_plugin_remote_precedence_is_independent_of_slot_and_input_order",
+        "special_reject_is_source_independent_but_suffix_and_keyword_are_ordinary",
+        "ignored_domain_rules_in_global_direct_do_not_hide_ip_reject",
+        "plugin_layer_round_trip_keeps_identity_and_shared_candidates"
       ]
     },
     {
@@ -1107,6 +1122,197 @@
         "examples/tun_tcp_kernel.rs"
       ],
       "declared_cases": []
+    },
+    {
+      "id": "test_configuration",
+      "file": "tests/test_configuration.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration.rs"
+      ],
+      "module": "test_configuration",
+      "declared_cases": [
+        "minimal_configuration_and_per_server_timeout",
+        "listener_ports_are_independent_and_disjoint",
+        "strict_fields_and_types_reject_legacy_debug_and_duplicate_input",
+        "node_identity_and_references_are_case_sensitive",
+        "provider_metadata_is_strict_and_cache_names_are_safe",
+        "dns_bootstrap_routes_and_disabled_subsystem",
+        "geoip_and_tun_fail_before_activation",
+        "bounded_input_and_lifetime_accounting",
+        "complete_examples_are_accepted",
+        "lan_authentication_is_strict_and_never_partially_disabled",
+        "mitm_exclusions_precede_hosts_and_debug_options_are_not_configurable",
+        "address_filters_fake_ip_switch_and_reserved_groups_are_bounded"
+      ]
+    },
+    {
+      "id": "test_configuration_models",
+      "file": "tests/test_configuration_models.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/models.rs"
+      ],
+      "module": "test_configuration_models",
+      "declared_cases": [
+        "enum_values_are_explicit",
+        "nested_unknown_fields_are_rejected"
+      ]
+    },
+    {
+      "id": "test_configuration_rules",
+      "file": "tests/test_configuration_rules.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/rules.rs"
+      ],
+      "module": "test_configuration_rules",
+      "declared_cases": [
+        "final_is_unique_last_and_required",
+        "scoped_rules_and_unscoped_reject",
+        "malformed_rules_are_not_partially_accepted",
+        "process_rule_syntax_is_exact_case_preserving_and_not_wildcard"
+      ]
+    },
+    {
+      "id": "test_main_configuration_contract",
+      "file": "tests/test_main_configuration_contract.rs",
+      "kind": "integration",
+      "sources": [
+        "src/configuration.rs",
+        "src/routing/yaml.rs",
+        "src/error.rs"
+      ],
+      "target": "test_main_configuration_contract",
+      "declared_cases": [
+        "configuration_errors_preserve_integer_protocol_and_do_not_expose_values",
+        "validation_summary_is_not_running_status",
+        "compiled_scalar_rules_obey_scoped_conditions_and_final",
+        "keywords_match_only_the_registrable_tenant_label",
+        "unavailable_rule_dependencies_fail_explicitly",
+        "committed_main_configuration_controls_new_requests_and_keeps_live_connection",
+        "main_configuration_atomically_publishes_nodes_rules_and_limits",
+        "os_process_rule_controls_actual_outbound_without_request_claim"
+      ]
+    },
+    {
+      "id": "test_outbound_configuration",
+      "file": "tests/test_outbound_configuration.rs",
+      "kind": "unit",
+      "sources": [
+        "src/outbound/configuration.rs"
+      ],
+      "module": "test_outbound_configuration",
+      "declared_cases": [
+        "failed_preparation_preserves_previous_configuration",
+        "stale_preparation_cannot_overwrite_newer_configuration",
+        "stopped_manager_rejects_prepared_candidate",
+        "replacement_releases_unreferenced_old_snapshot",
+        "partial_updates_invalidate_summary_but_retain_budget",
+        "debug_overlay_survives_main_commit",
+        "concurrent_candidates_have_one_commit_winner"
+      ]
+    },
+    {
+      "id": "test_platform_process",
+      "file": "tests/test_platform_process.rs",
+      "kind": "unit",
+      "sources": [
+        "src/platform/process.rs"
+      ],
+      "module": "test_platform_process",
+      "declared_cases": [
+        "own_process_name_is_os_executable",
+        "tcp_owner_rejects_closed_socket_identity",
+        "udp_owner_is_exact_and_not_a_claimed_name",
+        "unexpected_system_errors_do_not_become_unknown"
+      ]
+    },
+    {
+      "id": "test_outbound_execution",
+      "file": "tests/test_outbound_execution.rs",
+      "kind": "unit",
+      "sources": [
+        "src/outbound/execution.rs"
+      ],
+      "module": "test_outbound_execution",
+      "declared_cases": [
+        "scoped_quic_is_decided_before_real_udp_outbound",
+        "process_proof_admits_new_flow_without_owning_live_connection"
+      ]
+    },
+    {
+      "id": "test_providers",
+      "file": "tests/test_providers.rs",
+      "kind": "unit",
+      "sources": [
+        "src/providers.rs"
+      ],
+      "module": "test_providers",
+      "declared_cases": [
+        "import_reuse_refresh_and_restart_keep_policy_and_atomic_cache",
+        "invalid_update_keeps_files_snapshot_and_live_connection",
+        "close_cancels_download_and_releases_lease_with_old_arc_alive",
+        "schedule_requires_local_slot_and_retry_without_caller_clock",
+        "disabled_manual_and_policy_edits_reuse_body_without_rewriting",
+        "multi_provider_failure_never_partially_publishes",
+        "automatic_due_is_once_per_slot_and_errors_are_rate_limited",
+        "scheduler_outlives_request_runtime"
+      ]
+    },
+    {
+      "id": "test_providers_cache",
+      "file": "tests/test_providers_cache.rs",
+      "kind": "unit",
+      "sources": [
+        "src/providers/cache.rs"
+      ],
+      "module": "test_providers_cache",
+      "declared_cases": [
+        "cache_batch_is_atomic_and_old_references_do_not_own_lock",
+        "corruption_version_and_symlink_are_rejected"
+      ]
+    },
+    {
+      "id": "test_providers_document",
+      "file": "tests/test_providers_document.rs",
+      "kind": "unit",
+      "sources": [
+        "src/providers/document.rs"
+      ],
+      "module": "test_providers_document",
+      "declared_cases": [
+        "conditions_inherit_only_provider_policy_and_reject_scope_is_limited",
+        "malformed_structure_is_transaction_error_not_empty_success"
+      ]
+    },
+    {
+      "id": "test_platform_providers",
+      "file": "tests/test_platform_providers.rs",
+      "kind": "unit",
+      "sources": [
+        "src/platform/providers.rs"
+      ],
+      "module": "test_platform_providers",
+      "declared_cases": [
+        "exchange_swaps_whole_directories_without_missing_target",
+        "local_calendar_uses_valid_civil_dates_and_bounded_time"
+      ]
+    },
+    {
+      "id": "test_provider_contract",
+      "file": "tests/test_provider_contract.rs",
+      "kind": "integration",
+      "sources": [
+        "src/providers.rs",
+        "src/configuration.rs",
+        "src/outbound/configuration.rs"
+      ],
+      "target": "test_provider_contract",
+      "declared_cases": [
+        "remote_conditions_cannot_supply_policy_or_debug_authority",
+        "invalid_provider_configuration_never_creates_runtime"
+      ]
     }
   ]
 }

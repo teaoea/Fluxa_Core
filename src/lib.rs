@@ -2,6 +2,7 @@
 //! HTTPS、MITM 与脚本运行时复用资源管理；代理协议分阶段实现。
 
 mod budget;
+pub mod configuration;
 pub mod dns;
 pub mod error;
 pub mod geoip;
@@ -15,6 +16,8 @@ pub mod outbound;
 #[allow(unsafe_code)]
 mod platform;
 pub mod protocol;
+/// 内核规则提供者状态与正文预验证，不暴露活动生命周期控制权。
+pub mod providers;
 pub mod rewrite;
 pub mod routing;
 pub mod script;

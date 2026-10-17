@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/dns/fake_ip.rs
 //! 测试内容：
+//! - automatic_capacity_respects_both_subnets_and_internal_ceiling：按新配置契约独立验证正反边界。
 //! - retired_pool_can_expand_without_reusing_either_address_family：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - either_family_history_prevents_reinterpretation_after_reconfiguration：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - unused_retired_namespaces_do_not_consume_lifetime_quota：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -366,4 +367,28 @@ mod public_contract {
         // 已存在的映射不受容量影响。
         assert!(table.allocate("one.example", false).unwrap().is_some());
     }
+}
+
+#[test]
+fn automatic_capacity_respects_both_subnets_and_internal_ceiling() {
+    use crate::dns::fake_ip::Config;
+    assert_eq!(
+        Config::automatic("198.18.0.0/30", "fd00::/120", &[])
+            .unwrap()
+            .capacity,
+        2
+    );
+    assert_eq!(
+        Config::automatic("198.18.0.0/16", "fd00::/120", &[])
+            .unwrap()
+            .capacity,
+        255
+    );
+    assert_eq!(
+        Config::automatic("198.18.0.0/16", "fd00::/64", &[])
+            .unwrap()
+            .capacity,
+        4096
+    );
+    assert!(Config::automatic("198.18.0.1/30", "fd00::/120", &[]).is_err());
 }

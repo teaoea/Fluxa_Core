@@ -1,9 +1,12 @@
-# Clash classical 规则订阅示例。作者：可莉唯一的狗。
-# 动作与出站在主配置的订阅 policy/outbound 字段指定；列表严格只有两列。
-# IP-CIDR 同时支持 IPv4 和 IPv6；类型必须大写，不接受 IP-CIDR6 或 no-resolve。
-payload:
-  - DOMAIN,api.example.com
-  - DOMAIN-SUFFIX,example.com
-  - DOMAIN-KEYWORD,tracker
-  - IP-CIDR,192.0.2.0/24
-  - IP-CIDR,2001:db8::/32
+# rule-providers 远程正文示例；作者：可莉唯一的狗。
+# 根字段 rules；类型小写，只包含条件，策略由主配置提供者 policy 决定。
+# 自带策略/不支持的条目单独忽略；结构错误、未知/重复根字段使整个更新失败。
+# 提供者 policy=reject 时，domain-suffix/domain-keyword 会被忽略。
+rules:
+  - domain,api.example.com
+  - domain-suffix,example.com
+  - domain-keyword,tracker
+  - ip-cidr,192.0.2.0/24
+  - ip-cidr,2001:db8::/32
+  - protocol,quic,video.example.com
+  - port,443,api.example.com

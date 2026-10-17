@@ -13,6 +13,7 @@ use std::{
 };
 // 代次仅在当前进程有效，耗尽后拒绝，不回绕复用旧令牌。
 
+const MAX_CAPACITY: usize = 4096;
 static BUDGET: ByteBudget = ByteBudget::new(16 * 1024 * 1024);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,11 +33,29 @@ struct Ranges {
     ipv6_end: u128,
 }
 impl Config {
+    /// 主配置不暴露容量：在既有 4096 项预算上限与两种子网可用地址间取最小值。
+    /// 这里只确定有界容量，不获取资源；池的真实预算仍在 Pool 分配时原子申请。
+    pub(crate) fn automatic(ipv4: &str, ipv6: &str, exclude: &[String]) -> Result<Self> {
+        if exclude.len() > 128 {
+            return Err(Error::InvalidInput);
+        }
+        let mut config = Self {
+            ipv4_range: ipv4.into(),
+            ipv6_range: ipv6.into(),
+            capacity: 1,
+            exclude: exclude.to_vec(),
+        };
+        let ranges = config.ranges()?;
+        config.capacity = MAX_CAPACITY.min(ranges.available as usize);
+        config.validate()?;
+        Ok(config)
+    }
+
     pub fn validate(&self) -> Result<()> {
         self.ranges().map(|_| ())
     }
     fn ranges(&self) -> Result<Ranges> {
-        if !(1..=4096).contains(&self.capacity) || self.exclude.len() > 128 {
+        if !(1..=MAX_CAPACITY).contains(&self.capacity) || self.exclude.len() > 128 {
             return Err(Error::InvalidInput);
         }
         for suffix in &self.exclude {

@@ -24,9 +24,9 @@
 
 ## 配置示例
 
-完整主配置位于根目录 [fluxa.yaml](../fluxa.yaml) 与 [fluxa_english.yaml](../fluxa_english.yaml)，字段及行为一致，注释为中文。网络配置字段新增、修改或删除时同步更新并校验两份示例。
+完整主配置位于根目录 [example_config.yaml](../example_config.yaml)，注释为中文。网络配置字段新增、修改或删除时同步更新并校验当前示例。
 
-远程订阅支持 `update-time: "12:00"`（每天 UTC 12:00），未配置时仅手动更新；单项及更新全部都属于手动操作。恢复运行仅补最近到期一次，不逐天补跑；旧更新间隔字段已移除。计划和有界 HTTPS 下载由 Rust 共用实现，详见 [Subscriptions.md](Subscriptions.md)。
+旧订阅计划辅助接口使用 UTC；新主配置的 `update-time: "12:00"` 约定设备本地 12:00，规则提供者的本地日历调度已接入；GeoIP/插件编排仍待后续阶段。未配置时仅首次导入及手动更新；单项及更新全部都属于手动操作。恢复运行仅补最近到期一次，不逐天补跑；旧更新间隔字段已移除。计划和有界 HTTPS 下载由 Rust 共用实现，详见 [Subscriptions.md](Subscriptions.md)。
 
 ## 后续计划
 
@@ -68,7 +68,7 @@ v2.2.1 修复普通 API 与 TUN 地址池的交叉复用，历史地址退役、
 
 按用户要求全部已有接口统一新方案，ABI 版本为 2，旧错误编号不再兼容；command 与 `fluxa_engine_command_v2` 均返回结构化字段，`fluxa_engine_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
 
-运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](错误代码体系设计.md)。
+运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](../AGENTS/错误代码体系设计.md)。
 
 未完成任务与当前暂停状态见 [TODO.md](TODO.md)。
 

@@ -24,6 +24,12 @@ pub struct RoutedOpened {
     pub connection: Opened,
     pub decision: Decision,
 }
+/// 只能由内核入口补充的报文/系统元组，不参与公开请求反序列化。
+#[derive(Default)]
+struct FlowFacts<'a> {
+    datagram: Option<&'a [u8]>,
+    source: Option<crate::platform::process::Flow>,
+}
 impl Manager {
     /// 节点 TCP 建连耗时；测量后立即关闭，不发送应用数据，不冒充代理握手验证。
     pub async fn probe_latency(&self, host: &str, port: u16, timeout_ms: u64) -> Result<u64> {
@@ -61,15 +67,22 @@ impl Manager {
         Ok(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
     }
 
-    /// 全部地址候选可执行后才拨号，不通过切换地址族绕过拒绝策略。
+    /// 逐个排除被 IP 规则拒绝的候选，仅对剩余允许地址拨号；域名级 REJECT 仍拒绝整个请求。
     pub async fn connect_routed(
         &self,
         router: &Router,
         resolver: Option<&Resolver>,
         request: RoutedTarget,
     ) -> Result<RoutedOpened> {
-        self.connect_with_snapshot(router, resolver, request, self.network_snapshot()?, None)
-            .await
+        self.connect_with_snapshot(
+            router,
+            resolver,
+            request,
+            self.network_snapshot()?,
+            None,
+            FlowFacts::default(),
+        )
+        .await
     }
     /// 同一次读取 DNS、路由和资源参数，避免配置替换时混用。
     pub async fn connect_configured(&self, request: RoutedTarget) -> Result<RoutedOpened> {
@@ -89,9 +102,36 @@ impl Manager {
         &self,
         request: RoutedTarget,
         snapshot: std::sync::Arc<super::NetworkSnapshot>,
+        source: SocketAddr,
     ) -> Result<RoutedOpened> {
-        self.connect_configured_snapshot_hop(request, snapshot, None)
-            .await
+        let destination = SocketAddr::new(
+            request
+                .target
+                .address
+                .as_deref()
+                .ok_or(Error::InvalidInput)?
+                .parse()
+                .map_err(|_| Error::InvalidInput)?,
+            request.target.port,
+        );
+        let flow = crate::platform::process::Flow {
+            local: source,
+            remote: destination,
+            transport: request.target.transport,
+        };
+        let router = snapshot.router.as_ref().ok_or(Error::InvalidState)?;
+        self.connect_with_snapshot(
+            router,
+            snapshot.resolver.as_deref(),
+            request,
+            snapshot.clone(),
+            None,
+            FlowFacts {
+                datagram: None,
+                source: Some(flow),
+            },
+        )
+        .await
     }
     async fn connect_configured_snapshot_hop(
         &self,
@@ -106,6 +146,44 @@ impl Manager {
             request,
             std::sync::Arc::clone(&snapshot),
             hop,
+            FlowFacts::default(),
+        )
+        .await
+    }
+    /// TUN 已有真实首包时先裁决再拨号；不接受 JSON 自报的 QUIC 标志。
+    pub(crate) async fn connect_configured_datagram_snapshot(
+        &self,
+        request: RoutedTarget,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
+        bytes: &[u8],
+        source: SocketAddr,
+    ) -> Result<RoutedOpened> {
+        let destination = SocketAddr::new(
+            request
+                .target
+                .address
+                .as_deref()
+                .ok_or(Error::InvalidInput)?
+                .parse()
+                .map_err(|_| Error::InvalidInput)?,
+            request.target.port,
+        );
+        let flow = crate::platform::process::Flow {
+            local: source,
+            remote: destination,
+            transport: request.target.transport,
+        };
+        let router = snapshot.router.as_ref().ok_or(Error::InvalidState)?;
+        self.connect_with_snapshot(
+            router,
+            snapshot.resolver.as_deref(),
+            request,
+            snapshot.clone(),
+            None,
+            FlowFacts {
+                datagram: Some(bytes),
+                source: Some(flow),
+            },
         )
         .await
     }
@@ -116,7 +194,9 @@ impl Manager {
         request: RoutedTarget,
         snapshot: std::sync::Arc<super::NetworkSnapshot>,
         hop: Option<SocketAddr>,
+        facts: FlowFacts<'_>,
     ) -> Result<RoutedOpened> {
+        let FlowFacts { datagram, source } = facts;
         snapshot.ensure_active()?;
         let deadline = duration(request.timeout_ms)?;
         let mut metadata = request.target;
@@ -165,6 +245,13 @@ impl Manager {
         }) {
             return Err(Error::InvalidInput);
         }
+        let quic = datagram
+            .map(|bytes| crate::routing::runtime::Snapshot::identify_datagram(&metadata, bytes))
+            .transpose()?
+            .unwrap_or(false);
+        if datagram.is_none() && router.needs_datagram(&metadata)? {
+            return Err(Error::Unsupported);
+        }
         router.check_before_dns_transport(&metadata)?;
         let mut decision = None;
         let opened = self
@@ -172,32 +259,68 @@ impl Manager {
                 std::sync::Arc::clone(&snapshot),
                 deadline,
                 async |permission| {
-                    if let Some(early) = router.evaluate_before_dns(metadata.clone())? {
+                    // 系统归属查询也属于本次准入/总超时，不在会话取消与建连截止之外运行。
+                    let identity = if router.needs_process() {
+                        crate::platform::process::identify(source).await?
+                    } else {
+                        crate::platform::process::Identity {
+                            name: None,
+                            token: None,
+                        }
+                    };
+                    if let Some(early) = router.before_dns_flow(
+                        metadata.clone(),
+                        datagram,
+                        identity.name.as_deref(),
+                    )? {
                         check(&snapshot, &early, metadata.transport)?;
                     }
                     let addresses = if let Some(ip) = numeric {
                         vec![ip]
                     } else {
-                        let resolver = resolver.ok_or(Error::InvalidState)?;
-                        resolve(
-                            resolver,
-                            metadata.domain.as_deref().ok_or(Error::InvalidInput)?,
-                            request.family,
-                            true,
-                            permission,
-                        )
-                        .await?
+                        if let Some(resolver) = resolver {
+                            resolve(
+                                resolver,
+                                metadata.domain.as_deref().ok_or(Error::InvalidInput)?,
+                                request.family,
+                                true,
+                                permission,
+                            )
+                            .await?
+                        } else if snapshot.system_dns {
+                            super::resolution::resolve_system(
+                                metadata.domain.as_deref().ok_or(Error::InvalidInput)?,
+                                request.family,
+                                snapshot.owner()?,
+                            )
+                            .await?
+                        } else {
+                            return Err(Error::InvalidState);
+                        }
                     };
                     let mut plans = Vec::with_capacity(addresses.len());
                     for ip in addresses {
                         let mut target = metadata.clone();
                         target.address = Some(ip.to_string());
-                        router.protection(target.clone())?.check(false)?;
-                        let route = router.evaluate(target)?;
-                        check(&snapshot, &route, metadata.transport)?;
+                        match router
+                            .protection_facts(target.clone(), quic, identity.name.as_deref())?
+                            .check(quic)
+                        {
+                            Ok(()) => (),
+                            // IP REJECT 只排除此候选，不能扩大为整个域名请求的 REJECT。
+                            Err(Error::Rejected) => continue,
+                            Err(error) => return Err(error),
+                        }
+                        let route =
+                            router.evaluate_flow(target, datagram, identity.name.as_deref())?;
+                        match check(&snapshot, &route, metadata.transport) {
+                            Ok(()) => (),
+                            Err(Error::Rejected) => continue,
+                            Err(error) => return Err(error),
+                        }
                         plans.push((SocketAddr::new(ip, metadata.port), route));
                     }
-                    let preferred = plans.first().ok_or(Error::DnsResponse)?;
+                    let preferred = plans.first().ok_or(Error::Rejected)?;
                     // VLESS 无独立目标连接确认；自动模式优先同一路由的 IPv4，不重放已发送的数据。
                     let first = if preferred.1.policy == Policy::Proxy
                         && matches!(request.family, Family::Auto)
@@ -302,7 +425,15 @@ impl Manager {
                             .ip()
                             .to_string(),
                     );
-                    let protection = router.protection(checked_target)?;
+                    // OS 身份仅用于这次新连接准入，DNS/拨号期间发生 FD/PID 复用则不能提交。
+                    // 已建立连接的权限和释放由内核会话租约负责，不把原进程 FD 生命周期变成连接控制权。
+                    if let Some(owner) = &identity.token
+                        && !owner.validate()?
+                    {
+                        return Err(Error::InvalidState);
+                    }
+                    let protection =
+                        router.protection_facts(checked_target, quic, identity.name.as_deref())?;
                     protection.check(false)?;
                     decision = Some(
                         plans
@@ -344,3 +475,7 @@ fn check(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/test_outbound_execution.rs"]
+mod test_outbound_execution;

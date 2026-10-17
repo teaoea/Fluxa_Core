@@ -35,7 +35,7 @@ impl Drop for Node {
 }
 impl Profile {
     pub fn validate(&self) -> Result<Node> {
-        crate::routing::identifier(&self.id)?;
+        crate::routing::outbound_name(&self.id)?;
         if self.uri.len() > 4096 {
             return Err(Error::InvalidInput);
         }

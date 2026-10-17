@@ -2,21 +2,23 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/routing/flat.rs
 //! 测试内容：
-//! - scenario_01_sixty_five_domains_in_one_slot：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_02_ipv4_zero_prefix_must_be_normalized：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_03_ipv6_zero_prefix_must_be_normalized：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_04_child_prefix_must_belong_to_parent：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_05_child_must_be_on_the_right_branch：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_06_keyword_failures_return_every_candidate：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_07_tampered_keyword_failure_transition_is_rejected：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_08_candidate_must_correspond_to_its_node：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_09_same_class_candidate_order_is_preserved：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_10_domain_and_ip_priority：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_11_build_peak_stays_within_budget：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_12_retained_snapshot_is_still_counted：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_13_incompatible_format_version_is_reported：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scenario_14_domain_normalization_never_misses：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - control_rewrite_with_recomputed_digest_still_loads：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - scoped_port_roots_reject_semantic_tampering：组合端口森林往返和重算摘要后的语义防篡改。
+//! - scoped_port_forest_roundtrip_preserves_conditions：组合端口森林往返和重算摘要后的语义防篡改。
+//! - scenario_01_sixty_five_domains_in_one_slot：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_02_ipv4_zero_prefix_must_be_normalized：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_03_ipv6_zero_prefix_must_be_normalized：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_04_child_prefix_must_belong_to_parent：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_05_child_must_be_on_the_right_branch：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_06_keyword_failures_return_every_candidate：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_07_tampered_keyword_failure_transition_is_rejected：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_08_candidate_must_correspond_to_its_node：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_09_same_class_candidate_order_is_preserved：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_10_domain_and_ip_priority：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_11_build_peak_stays_within_budget：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_12_retained_snapshot_is_still_counted：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_13_incompatible_format_version_is_reported：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scenario_14_domain_normalization_never_misses：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - control_rewrite_with_recomputed_digest_still_loads：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - normalized_child_outside_parent_is_rejected_for_both_families：以独立构造的非法缓存及合法边界验证拒绝和匹配。
 //! - prefix_address_bits_and_leaf_boundaries_are_validated：以独立构造的非法缓存及合法边界验证拒绝和匹配。
 //! - previous_cache_layout_requires_explicit_rebuild：旧格式返回明确错误且不覆盖文件。
@@ -647,10 +649,7 @@ mod public_contract {
             .unwrap()
     }
 
-    /// 关键词 `ab`、`bc` 匹配 `abc`：AC 自动机必须通过失败转移把两个候选都返回。
-    ///
-    /// 两轮只在「哪个关键词是 Reject」上互换：若任一轮的 Reject 不是对应关键词，
-    /// 结果就会是 Direct。两轮都得到 Reject 即证明两个关键词都参与了同一次判定。
+    /// AC 失败转移必须提供每个来源的候选；同来源关键词按原始顺序，不给 REJECT 特权。
     #[test]
     fn scenario_06_keyword_failures_return_every_candidate() {
         let ab_reject = keyword_decision(
@@ -658,14 +657,14 @@ mod public_contract {
                 rule(Match::DomainKeyword, "ab", Policy::Reject),
                 rule(Match::DomainKeyword, "bc", Policy::Direct),
             ],
-            "abc",
+            "abc.test",
         );
         let bc_reject = keyword_decision(
             vec![
                 rule(Match::DomainKeyword, "ab", Policy::Direct),
                 rule(Match::DomainKeyword, "bc", Policy::Reject),
             ],
-            "abc",
+            "abc.test",
         );
         assert_eq!(
             ab_reject.policy,
@@ -674,8 +673,35 @@ mod public_contract {
         );
         assert_eq!(
             bc_reject.policy,
-            Policy::Reject,
-            "关键词 bc 未在 abc 上返回候选"
+            Policy::Direct,
+            "同来源关键词先命中的 ab 不能被后续普通关键词 REJECT 越过"
+        );
+        // 用不同来源的存储槽验证 AC 失败转移，不能用 Reject 特权反推候选存在。
+        let mut remote = source(
+            "remote",
+            vec![rule(Match::DomainKeyword, "bc", Policy::Reject)],
+        );
+        remote.layer = Layer::Remote;
+        let snapshot = Snapshot::generate(
+            settings(),
+            vec![
+                source(
+                    "local",
+                    vec![rule(Match::DomainKeyword, "ab", Policy::Direct)],
+                ),
+                remote,
+            ],
+            1,
+        )
+        .unwrap()
+        .into_flat()
+        .unwrap();
+        let candidates = snapshot.query(Some("abc.test"), None, 443, Transport::Tcp);
+        use crate::routing::runtime::RuleClass;
+        assert_eq!(candidates.get(RuleClass::LocalKeyword as usize), Some(0));
+        assert_eq!(
+            candidates.get(RuleClass::PluginRemoteKeyword as usize),
+            Some(1)
         );
         // 对照：只有一个关键词命中时不得互相牵连。
         let only_ab = keyword_decision(
@@ -683,7 +709,7 @@ mod public_contract {
                 rule(Match::DomainKeyword, "ab", Policy::Reject),
                 rule(Match::DomainKeyword, "bc", Policy::Direct),
             ],
-            "ab",
+            "ab.test",
         );
         assert_eq!(only_ab.policy, Policy::Reject);
         let neither = keyword_decision(
@@ -691,7 +717,7 @@ mod public_contract {
                 rule(Match::DomainKeyword, "ab", Policy::Reject),
                 rule(Match::DomainKeyword, "bc", Policy::Reject),
             ],
-            "xyz",
+            "xyz.test",
         );
         assert_eq!(neither.policy, Policy::Direct, "未命中关键词时不得返回候选");
     }
@@ -1104,5 +1130,76 @@ mod public_contract {
             assert_eq!(decision.rule_index, Some(expected_id));
         }
         store.close().unwrap();
+    }
+    /// 独立业务预期：相同域名的不同端口隔离；恢复后保持域名/端口 AND 与关键词租户边界。
+    #[test]
+    fn scoped_port_forest_roundtrip_preserves_conditions() {
+        let dir = temp_dir("scoped-ports");
+        write_cache(
+            &dir,
+            vec![
+                rule(Match::DomainPort, "53,example.com", Policy::Reject),
+                rule(Match::DomainPort, "443,other.com", Policy::Reject),
+                rule(Match::DomainKeyword, "foo", Policy::Reject),
+            ],
+        );
+        let store = Store::open(&dir).unwrap();
+        let snapshot = store.snapshot().unwrap();
+        for (host, port, expected) in [
+            ("example.com", 53, Policy::Reject),
+            ("a.b.example.com", 53, Policy::Reject),
+            ("badexample.com", 53, Policy::Direct),
+            ("example.com", 54, Policy::Direct),
+            ("example.com", 443, Policy::Direct),
+            ("other.com", 443, Policy::Reject),
+            ("other.com", 53, Policy::Direct),
+            ("a.foo.github.io", 443, Policy::Reject),
+            ("foo.example.com", 443, Policy::Direct),
+        ] {
+            let mut target = target(Some(host), Some("192.0.2.1"));
+            target.port = port;
+            assert_eq!(
+                snapshot.evaluate(&target).unwrap().policy,
+                expected,
+                "{host}:{port}"
+            );
+            assert_eq!(
+                snapshot.evaluate(&target).unwrap(),
+                snapshot.evaluate_reference(&target).unwrap()
+            );
+        }
+        store.close().unwrap();
+    }
+    /// 重算摘要也不能把 53 的后缀根改为 54、指向普通根或与其他端口共用根。
+    #[test]
+    fn scoped_port_roots_reject_semantic_tampering() {
+        for alteration in 0..3 {
+            let dir = temp_dir("scoped-roots-tamper");
+            write_cache(
+                &dir,
+                vec![
+                    rule(Match::DomainPort, "53,example.com", Policy::Reject),
+                    rule(Match::DomainPort, "443,other.com", Policy::Reject),
+                ],
+            );
+            let result = tamper_and_reload(&dir, |bytes| {
+                // v5 最后一个目录是 scoped-port；记录包含小端 u32 port/root。
+                let (start, count) = section(bytes, 10);
+                assert_eq!(count, 2);
+                match alteration {
+                    0 => put_u32(bytes, start, 54),
+                    1 => put_u32(bytes, start + 4, 0),
+                    2 => {
+                        let root = u32_at(bytes, start + 4);
+                        put_u32(bytes, start + 12, root);
+                    }
+                    _ => unreachable!(),
+                }
+            });
+            assert!(
+                matches!(result, Err(Error::InvalidInput)),
+                "{alteration}: {result:?}"
+            );
+        }
     }
 }

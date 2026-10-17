@@ -1,6 +1,6 @@
 //! 临时调试规则仅通过本地 API 操作，不实现 Deserialize，也不进入配置或持久化。
 //! 认证、授权与审计由专用本地 IPC 完成，禁止普通业务接口创建调试会话。
-use super::runtime::{Origin, RuleClass};
+use super::runtime::{Origin, TypePriority};
 use super::{Decision, Match, Matcher, Policy, Reason, Rule, Target, Transport, matcher};
 use crate::{
     budget::{ByteBudget, ByteLease},
@@ -119,7 +119,11 @@ impl Session {
             {
                 return Err(Error::InvalidInput);
             }
-            if row.rule.r#type == Match::Transport && row.rule.value == "quic" {
+            if row.rule.r#type == Match::ProcessName
+                || row.rule.r#type == Match::GeoIp
+                || row.rule.r#type == Match::DomainQuic
+                || (row.rule.r#type == Match::Transport && row.rule.value == "quic")
+            {
                 return Err(Error::Unsupported);
             }
             let rule = super::runtime::normalize_rule(&row.rule, &outbound)?;
@@ -254,15 +258,22 @@ impl View {
     }
 
     fn applicable(entry: &Entry, target: &Target, now: Instant) -> bool {
-        entry.deadline > now && entry.protocol.is_none_or(|p| p == target.transport)
+        entry.deadline > now
+            && entry.protocol.is_none_or(|p| p == target.transport)
+            && !matches!(&entry.matcher, Matcher::DomainPort(_, port) if *port != target.port)
     }
     fn domain_match(entry: &Entry, name: Option<&str>) -> bool {
         match &entry.matcher {
+            Matcher::DomainPort(value, _) => name.is_some_and(|name| {
+                name == value || name.strip_suffix(value).is_some_and(|p| p.ends_with('.'))
+            }),
             Matcher::Domain(value, suffix) => name.is_some_and(|name| {
                 name == value
                     || (*suffix && name.strip_suffix(value).is_some_and(|p| p.ends_with('.')))
             }),
-            Matcher::Keyword(value) => name.is_some_and(|name| name.contains(value)),
+            Matcher::Keyword(value) => name
+                .and_then(super::keyword_subject)
+                .is_some_and(|label| label.contains(value)),
             _ => false,
         }
     }
@@ -314,34 +325,36 @@ impl View {
             .iter()
             .filter(|e| Self::applicable(e, target, now))
             .filter(|e| match &e.matcher {
-                Matcher::Domain(..) | Matcher::Keyword(_) => Self::domain_match(e, name.as_deref()),
+                Matcher::Domain(..) | Matcher::Keyword(_) | Matcher::DomainPort(..) => {
+                    Self::domain_match(e, name.as_deref())
+                }
                 Matcher::Network(n) => !domain_hit && address.is_some_and(|ip| n.includes(ip)),
                 Matcher::Port(first, last) => (*first..=*last).contains(&target.port),
                 Matcher::Transport(p) => *p == target.transport,
-                Matcher::Quic => false,
+                Matcher::Quic
+                | Matcher::DomainQuic(_)
+                | Matcher::GeoIp(_)
+                | Matcher::ProcessName(_) => false,
             })
             .min_by_key(|e| {
-                let class = match e.matcher {
-                    Matcher::Network(_) => RuleClass::LocalIp,
-                    Matcher::Domain(_, false) => RuleClass::LocalDomain,
-                    Matcher::Domain(_, true) => RuleClass::LocalDomainSuffix,
-                    Matcher::Keyword(_) => RuleClass::LocalKeyword,
-                    _ => RuleClass::LocalPortTransport,
+                let priority = if e.protocol.is_some() {
+                    TypePriority::Protocol
+                } else {
+                    match e.matcher {
+                        Matcher::Transport(_) | Matcher::Quic | Matcher::DomainQuic(_) => {
+                            TypePriority::Protocol
+                        }
+                        Matcher::Port(..) | Matcher::DomainPort(..) => TypePriority::Port,
+                        Matcher::Domain(_, false) => TypePriority::Domain,
+                        Matcher::Domain(_, true) => TypePriority::Suffix,
+                        Matcher::Keyword(_) => TypePriority::Keyword,
+                        Matcher::Network(_) => TypePriority::Ip,
+                        Matcher::GeoIp(_) => TypePriority::GeoIp,
+                        Matcher::ProcessName(_) => TypePriority::Process,
+                    }
                 };
-                let order = [
-                    RuleClass::LocalIp,
-                    RuleClass::LocalDomain,
-                    RuleClass::LocalDomainSuffix,
-                    RuleClass::LocalKeyword,
-                    RuleClass::LocalPortTransport,
-                ];
-                let rank = order.iter().position(|v| *v == class);
-                (
-                    e.policy != Policy::Reject,
-                    e.protocol.is_none(),
-                    rank,
-                    e.sequence,
-                )
+                // Overlay 已先于正式规则求值；内部不再给 REJECT 另开越级通道。
+                (priority, e.sequence)
             });
         Ok(winner.map(|e| Decision {
             policy: e.policy,

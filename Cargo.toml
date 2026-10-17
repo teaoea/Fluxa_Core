@@ -11,7 +11,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/fluxa.yaml", "/fluxa_english.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/main-config-supported.yaml", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/example_config.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/AGENTS/**", "/Notices/**"]
 
 [lib]
 name = "libfluxa_core"
@@ -50,12 +50,15 @@ base64 = "=0.23.1"
 rquickjs = { version = "=0.14.0", default-features = false }
 yaml-rust2 = { version = "=0.13.0", default-features = false }
 aho-corasick = "=1.1.4"
+# 固定公共后缀数据，关键词只匹配注册域名标签，查询不下载列表或创建堆索引。
+psl = "=2.1.238"
 maxminddb = { version = "=0.32.0", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # 复用已锁定的 Apple 安全框架与系统类型；仅平台边界需要 audit token 和签名验证。
 security-framework = "=3.7.0"
 core-foundation = "=0.10.1"
+libproc = "=0.14.11"
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.190"
 
@@ -119,3 +122,11 @@ path = "tests/test_tun_dns.rs"
 [[test]]
 name = "test_flat_cache_round_trip"
 path = "tests/test_flat_cache_round_trip.rs"
+
+[[test]]
+name = "test_main_configuration_contract"
+path = "tests/test_main_configuration_contract.rs"
+
+[[test]]
+name = "test_provider_contract"
+path = "tests/test_provider_contract.rs"

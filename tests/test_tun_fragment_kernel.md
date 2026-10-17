@@ -1,52 +1,51 @@
 # 测试报告：test_tun_fragment_kernel
 
-<!-- fluxa-test-report:{"command": ["unshare", "--net", "python3", "tests/test_tun_fragment_kernel.py", "/var/tmp/fluxa-tcp-test/target/debug/examples/tun_tcp_kernel"], "exit_code": 0, "duration_seconds": 0.7585752550003235, "status": "PASS", "discovered": ["test_tun_fragment_kernel::process"], "results": {"test_tun_fragment_kernel::process": "PASS"}, "fingerprint": "555f654b2f60ea5813d83153d22eb6993dc4fa0ee1b5a7c52436147868551bb0", "time": "2026-10-16T10:40:51.940765+08:00", "scope": "单个已登记外部测试程序整体；不声称统计其内部断言或 XCTest 函数数量。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 2, "suite": "test_tun_fragment_kernel", "file": "tests/test_tun_fragment_kernel.py", "environment": {"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d92d9f2d678b1284600f398defb0393a584a1e58", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"status": "NOT RUN", "discovered": [], "results": {}, "note": "本次 Rust 执行未运行此目标；夹具不作为独立测试用例，外部/Swift 需对应执行器。", "fingerprint": "bfe1a8f1056213e2a1bfa451312696b9e6a1f7cb18c5bb648e4adc627b26e80e", "time": "2026-10-17T15:48:59.075173+08:00", "attempt": 6, "suite": "test_tun_fragment_kernel", "file": "tests/test_tun_fragment_kernel.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "03b3081b98dbd70be284fa19feea9910b8479f8b", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
 - 测试文件：`tests/test_tun_fragment_kernel.py`
 - 测试对象：src/tun/fragment.rs、src/tun/udp.rs、examples/tun_tcp_kernel.rs
 - 执行机制：python_integration
-- 测试范围：单个已登记外部测试程序整体；不声称统计其内部断言或 XCTest 函数数量。
-- 实际命令：`unshare --net python3 tests/test_tun_fragment_kernel.py /var/tmp/fluxa-tcp-test/target/debug/examples/tun_tcp_kernel`
-- 执行时间：2026-10-16T10:40:51.940765+08:00
-- 实际耗时：0.7585752550003235 秒
-- 运行环境：`{"os": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.41", "architecture": "aarch64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d92d9f2d678b1284600f398defb0393a584a1e58", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`555f654b2f60ea5813d83153d22eb6993dc4fa0ee1b5a7c52436147868551bb0`
-- 总体状态：**PASS**
-- 原始进程退出状态：0
+- 测试范围：本文件登记且在当前平台实际发现的全部用例
+- 实际命令：``
+- 执行时间：2026-10-17T15:48:59.075173+08:00
+- 实际耗时：未执行 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "03b3081b98dbd70be284fa19feea9910b8479f8b", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`bfe1a8f1056213e2a1bfa451312696b9e6a1f7cb18c5bb648e4adc627b26e80e`
+- 总体状态：**NOT RUN**
+- 原始进程退出状态：未执行
 
 ## 实际用例与结果
 
 | 实际发现的用例 | 独立目标 | 状态 |
 | --- | --- | --- |
-| `test_tun_fragment_kernel::process` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：1
-- 实际执行完成：1
-- 通过：1
+- 实际发现：0
+- 实际执行完成：0
+- 通过：0
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
 
 ## 失败、异常与限制
 
-以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。
+本次 Rust 执行未运行此目标；夹具不作为独立测试用例，外部/Swift 需对应执行器。
 未覆盖范围以本文件实际断言和前置条件为界，不宣称全模块或全平台覆盖。
 不自动重试；若手动重跑，旧报告及原始退出结果保存在证据目录。缺少执行结果时不推定成功。
 
 ## 独立 L1–L4 审查
 
 - L1：本次测试构建结果见 build 日志；格式/Clippy 等需另行记录，不自动推断通过。
-- L2：已登记用例按 Cargo 工件、发现列表与显式文件映射归属；实际结果见上表。
+- L2：未取得本文件独立用例执行证据，不计覆盖。
 - L3：未由报告生成器验证；迁移保留断言不等于原业务预期已全面证明，需独立语义审查。
 - L4：原始日志、机器结果、版本及指纹可在下述证据核对；未上传的本地证据不冒充 CI 工件。
 
 ## 证据及后续事项
 
-- 原始证据：`/var/tmp/fluxa-ws-linux/test_tun_fragment_kernel.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-provider-accepted-20261017/test_tun_fragment_kernel.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

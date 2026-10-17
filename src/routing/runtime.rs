@@ -134,12 +134,44 @@ pub enum ReportVerification {
     VerifiedFromSources,
     StructuralOnly,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// 来源身份，不使用枚举编号排序；执行顺序由独立的 SourcePriority 明确规定。
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Layer {
     Local,
+    Plugin,
     Remote,
 }
+// 此枚举专门表达业务来源顺序，不是 RuleClass 索引类别编号。
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum SourcePriority {
+    Local,
+    Plugin,
+    Remote,
+}
+impl Layer {
+    const ORDER: [Self; 3] = [Self::Local, Self::Plugin, Self::Remote];
+    fn priority(self) -> SourcePriority {
+        match self {
+            Self::Local => SourcePriority::Local,
+            Self::Plugin => SourcePriority::Plugin,
+            Self::Remote => SourcePriority::Remote,
+        }
+    }
+}
+// 类型执行优先级独立于索引槽位，不能按 RuleClass 数字大小选择。
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum TypePriority {
+    Process,
+    Protocol,
+    Port,
+    Domain,
+    Suffix,
+    Keyword,
+    Ip,
+    GeoIp,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
@@ -174,7 +206,7 @@ impl SourceInput {
             Self::Clash(source) => {
                 identifier(&source.id)?;
                 if let Some(id) = &source.outbound {
-                    identifier(id)?;
+                    super::outbound_name(id)?;
                     if source.policy != Policy::Proxy {
                         return Err(Error::InvalidInput);
                     }
@@ -298,37 +330,37 @@ pub(super) enum RuleClass {
     LocalDomain = 2,
     LocalDomainSuffix = 3,
     LocalPortTransport = 4,
-    RemoteIp = 5,
-    RemoteDomain = 6,
-    RemoteDomainSuffix = 7,
-    RemotePortTransport = 8,
+    PluginRemoteIp = 5,
+    PluginRemoteDomain = 6,
+    PluginRemoteDomainSuffix = 7,
+    PluginRemotePortTransport = 8,
     LocalKeyword = 9,
-    RemoteKeyword = 10,
+    PluginRemoteKeyword = 10,
     // 独立槽位避免不匹配协议遮蔽同域其他候选；编号仍不表示优先级。
     RejectTcp = 11,
     RejectUdp = 12,
     LocalDomainTcp = 13,
-    RemoteDomainTcp = 14,
+    PluginRemoteDomainTcp = 14,
     LocalDomainUdp = 15,
-    RemoteDomainUdp = 16,
+    PluginRemoteDomainUdp = 16,
     LocalSuffixTcp = 17,
-    RemoteSuffixTcp = 18,
+    PluginRemoteSuffixTcp = 18,
     LocalSuffixUdp = 19,
-    RemoteSuffixUdp = 20,
+    PluginRemoteSuffixUdp = 20,
 }
 impl RuleClass {
-    pub(super) const COUNT: usize = Self::RemoteSuffixUdp as usize + 1;
+    pub(super) const COUNT: usize = Self::PluginRemoteSuffixUdp as usize + 1;
     fn local_equivalent(self) -> Self {
         match self {
-            Self::RemoteIp => Self::LocalIp,
-            Self::RemoteDomain => Self::LocalDomain,
-            Self::RemoteDomainSuffix => Self::LocalDomainSuffix,
-            Self::RemotePortTransport => Self::LocalPortTransport,
-            Self::RemoteKeyword => Self::LocalKeyword,
-            Self::RemoteDomainTcp => Self::LocalDomainTcp,
-            Self::RemoteDomainUdp => Self::LocalDomainUdp,
-            Self::RemoteSuffixTcp => Self::LocalSuffixTcp,
-            Self::RemoteSuffixUdp => Self::LocalSuffixUdp,
+            Self::PluginRemoteIp => Self::LocalIp,
+            Self::PluginRemoteDomain => Self::LocalDomain,
+            Self::PluginRemoteDomainSuffix => Self::LocalDomainSuffix,
+            Self::PluginRemotePortTransport => Self::LocalPortTransport,
+            Self::PluginRemoteKeyword => Self::LocalKeyword,
+            Self::PluginRemoteDomainTcp => Self::LocalDomainTcp,
+            Self::PluginRemoteDomainUdp => Self::LocalDomainUdp,
+            Self::PluginRemoteSuffixTcp => Self::LocalSuffixTcp,
+            Self::PluginRemoteSuffixUdp => Self::LocalSuffixUdp,
             other => other,
         }
     }
@@ -340,9 +372,21 @@ pub(super) struct Entry {
     policy: Policy,
 }
 impl Entry {
-    // 索引槽位按来源存放；选择顺序另按类型优先，本地只在同类型内优先。
+    // 非本地槽位由 Plugin/Remote 共享，编译先插件后远程，故同类型首次命中不会丢掉更高来源。
+    // 实际裁决读取每条规则的真实 Layer；槽位名及编号绝不等同来源或优先级。
     pub(super) fn class(&self) -> RuleClass {
-        if self.policy == Policy::Reject {
+        // QUIC 限定后缀复用 UDP 协议后缀槽：只有已识别时才查询独立森林根。
+        // 同来源的 UDP/QUIC 协议条件按原始顺序裁决，避免给每个索引节点增加无用槽位。
+        if matches!(self.matcher, Matcher::DomainQuic(_)) {
+            return if self.policy == Policy::Reject {
+                RuleClass::RejectUdp
+            } else if self.layer == Layer::Local {
+                RuleClass::LocalSuffixUdp
+            } else {
+                RuleClass::PluginRemoteSuffixUdp
+            };
+        }
+        if self.special_reject() {
             return match self.protocol {
                 None => RuleClass::Reject,
                 Some(super::Transport::Tcp) => RuleClass::RejectTcp,
@@ -354,50 +398,79 @@ impl Entry {
                 (Matcher::Domain(_, false), Layer::Local, super::Transport::Tcp) => {
                     RuleClass::LocalDomainTcp
                 }
-                (Matcher::Domain(_, false), Layer::Remote, super::Transport::Tcp) => {
-                    RuleClass::RemoteDomainTcp
-                }
+                (
+                    Matcher::Domain(_, false),
+                    Layer::Plugin | Layer::Remote,
+                    super::Transport::Tcp,
+                ) => RuleClass::PluginRemoteDomainTcp,
                 (Matcher::Domain(_, false), Layer::Local, super::Transport::Udp) => {
                     RuleClass::LocalDomainUdp
                 }
-                (Matcher::Domain(_, false), Layer::Remote, super::Transport::Udp) => {
-                    RuleClass::RemoteDomainUdp
-                }
+                (
+                    Matcher::Domain(_, false),
+                    Layer::Plugin | Layer::Remote,
+                    super::Transport::Udp,
+                ) => RuleClass::PluginRemoteDomainUdp,
                 (Matcher::Domain(_, true), Layer::Local, super::Transport::Tcp) => {
                     RuleClass::LocalSuffixTcp
                 }
-                (Matcher::Domain(_, true), Layer::Remote, super::Transport::Tcp) => {
-                    RuleClass::RemoteSuffixTcp
-                }
+                (
+                    Matcher::Domain(_, true),
+                    Layer::Plugin | Layer::Remote,
+                    super::Transport::Tcp,
+                ) => RuleClass::PluginRemoteSuffixTcp,
                 (Matcher::Domain(_, true), Layer::Local, super::Transport::Udp) => {
                     RuleClass::LocalSuffixUdp
                 }
-                (Matcher::Domain(_, true), Layer::Remote, super::Transport::Udp) => {
-                    RuleClass::RemoteSuffixUdp
-                }
+                (
+                    Matcher::Domain(_, true),
+                    Layer::Plugin | Layer::Remote,
+                    super::Transport::Udp,
+                ) => RuleClass::PluginRemoteSuffixUdp,
                 _ => unreachable!("组合规则已完成域名类型校验"),
             };
         }
         match (&self.matcher, self.layer) {
-            (Matcher::Network(_), Layer::Local) => RuleClass::LocalIp,
-            (Matcher::Network(_), Layer::Remote) => RuleClass::RemoteIp,
+            (Matcher::Network(_) | Matcher::GeoIp(_), Layer::Local) => RuleClass::LocalIp,
+            (Matcher::Network(_) | Matcher::GeoIp(_), Layer::Plugin | Layer::Remote) => {
+                RuleClass::PluginRemoteIp
+            }
             (Matcher::Domain(_, false), Layer::Local) => RuleClass::LocalDomain,
-            (Matcher::Domain(_, false), Layer::Remote) => RuleClass::RemoteDomain,
+            (Matcher::Domain(_, false), Layer::Plugin | Layer::Remote) => {
+                RuleClass::PluginRemoteDomain
+            }
             (Matcher::Domain(_, true), Layer::Local) => RuleClass::LocalDomainSuffix,
-            (Matcher::Domain(_, true), Layer::Remote) => RuleClass::RemoteDomainSuffix,
+            (Matcher::Domain(_, true), Layer::Plugin | Layer::Remote) => {
+                RuleClass::PluginRemoteDomainSuffix
+            }
             (Matcher::Keyword(_), Layer::Local) => RuleClass::LocalKeyword,
-            (Matcher::Keyword(_), Layer::Remote) => RuleClass::RemoteKeyword,
+            (Matcher::Keyword(_), Layer::Plugin | Layer::Remote) => RuleClass::PluginRemoteKeyword,
             (_, Layer::Local) => RuleClass::LocalPortTransport,
-            (_, Layer::Remote) => RuleClass::RemotePortTransport,
+            (_, Layer::Plugin | Layer::Remote) => RuleClass::PluginRemotePortTransport,
         }
+    }
+    fn special_reject(&self) -> bool {
+        self.policy == Policy::Reject
+            && (self.protocol.is_some()
+                || matches!(
+                    self.matcher,
+                    Matcher::Domain(_, false)
+                        | Matcher::Network(_)
+                        | Matcher::GeoIp(_)
+                        | Matcher::Port(..)
+                        | Matcher::DomainPort(..)
+                        | Matcher::DomainQuic(_)
+                        | Matcher::Transport(_)
+                        | Matcher::Quic
+                ))
     }
 }
 /// 只读执行索引与资源所有者；报告信任程度不参与策略匹配。
 // QUIC 属于 UDP 数据面识别，不扩充正式候选槽位；编译和缓存恢复共用此准入判断。
-fn quic_guard(entries: &[Entry]) -> bool {
+fn quic_guard(entries: &[Entry]) -> Option<usize> {
     entries
         .iter()
-        .any(|entry| matches!(entry.matcher, Matcher::Quic) && entry.policy == Policy::Reject)
+        .position(|entry| matches!(entry.matcher, Matcher::Quic) && entry.policy == Policy::Reject)
 }
 pub struct Snapshot {
     instance: u64,
@@ -408,11 +481,20 @@ pub struct Snapshot {
     _flat_memory: Option<ByteLease>,
     _memory: ByteLease,
     quic_blocked: bool,
+    quic_rule: Option<usize>,
+    has_geoip: bool,
+    has_process: bool,
+    geoip: Option<std::sync::Arc<crate::geoip::Database>>,
     report_verification: ReportVerification,
 }
 pub(crate) fn normalize_condition(rule: &Rule) -> Result<String> {
     let value = match matcher(rule.r#type, &rule.value)? {
-        Matcher::Domain(value, _) | Matcher::Keyword(value) => value,
+        Matcher::Domain(value, _)
+        | Matcher::Keyword(value)
+        | Matcher::DomainQuic(value)
+        | Matcher::GeoIp(value)
+        | Matcher::ProcessName(value) => value,
+        Matcher::DomainPort(value, port) => format!("{port},{value}"),
         Matcher::Network(network) => network.canonical(),
         Matcher::Port(first, last) => {
             if first == last {
@@ -452,10 +534,22 @@ fn key(rule: &Rule) -> (Match, String) {
 // 按输入扫描估算，不为估算复制规则；估算是准入策略，不是分配器硬上限。
 fn rule_charge(rule: &Rule) -> Result<usize> {
     validate_rule_action(rule)?;
-    if rule.value.len() > 253 || rule.outbound.as_ref().is_some_and(|id| id.len() > 64) {
+    if rule.value.len()
+        > if rule.r#type == Match::DomainPort {
+            super::MAX_DOMAIN_PORT_BYTES
+        } else if rule.r#type == Match::ProcessName {
+            crate::routing::MAX_PROCESS_NAME_BYTES
+        } else {
+            253
+        }
+        || rule.outbound.as_ref().is_some_and(|id| id.len() > 128)
+    {
         return Err(Error::InvalidInput);
     }
-    let labels = if rule.r#type == Match::DomainSuffix {
+    let labels = if matches!(
+        rule.r#type,
+        Match::DomainSuffix | Match::DomainPort | Match::DomainQuic
+    ) {
         rule.value.split('.').count()
     } else {
         0
@@ -489,7 +583,14 @@ pub(super) fn source_input_charge(source: &Source) -> Result<usize> {
         .ok_or(Error::ResourceLimit)?;
     source.rules.iter().try_fold(bytes, |sum, rule| {
         validate_rule_action(rule)?;
-        if rule.value.len() > 253 || rule.outbound.as_ref().is_some_and(|id| id.len() > 64) {
+        if rule.value.len()
+            > if rule.r#type == Match::DomainPort {
+                super::MAX_DOMAIN_PORT_BYTES
+            } else {
+                253
+            }
+            || rule.outbound.as_ref().is_some_and(|id| id.len() > 128)
+        {
             return Err(Error::InvalidInput);
         }
         let strings = rule
@@ -566,11 +667,9 @@ fn validate_settings(settings: &Config) -> Result<()> {
         return Err(Error::InvalidInput);
     }
     if let Some(id) = &settings.outbound {
-        identifier(id)?;
+        super::outbound_name(id)?;
     }
-    if (settings.mode == Mode::Global || settings.fallback == Policy::Proxy)
-        && settings.outbound.is_none()
-    {
+    if settings.fallback == Policy::Proxy && settings.outbound.is_none() {
         return Err(Error::InvalidInput);
     }
     Ok(())
@@ -606,10 +705,11 @@ impl Snapshot {
         let mut entries = Vec::new();
         let mut exact =
             HashMap::<(Match, String, Option<super::Transport>, u8, Option<String>), usize>::new();
-        let mut conditions = HashMap::<(u8, Match, String, Option<super::Transport>), usize>::new();
+        let mut conditions =
+            HashMap::<(Layer, Match, String, Option<super::Transport>), usize>::new();
         let mut coverage = Index::default();
-        // 本地总是在远程之前编译；同层级保持输入订阅顺序与各订阅内部序号。
-        for layer in [Layer::Local, Layer::Remote] {
+        // 来源先按本地、插件、远程编译；同层级保留输入来源顺序及来源内规则序号。
+        for layer in Layer::ORDER {
             for (source_id, source) in sources
                 .iter()
                 .enumerate()
@@ -654,7 +754,7 @@ impl Snapshot {
                         policy: rule.policy,
                     };
                     if rule.policy != Policy::Reject {
-                        let level = u8::from(layer == Layer::Remote);
+                        let level = layer;
                         let condition = (level, kind, value.clone(), rule.protocol);
                         let same = conditions.get(&condition).copied();
                         let covered = coverage.coverage(&entry.matcher);
@@ -662,7 +762,7 @@ impl Snapshot {
                             // 只裁剪同类包含关系；绝不由 DNS 的偶然结果裁剪跨 IP/域名规则。
                             let class = entry.class();
                             covered.get(class as usize).or_else(|| {
-                                if layer == Layer::Remote {
+                                if layer != Layer::Local {
                                     covered.get(class.local_equivalent() as usize)
                                 } else {
                                     None
@@ -706,7 +806,17 @@ impl Snapshot {
         drop(coverage);
         document.report.effective = entries.len();
         let index = Index::compile(&entries)?;
-        let quic_blocked = quic_guard(&entries);
+        let has_process = entries
+            .iter()
+            .any(|entry| matches!(entry.matcher, Matcher::ProcessName(_)));
+        // global/direct 忽略普通国家规则，不查询其数据库或制造无关依赖故障。
+        // 只有规则模式或仍有效的特殊 GeoIP REJECT 才要求 Ready。
+        let has_geoip = entries.iter().any(|entry| {
+            matches!(entry.matcher, Matcher::GeoIp(_))
+                && (document.settings.mode == Mode::Rules || entry.policy == Policy::Reject)
+        });
+        let quic_rule = quic_guard(&entries);
+        let quic_blocked = quic_rule.is_some();
         Ok(Self {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
@@ -715,6 +825,10 @@ impl Snapshot {
             flat: None,
             _flat_memory: None,
             quic_blocked,
+            quic_rule,
+            has_geoip,
+            has_process,
+            geoip: None,
             _memory: memory,
             report_verification: ReportVerification::VerifiedFromSources,
         })
@@ -866,7 +980,7 @@ impl Snapshot {
                 .get(usize::from(effective.origin.source))
                 .ok_or(Error::InvalidInput)?;
             let order = (
-                u8::from(source.layer == Layer::Remote),
+                source.layer.priority(),
                 effective.origin.source,
                 effective.origin.sequence,
             );
@@ -880,11 +994,7 @@ impl Snapshot {
                         .get(usize::from(origin.source))
                         .ok_or(Error::InvalidInput)?
                         .layer;
-                    let duplicate_order = (
-                        u8::from(layer == Layer::Remote),
-                        origin.source,
-                        origin.sequence,
-                    );
+                    let duplicate_order = (layer.priority(), origin.source, origin.sequence);
                     if duplicate_order <= order {
                         return Err(Error::InvalidInput);
                     }
@@ -1002,7 +1112,17 @@ impl Snapshot {
         } else {
             Index::default()
         };
-        let quic_blocked = quic_guard(&entries);
+        let has_process = entries
+            .iter()
+            .any(|entry| matches!(entry.matcher, Matcher::ProcessName(_)));
+        // global/direct 忽略普通国家规则，不查询其数据库或制造无关依赖故障。
+        // 只有规则模式或仍有效的特殊 GeoIP REJECT 才要求 Ready。
+        let has_geoip = entries.iter().any(|entry| {
+            matches!(entry.matcher, Matcher::GeoIp(_))
+                && (document.settings.mode == Mode::Rules || entry.policy == Policy::Reject)
+        });
+        let quic_rule = quic_guard(&entries);
+        let quic_blocked = quic_rule.is_some();
         Ok(Self {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
@@ -1011,6 +1131,10 @@ impl Snapshot {
             flat: None,
             _flat_memory: None,
             quic_blocked,
+            quic_rule,
+            has_geoip,
+            has_process,
+            geoip: None,
             _memory: memory,
             report_verification: ReportVerification::StructuralOnly,
         })
@@ -1094,15 +1218,52 @@ impl Snapshot {
         port: u16,
         transport: super::Transport,
     ) -> Candidates {
-        match &self.flat {
+        let query = |name, ip| match &self.flat {
             Some(index) => index.query(name, ip, port, transport),
             None => self.index.query(name, ip, port, transport),
+        };
+        if self.document.settings.mode == Mode::Rules {
+            return query(name, ip);
         }
+        let mut values = Candidates::default();
+        let domain = name
+            .map(|name| self.domain_candidates(name, port, transport))
+            .unwrap_or_default();
+        if Self::reject_candidate(domain).is_some() {
+            values.merge(domain);
+        } else {
+            // 普通域名在 global/direct 中无效，不能抢先决定或阻止真实 IP 拦截查询。
+            values.merge(query(None, ip));
+        }
+        let transport_values = query(None, None);
+        for class in [
+            RuleClass::Reject,
+            RuleClass::RejectTcp,
+            RuleClass::RejectUdp,
+        ] {
+            if let Some(id) = transport_values.get(class as usize) {
+                values.add(class as usize, id as u32);
+            }
+        }
+        let mut rejects = Candidates::default();
+        for class in [
+            RuleClass::Reject,
+            RuleClass::RejectTcp,
+            RuleClass::RejectUdp,
+        ] {
+            if let Some(id) = values.get(class as usize) {
+                rejects.add(class as usize, id as u32);
+            }
+        }
+        rejects
     }
-    fn domain_candidates(&self, name: &str, transport: super::Transport) -> Candidates {
+    fn domain_candidates(&self, name: &str, port: u16, transport: super::Transport) -> Candidates {
         match &self.flat {
-            Some(index) => index.domain_candidates(name).for_transport(transport),
-            None => self.index.domain_candidates(name).for_transport(transport),
+            Some(index) => index.domain_candidates(name, port).for_transport(transport),
+            None => self
+                .index
+                .domain_candidates(name, port)
+                .for_transport(transport),
         }
     }
     pub fn blocks_transport(&self, transport: super::Transport) -> bool {
@@ -1110,6 +1271,221 @@ impl Snapshot {
             .get(RuleClass::Reject as usize)
             .is_some()
     }
+    pub(crate) fn needs_process(&self) -> bool {
+        self.has_process && self.document.settings.mode == Mode::Rules
+    }
+    fn merge_process(&self, process: Option<&str>, mut values: Candidates) -> Result<Candidates> {
+        if !self.needs_process() {
+            return Ok(values);
+        }
+        let Some(process) = process else {
+            return Ok(values);
+        }; // OS 无法确定时按用户约定跳过。
+        if process.len() > crate::routing::MAX_PROCESS_NAME_BYTES {
+            return Err(Error::ResourceLimit);
+        }
+        let matched = match &self.flat {
+            Some(index) => index.process_candidates(process),
+            None => self.index.process_candidates(process),
+        };
+        for (slot, id) in matched
+            .0
+            .into_iter()
+            .enumerate()
+            .filter(|(_, id)| *id != index::NONE)
+        {
+            if values.get(slot).is_none_or(|old| {
+                self.candidate_priority(id as usize) < self.candidate_priority(old)
+            }) {
+                values.0[slot] = id;
+            }
+        }
+        Ok(values)
+    }
+    pub(crate) fn require_ready_geoip(&self) -> Result<()> {
+        if self.has_geoip && self.geoip.is_none() {
+            Err(Error::GeoipInitializationFailed)
+        } else {
+            Ok(())
+        }
+    }
+    /// Ready 服务对象由内核验证后绑定；数据库及其预算随真实快照引用存活。
+    pub(crate) fn bind_geoip(mut self, database: std::sync::Arc<crate::geoip::Database>) -> Self {
+        self.geoip = Some(database);
+        self
+    }
+    fn geoip_candidates(&self, target: &Target) -> Result<Candidates> {
+        if !self.has_geoip {
+            return Ok(Candidates::default());
+        }
+        let database = self
+            .geoip
+            .as_ref()
+            .ok_or(Error::GeoipInitializationFailed)?;
+        let (name, address) = Self::metadata(target)?;
+        let Some(address) = address else {
+            return Ok(Candidates::default());
+        };
+        if name.as_deref().is_some_and(|name| {
+            let domain = self.domain_candidates(name, target.port, target.transport);
+            if self.document.settings.mode == Mode::Rules {
+                domain.any()
+            } else {
+                Self::reject_candidate(domain).is_some()
+            }
+        }) {
+            return Ok(Candidates::default());
+        }
+        let Some(code) = database.country_code(address)? else {
+            return Ok(Candidates::default());
+        };
+        let mut values = match &self.flat {
+            Some(index) => index.geoip_candidates(code),
+            None => self.index.geoip_candidates(code),
+        };
+        if self.document.settings.mode != Mode::Rules {
+            let reject = Self::reject_candidate(values);
+            values = Candidates::default();
+            if let Some(id) = reject {
+                values.add(RuleClass::Reject as usize, id as u32);
+            }
+        }
+        Ok(values)
+    }
+    fn merge_geoip(&self, target: &Target, mut values: Candidates) -> Result<Candidates> {
+        let geoip = self.geoip_candidates(target)?;
+        for (slot, id) in geoip
+            .0
+            .into_iter()
+            .enumerate()
+            .filter(|(_, id)| *id != index::NONE)
+        {
+            let selected = values.get(slot);
+            // GeoIP 属于 IP 阶段；按用户最新确认，同来源显式 CIDR 优先 GeoIP。
+            // 特殊 REJECT 不适用来源/类型排序，沿用该集合原有最早候选语义。
+            let special = matches!(slot, s if s == RuleClass::Reject as usize
+                || s == RuleClass::RejectTcp as usize || s == RuleClass::RejectUdp as usize);
+            if selected.is_none_or(|old| {
+                if special {
+                    (id as usize) < old
+                } else {
+                    self.candidate_priority(id as usize) < self.candidate_priority(old)
+                }
+            }) {
+                values.0[slot] = id;
+            }
+        }
+        Ok(values)
+    }
+    fn quic_candidates(&self, name: &str) -> Candidates {
+        match &self.flat {
+            Some(index) => index.quic_candidates(name),
+            None => self.index.quic_candidates(name),
+        }
+    }
+    pub(crate) fn needs_datagram(&self, target: &Target) -> Result<bool> {
+        let (name, _) = Self::metadata(target)?;
+        Ok(target.transport == super::Transport::Udp
+            && name.is_some_and(|name| {
+                let values = self.quic_candidates(&name);
+                if self.document.settings.mode == Mode::Rules {
+                    values.any()
+                } else {
+                    Self::reject_candidate(values).is_some()
+                }
+            }))
+    }
+    fn datagram_query(&self, target: &Target, identified: bool) -> Result<Candidates> {
+        self.require_ready_geoip()?;
+        if identified && target.transport != super::Transport::Udp {
+            return Err(Error::InvalidInput);
+        }
+        let (name, address) = Self::metadata(target)?;
+        let mut scoped = if identified {
+            name.as_deref()
+                .map_or_else(Candidates::default, |name| self.quic_candidates(name))
+        } else {
+            Candidates::default()
+        };
+        if self.document.settings.mode != Mode::Rules {
+            let reject = scoped.get(RuleClass::RejectUdp as usize);
+            scoped = Candidates::default();
+            if let Some(id) = reject {
+                scoped.add(RuleClass::RejectUdp as usize, id as u32);
+            }
+        }
+        // 实际命中的 QUIC+域名也是域名阶段命中，必须跳过 IP 规则。
+        let mut values = self.query(
+            name.as_deref(),
+            if scoped.any() { None } else { address },
+            target.port,
+            target.transport,
+        );
+        values.merge(scoped);
+        if identified && let Some(id) = self.quic_rule {
+            values.add(RuleClass::Reject as usize, id as u32);
+        }
+        if scoped.any() {
+            Ok(values)
+        } else {
+            self.merge_geoip(target, values)
+        }
+    }
+    pub(crate) fn evaluate_identified(
+        &self,
+        target: &Target,
+        identified: bool,
+    ) -> Result<Decision> {
+        self.evaluate_facts(target, identified, None)
+    }
+    pub(crate) fn evaluate_facts(
+        &self,
+        target: &Target,
+        identified: bool,
+        process: Option<&str>,
+    ) -> Result<Decision> {
+        Ok(self.decide(
+            self.selected(self.merge_process(process, self.datagram_query(target, identified)?)?),
+        ))
+    }
+    /// 根据实际首个 UDP 报文匹配 QUIC 条件；端口、域名或调用者布尔声明不能代替报文识别。
+    /// 例如 protocol,quic,example.com,reject 仅命中该域及子域的已识别 QUIC。
+    pub fn evaluate_datagram(&self, target: &Target, bytes: &[u8]) -> Result<Decision> {
+        let identified = Self::identify_datagram(target, bytes)?;
+        self.evaluate_identified(target, identified)
+    }
+    pub(crate) fn identify_datagram(target: &Target, bytes: &[u8]) -> Result<bool> {
+        if target.transport != super::Transport::Udp {
+            return Err(Error::InvalidInput);
+        }
+        if bytes.len() > crate::outbound::MAX_DATAGRAM {
+            return Err(Error::ResourceLimit);
+        }
+        Ok(crate::protocol::quic::Flow::default().observe(bytes))
+    }
+    pub(crate) fn before_dns_facts(
+        &self,
+        target: &Target,
+        identified: bool,
+        process: Option<&str>,
+    ) -> Result<Option<Decision>> {
+        let (name, address) = Self::metadata(target)?;
+        let values = self.merge_process(process, self.datagram_query(target, identified)?)?;
+        if Self::reject_candidate(values).is_some() {
+            return Ok(Some(self.decide(self.selected(values))));
+        }
+        let domain_hit = name.as_deref().is_some_and(|name| {
+            self.domain_candidates(name, target.port, target.transport)
+                .any()
+                || (identified && self.quic_candidates(name).any())
+        });
+        if address.is_some() || (domain_hit && self.document.settings.mode == Mode::Rules) {
+            Ok(Some(self.decide(self.selected(values))))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn blocks_quic(&self) -> bool {
         self.quic_blocked
     }
@@ -1159,34 +1535,37 @@ impl Snapshot {
         .filter_map(|class| values.get(class as usize))
         .min()
     }
-    fn selected(values: Candidates) -> Option<usize> {
+    fn selected(&self, values: Candidates) -> Option<usize> {
         if let Some(reject) = Self::reject_candidate(values) {
             return Some(reject);
         }
-        // 域名命中时索引已跳过 IP。普通域名/IP 候选先于端口/全域传输候选，
-        // 本地只在同类型内优先；关键词也是域名规则，不能被本地端口越级覆盖。
-        [
-            RuleClass::LocalIp,
-            RuleClass::RemoteIp,
-            RuleClass::LocalDomainTcp,
-            RuleClass::RemoteDomainTcp,
-            RuleClass::LocalDomainUdp,
-            RuleClass::RemoteDomainUdp,
-            RuleClass::LocalSuffixTcp,
-            RuleClass::RemoteSuffixTcp,
-            RuleClass::LocalSuffixUdp,
-            RuleClass::RemoteSuffixUdp,
-            RuleClass::LocalDomain,
-            RuleClass::RemoteDomain,
-            RuleClass::LocalDomainSuffix,
-            RuleClass::RemoteDomainSuffix,
-            RuleClass::LocalKeyword,
-            RuleClass::RemoteKeyword,
-            RuleClass::LocalPortTransport,
-            RuleClass::RemotePortTransport,
-        ]
-        .into_iter()
-        .find_map(|class| values.get(class as usize))
+        // 索引只提供候选；按真实来源、独立类型优先级、原始先后裁决。
+        // 插件先编译使共享候选槽始终保留插件/远程中更高来源的最早匹配项。
+        values
+            .0
+            .into_iter()
+            .filter(|id| *id != index::NONE)
+            .map(|id| id as usize)
+            .min_by_key(|id| self.candidate_priority(*id))
+    }
+    fn candidate_priority(&self, id: usize) -> (SourcePriority, TypePriority, usize) {
+        let row = &self.document.rules[id];
+        let layer = self.document.sources[usize::from(row.origin.source)].layer;
+        let kind = if row.rule.protocol.is_some() {
+            TypePriority::Protocol
+        } else {
+            match row.rule.r#type {
+                Match::ProcessName => TypePriority::Process,
+                Match::Transport | Match::DomainQuic => TypePriority::Protocol,
+                Match::DestinationPort | Match::DomainPort => TypePriority::Port,
+                Match::Domain => TypePriority::Domain,
+                Match::DomainSuffix => TypePriority::Suffix,
+                Match::DomainKeyword => TypePriority::Keyword,
+                Match::IpCidr => TypePriority::Ip,
+                Match::GeoIp => TypePriority::GeoIp,
+            }
+        };
+        (layer.priority(), kind, id)
     }
 
     fn decide(&self, winner: Option<usize>) -> Decision {
@@ -1206,7 +1585,7 @@ impl Snapshot {
         }
         let (policy, reason) = match settings.mode {
             Mode::Direct => (Policy::Direct, Reason::Mode),
-            Mode::Global => (Policy::Proxy, Reason::Mode),
+            Mode::Global => (settings.fallback, Reason::Mode),
             Mode::Rules => (settings.fallback, Reason::Fallback),
         };
         Decision {
@@ -1224,35 +1603,46 @@ impl Snapshot {
     }
     /// 纯索引查询；域名命中跳过 IP，域名未命中的连接须解析并检查全部候选。
     pub fn evaluate(&self, target: &Target) -> Result<Decision> {
-        let (name, address) = Self::metadata(target)?;
-        Ok(self.decide(Self::selected(self.query(
-            name.as_deref(),
-            address,
-            target.port,
-            target.transport,
-        ))))
+        self.evaluate_facts(target, false, None)
     }
     /// 域名命中直接决定动作；未命中时等待真实 DNS 后查询 IP。
     pub fn evaluate_before_dns(&self, target: &Target) -> Result<Option<Decision>> {
         let (name, address) = Self::metadata(target)?;
-        let values = self.query(name.as_deref(), address, target.port, target.transport);
+        let values = self.merge_geoip(
+            target,
+            self.query(name.as_deref(), address, target.port, target.transport),
+        )?;
         if let Some(id) = Self::reject_candidate(values) {
             return Ok(Some(self.decide(Some(id))));
         }
-        if name
-            .as_deref()
-            .is_some_and(|name| self.domain_candidates(name, target.transport).any())
+        if self.document.settings.mode == Mode::Rules
+            && name.as_deref().is_some_and(|name| {
+                self.domain_candidates(name, target.port, target.transport)
+                    .any()
+            })
         {
-            return Ok(Some(self.decide(Self::selected(values))));
+            return Ok(Some(self.decide(self.selected(values))));
         }
         if address.is_none() {
             return Ok(None);
         }
-        Ok(Some(self.decide(Self::selected(values))))
+        Ok(Some(self.decide(self.selected(values))))
     }
     /// 新语义的线性参考匹配器，仅用于验证和基准对照，不接入高频连接路径。
     pub fn evaluate_reference(&self, target: &Target) -> Result<Decision> {
+        self.evaluate_reference_identified(target, false)
+    }
+    fn evaluate_reference_identified(&self, target: &Target, quic: bool) -> Result<Decision> {
+        self.evaluate_reference_facts(target, quic, None)
+    }
+    fn evaluate_reference_facts(
+        &self,
+        target: &Target,
+        quic: bool,
+        process: Option<&str>,
+    ) -> Result<Decision> {
         let (name, address) = Self::metadata(target)?;
+        self.require_ready_geoip()?;
         // 平铺快照不常驻 Matcher 副本；参考实现仅在显式验证时临时恢复，绝不接入查询路径。
         // 并发显式参考验证也预留独立预算，不能用验证入口绕过临时对象配额。
         let _reference_memory = if self.flat.is_some() {
@@ -1279,10 +1669,25 @@ impl Snapshot {
         } else {
             &self.entries
         };
-        // 独立线性预扫描确定域名是否命中；命中时不评估任何 IP 规则。
+        let active = |entry: &Entry| {
+            self.document.settings.mode == Mode::Rules
+                || (entry.policy == Policy::Reject
+                    && (entry.protocol.is_some()
+                        || matches!(
+                            entry.matcher,
+                            Matcher::Domain(_, false)
+                                | Matcher::Network(_)
+                                | Matcher::GeoIp(_)
+                                | Matcher::Port(..)
+                                | Matcher::DomainPort(..)
+                                | Matcher::DomainQuic(_)
+                                | Matcher::Transport(_)
+                                | Matcher::Quic
+                        )))
+        };
         let domain_hit = entries
             .iter()
-            .filter(|entry| entry.protocol.is_none_or(|p| p == target.transport))
+            .filter(|entry| active(entry) && entry.protocol.is_none_or(|p| p == target.transport))
             .any(|entry| match &entry.matcher {
                 Matcher::Domain(value, suffix) => name.as_ref().is_some_and(|name| {
                     name == value
@@ -1291,22 +1696,46 @@ impl Snapshot {
                                 .strip_suffix(value)
                                 .is_some_and(|prefix| prefix.ends_with('.')))
                 }),
-                Matcher::Keyword(value) => name.as_ref().is_some_and(|name| name.contains(value)),
+                Matcher::DomainQuic(value) => {
+                    quic && name.as_deref().is_some_and(|name| {
+                        name == value
+                            || name
+                                .strip_suffix(value)
+                                .is_some_and(|prefix| prefix.ends_with('.'))
+                    })
+                }
+                Matcher::DomainPort(value, port) => {
+                    *port == target.port
+                        && name.as_ref().is_some_and(|name| {
+                            name == value
+                                || name
+                                    .strip_suffix(value)
+                                    .is_some_and(|prefix| prefix.ends_with('.'))
+                        })
+                }
+                Matcher::Keyword(value) => name
+                    .as_deref()
+                    .and_then(super::keyword_subject)
+                    .is_some_and(|label| label.contains(value)),
                 _ => false,
             });
-        let mut reject = None;
-        let (
-            mut scoped_exact_local,
-            mut scoped_exact_remote,
-            mut scoped_suffix_local,
-            mut scoped_suffix_remote,
-        ) = (None, None, None, None);
-        let mut classes = [None; RuleClass::COUNT];
-        for (id, entry) in entries.iter().enumerate() {
-            if entry.protocol.is_some_and(|p| p != target.transport) {
-                continue;
+        let country = if !domain_hit && self.has_geoip {
+            let database = self
+                .geoip
+                .as_ref()
+                .ok_or(Error::GeoipInitializationFailed)?;
+            address
+                .map(|ip| database.country_code(ip))
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
+        let hit = |entry: &Entry| {
+            if !active(entry) || entry.protocol.is_some_and(|p| p != target.transport) {
+                return false;
             }
-            let matches = match &entry.matcher {
+            match &entry.matcher {
                 Matcher::Domain(value, suffix) => name.as_ref().is_some_and(|name| {
                     name == value
                         || (*suffix
@@ -1314,79 +1743,83 @@ impl Snapshot {
                                 .strip_suffix(value)
                                 .is_some_and(|prefix| prefix.ends_with('.')))
                 }),
-                Matcher::Keyword(value) => name.as_ref().is_some_and(|name| name.contains(value)),
+                Matcher::DomainQuic(value) => {
+                    quic && name.as_deref().is_some_and(|name| {
+                        name == value
+                            || name
+                                .strip_suffix(value)
+                                .is_some_and(|prefix| prefix.ends_with('.'))
+                    })
+                }
+                Matcher::DomainPort(value, port) => {
+                    *port == target.port
+                        && name.as_ref().is_some_and(|name| {
+                            name == value
+                                || name
+                                    .strip_suffix(value)
+                                    .is_some_and(|prefix| prefix.ends_with('.'))
+                        })
+                }
+                Matcher::Keyword(value) => name
+                    .as_deref()
+                    .and_then(super::keyword_subject)
+                    .is_some_and(|label| label.contains(value)),
+                Matcher::ProcessName(value) => process == Some(value.as_str()),
+                Matcher::GeoIp(code) => {
+                    !domain_hit && country.is_some_and(|country| country == code)
+                }
                 Matcher::Network(network) => {
                     !domain_hit && address.is_some_and(|ip| network.includes(ip))
                 }
                 Matcher::Port(first, last) => (*first..=*last).contains(&target.port),
                 Matcher::Transport(value) => *value == target.transport,
-                Matcher::Quic => false,
-            };
-            if !matches {
-                continue;
+                Matcher::Quic => quic,
             }
-            if entry.policy == Policy::Reject {
-                reject.get_or_insert(id);
-                continue;
+        };
+        for (id, entry) in entries.iter().enumerate() {
+            let reject = entry.policy == Policy::Reject
+                && (entry.protocol.is_some()
+                    || matches!(
+                        entry.matcher,
+                        Matcher::Domain(_, false)
+                            | Matcher::Network(_)
+                            | Matcher::GeoIp(_)
+                            | Matcher::Port(..)
+                            | Matcher::DomainPort(..)
+                            | Matcher::DomainQuic(_)
+                            | Matcher::Transport(_)
+                            | Matcher::Quic
+                    ));
+            if reject && hit(entry) {
+                return Ok(self.decide(Some(id)));
             }
-            if matches!(entry.matcher, Matcher::Keyword(_)) {
-                classes[if entry.layer == Layer::Local {
-                    RuleClass::LocalKeyword
-                } else {
-                    RuleClass::RemoteKeyword
-                } as usize]
-                    .get_or_insert(id);
-                continue;
-            }
-            if entry.protocol.is_some() {
-                // 独立按条件形态和来源选择，不调用 Entry::class 或生产候选裁决。
-                let slot = match (&entry.matcher, entry.layer) {
-                    (Matcher::Domain(_, false), Layer::Local) => &mut scoped_exact_local,
-                    (Matcher::Domain(_, false), Layer::Remote) => &mut scoped_exact_remote,
-                    (Matcher::Domain(_, true), Layer::Local) => &mut scoped_suffix_local,
-                    (Matcher::Domain(_, true), Layer::Remote) => &mut scoped_suffix_remote,
-                    _ => return Err(Error::InvalidInput),
-                };
-                slot.get_or_insert(id);
-                continue;
-            }
-            let class = match (&entry.matcher, entry.layer) {
-                (Matcher::Network(_), Layer::Local) => RuleClass::LocalIp,
-                (Matcher::Network(_), Layer::Remote) => RuleClass::RemoteIp,
-                (Matcher::Domain(_, false), Layer::Local) => RuleClass::LocalDomain,
-                (Matcher::Domain(_, false), Layer::Remote) => RuleClass::RemoteDomain,
-                (Matcher::Domain(_, true), Layer::Local) => RuleClass::LocalDomainSuffix,
-                (Matcher::Domain(_, true), Layer::Remote) => RuleClass::RemoteDomainSuffix,
-                (_, Layer::Local) => RuleClass::LocalPortTransport,
-                (_, Layer::Remote) => RuleClass::RemotePortTransport,
-            };
-            classes[class as usize].get_or_insert(id);
         }
-        if let Some(reject) = reject {
-            return Ok(self.decide(Some(reject)));
-        }
-        if let Some(id) = scoped_exact_local
-            .or(scoped_exact_remote)
-            .or(scoped_suffix_local)
-            .or(scoped_suffix_remote)
-        {
-            return Ok(self.decide(Some(id)));
-        }
-        // 独立参考实现显式遍历类型及来源，不复用索引选择函数。
-        // 逐层显式检查，不借用索引的候选合并逻辑。
-        for pair in [
-            [RuleClass::LocalIp, RuleClass::RemoteIp],
-            [RuleClass::LocalDomain, RuleClass::RemoteDomain],
-            [RuleClass::LocalDomainSuffix, RuleClass::RemoteDomainSuffix],
-            [RuleClass::LocalKeyword, RuleClass::RemoteKeyword],
-            [
-                RuleClass::LocalPortTransport,
-                RuleClass::RemotePortTransport,
-            ],
-        ] {
-            for class in pair {
-                if let Some(id) = classes[class as usize] {
-                    return Ok(self.decide(Some(id)));
+        // 独立遍历真实来源与条件形态，不调用索引槽位、Entry::class 或 selected。
+        for layer in [Layer::Local, Layer::Plugin, Layer::Remote] {
+            for kind in [
+                Match::ProcessName,
+                Match::Transport,
+                Match::DestinationPort,
+                Match::Domain,
+                Match::DomainSuffix,
+                Match::DomainKeyword,
+                Match::IpCidr,
+                Match::GeoIp,
+            ] {
+                for (id, entry) in entries.iter().enumerate() {
+                    let row = &self.document.rules[id].rule;
+                    let shape = if row.r#type == Match::DomainQuic {
+                        Match::Transport
+                    } else if row.r#type == Match::DomainPort {
+                        Match::DestinationPort
+                    } else if row.protocol.is_some() {
+                        Match::Transport
+                    } else {
+                        row.r#type
+                    };
+                    if entry.layer == layer && shape == kind && hit(entry) {
+                        return Ok(self.decide(Some(id)));
+                    }
                 }
             }
         }
@@ -1427,6 +1860,18 @@ impl Snapshot {
 /// 不做裁剪、不建立索引的参考实现，用于独立验证生成阶段没有改变规则含义。
 pub struct Reference(Snapshot);
 impl Reference {
+    /// 为独立参考匹配绑定真实 Ready 服务；不接入正常连接快路径。
+    pub fn compile_with_geoip(
+        settings: Config,
+        sources: Vec<Source>,
+        version: u64,
+        service: &crate::geoip::Service,
+    ) -> Result<Self> {
+        let database = service.database()?;
+        let mut reference = Self::compile(settings, sources, version)?;
+        reference.0 = reference.0.bind_geoip(database);
+        Ok(reference)
+    }
     pub fn compile(settings: Config, sources: Vec<Source>, version: u64) -> Result<Self> {
         validate_settings(&settings)?;
         if sources.len() > MAX_SOURCES || version == 0 {
@@ -1455,7 +1900,7 @@ impl Reference {
             report: Report::default(),
         };
         let mut entries = Vec::new();
-        for layer in [Layer::Local, Layer::Remote] {
+        for layer in Layer::ORDER {
             for (id, source) in sources
                 .iter()
                 .enumerate()
@@ -1482,7 +1927,17 @@ impl Reference {
         }
         document.report.original = entries.len();
         document.report.effective = entries.len();
-        let quic_blocked = quic_guard(&entries);
+        let has_process = entries
+            .iter()
+            .any(|entry| matches!(entry.matcher, Matcher::ProcessName(_)));
+        // global/direct 忽略普通国家规则，不查询其数据库或制造无关依赖故障。
+        // 只有规则模式或仍有效的特殊 GeoIP REJECT 才要求 Ready。
+        let has_geoip = entries.iter().any(|entry| {
+            matches!(entry.matcher, Matcher::GeoIp(_))
+                && (document.settings.mode == Mode::Rules || entry.policy == Policy::Reject)
+        });
+        let quic_rule = quic_guard(&entries);
+        let quic_blocked = quic_rule.is_some();
         Ok(Self(Snapshot {
             instance: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             document,
@@ -1491,12 +1946,21 @@ impl Reference {
             flat: None,
             _flat_memory: None,
             quic_blocked,
+            quic_rule,
+            has_geoip,
+            has_process,
+            geoip: None,
             _memory: memory,
             report_verification: ReportVerification::VerifiedFromSources,
         }))
     }
     pub fn evaluate(&self, target: &Target) -> Result<Decision> {
         self.0.evaluate_reference(target)
+    }
+    /// 参考实现独立遍历条件和来源；报文识别复用同一协议解析，不调用索引裁决。
+    pub fn evaluate_datagram(&self, target: &Target, bytes: &[u8]) -> Result<Decision> {
+        let quic = Snapshot::identify_datagram(target, bytes)?;
+        self.0.evaluate_reference_identified(target, quic)
     }
 }
 

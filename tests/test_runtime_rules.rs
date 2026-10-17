@@ -2,44 +2,48 @@
 //! 测试类型：集成测试、回归测试
 //! 测试对象：src/routing/runtime.rs、src/routing/store.rs、src/routing/background.rs
 //! 测试内容：
-//! - rejects_survive_coverage_and_every_mode：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - domain_match_skips_ip_for_domain_target：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - suffix_boundaries_cover_all_depths_and_rejects_are_not_pruned：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - only_complete_nonreject_coverage_is_removed：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - duplicates_record_origins_and_conflicts_choose_first：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - regeneration_restores_pruned_and_disabled_sources_stay_remote：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - domain_hit_decides_before_dns_and_domain_miss_waits：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - indexes_equal_reference_for_mixed_inputs_and_overlapping_ranges：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - strict_yaml_round_trip_unknown_duplicate_alias_and_depth：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - failed_update_preserves_disk_and_snapshot_and_close_releases_owner：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - port_partial_overlap_stays_and_full_coverage_is_pruned：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - exact_domain_precedes_earlier_suffix_across_source_layers：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - pruned_index_agrees_with_unpruned_reference_including_original_origin：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - keyword_reject_overrides_domain_actions_and_domain_hit_skips_ip：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - domain_branch_skips_ip_and_respects_domain_type_and_source_priority：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - clash_payload_is_strict_uppercase_and_supports_both_address_families：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - binary_cache_rejects_corruption_offsets_truncation_and_unknown_version：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - binary_cache_matches_all_matcher_shapes_before_and_after_reopen：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - generation_input_accepts_structured_and_clash_sources：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - empty_clash_payload_still_validates_outbound_metadata：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_primary_domain_and_ip_precede_local_port：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_global_transport_only_allows_reject_and_quic_is_not_udp：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_document_trust_requires_original_sources：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_invalid_documents_are_rejected_with_low_sensitive_locations：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_dns_before_after_matrix：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_resource_limits_reject_before_index_expansion：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_seeded_random_unpruned_differential_and_round_trip：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - binary_cache_fault_injection_never_panics_with_recomputed_checksum：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - formal_domain_transport_matrix_and_roundtrip：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - mismatched_scoped_domain_does_not_skip_ip_or_early_dns：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - formal_reject_and_same_type_local_precedence_survive_scoped_conditions：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rules：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - both_complete_yaml_examples_strictly_compile_formal_rules：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - duplicate_vec_capacity_is_accounted_without_false_rejection：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - local_plugin_remote_precedence_is_independent_of_slot_and_input_order：来源层级先于类型，逆序输入也保持本地/插件/远程。
+//! - special_reject_is_source_independent_but_suffix_and_keyword_are_ordinary：特殊与普通拒绝的独立矩阵。
+//! - ignored_domain_rules_in_global_direct_do_not_hide_ip_reject：模式忽略普通域名不能隐藏 IP 拒绝。
+//! - plugin_layer_round_trip_keeps_identity_and_shared_candidates：插件来源和共享候选在平铺缓存往返保持。
+//! - rejects_survive_coverage_and_every_mode：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - domain_match_skips_ip_for_domain_target：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - suffix_boundaries_cover_all_depths_and_rejects_are_not_pruned：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - only_complete_nonreject_coverage_is_removed：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - duplicates_record_origins_and_conflicts_choose_first：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - regeneration_restores_pruned_and_disabled_sources_stay_remote：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - domain_hit_decides_before_dns_and_domain_miss_waits：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - indexes_equal_reference_for_mixed_inputs_and_overlapping_ranges：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - strict_yaml_round_trip_unknown_duplicate_alias_and_depth：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - failed_update_preserves_disk_and_snapshot_and_close_releases_owner：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - port_partial_overlap_stays_and_full_coverage_is_pruned：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - source_precedes_type_but_exact_precedes_suffix_within_source：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - pruned_index_agrees_with_unpruned_reference_including_original_origin：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - keyword_reject_is_ordinary_and_domain_hit_skips_ip：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - domain_branch_skips_ip_and_respects_domain_type_and_source_priority：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - clash_payload_is_strict_uppercase_and_supports_both_address_families：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - binary_cache_rejects_corruption_offsets_truncation_and_unknown_version：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - binary_cache_matches_all_matcher_shapes_before_and_after_reopen：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - generation_input_accepts_structured_and_clash_sources：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - empty_clash_payload_still_validates_outbound_metadata：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_source_and_port_priority_matrix：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_global_transport_only_allows_reject_and_quic_is_not_udp：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_document_trust_requires_original_sources：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_invalid_documents_are_rejected_with_low_sensitive_locations：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_dns_before_after_matrix：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_resource_limits_reject_before_index_expansion：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_seeded_random_unpruned_differential_and_round_trip：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - binary_cache_fault_injection_never_panics_with_recomputed_checksum：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - formal_domain_transport_matrix_and_roundtrip：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - mismatched_scoped_domain_does_not_skip_ip_or_early_dns：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - formal_reject_and_same_type_local_precedence_survive_scoped_conditions：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rules：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - both_complete_yaml_examples_strictly_compile_formal_rules：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - duplicate_vec_capacity_is_accounted_without_false_rejection：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //!
 //! 测试依据：保留原有公开接口契约及全部断言；测试文件原注释保留在下方，L3 必须独立核对。
 //!
@@ -104,6 +108,7 @@ fn rejects_survive_coverage_and_every_mode() {
         let snapshot = Snapshot::generate(
             Config {
                 mode,
+                fallback: Policy::Direct,
                 outbound: Some("test".into()),
                 ..Config::default()
             },
@@ -131,7 +136,11 @@ fn rejects_survive_coverage_and_every_mode() {
                 .evaluate(&target("ads.bbb.com", "10.2.1.1"))
                 .unwrap()
                 .policy,
-            Policy::Reject
+            if mode == Mode::Rules {
+                Policy::Reject
+            } else {
+                Policy::Direct
+            }
         );
         assert_eq!(
             snapshot
@@ -186,13 +195,16 @@ fn suffix_boundaries_cover_all_depths_and_rejects_are_not_pruned() {
             Policy::Direct
         );
     }
-    for name in ["ads.bbb.com", "x.ads.bbb.com"] {
+    for (name, expected) in [
+        ("ads.bbb.com", Policy::Reject),
+        ("x.ads.bbb.com", Policy::Direct),
+    ] {
         assert_eq!(
             snapshot
                 .evaluate(&target(name, "192.0.2.1"))
                 .unwrap()
                 .policy,
-            Policy::Reject
+            expected
         );
     }
     for name in ["badbbb.com", "bbb.com.example.net"] {
@@ -499,7 +511,7 @@ fn port_partial_overlap_stays_and_full_coverage_is_pruned() {
 }
 
 #[test]
-fn exact_domain_precedes_earlier_suffix_across_source_layers() {
+fn source_precedes_type_but_exact_precedes_suffix_within_source() {
     let snapshot = build(
         vec![
             rule(Match::DomainSuffix, "bbb.com", Policy::Direct),
@@ -532,7 +544,7 @@ fn exact_domain_precedes_earlier_suffix_across_source_layers() {
             .evaluate(&target("aaa.bbb.com", "192.0.2.1"))
             .unwrap()
             .policy,
-        Policy::Proxy
+        Policy::Direct
     );
     let remote = build(
         vec![],
@@ -618,7 +630,7 @@ fn pruned_index_agrees_with_unpruned_reference_including_original_origin() {
 }
 
 #[test]
-fn keyword_reject_overrides_domain_actions_and_domain_hit_skips_ip() {
+fn keyword_reject_is_ordinary_and_domain_hit_skips_ip() {
     let snapshot = build(
         vec![rule(Match::DomainKeyword, "example", Policy::Direct)],
         vec![
@@ -629,10 +641,10 @@ fn keyword_reject_overrides_domain_actions_and_domain_hit_skips_ip() {
     );
     assert_eq!(snapshot.document().rules.len(), 4);
     for (name, ip, action) in [
-        ("a.example.com", "192.0.2.1", Policy::Proxy),
+        ("a.example.com", "192.0.2.1", Policy::Direct),
         ("myexample.net", "2001:db8::1", Policy::Direct),
         ("myexample.net", "192.0.2.1", Policy::Direct),
-        ("adexample.net", "2001:db8::1", Policy::Reject),
+        ("adexample.net", "2001:db8::1", Policy::Direct),
     ] {
         let request = target(name, ip);
         assert_eq!(snapshot.evaluate(&request).unwrap().policy, action);
@@ -659,27 +671,33 @@ fn keyword_reject_overrides_domain_actions_and_domain_hit_skips_ip() {
 
 #[test]
 fn domain_branch_skips_ip_and_respects_domain_type_and_source_priority() {
-    let kinds = [
-        Match::IpCidr,
-        Match::Domain,
-        Match::DomainSuffix,
-        Match::DomainKeyword,
+    // 独立顺序表：域名阶段先于 IP；普通域名内部先来源再类型。
+    let ordered = [
+        (Layer::Local, Match::Domain, "a.example.com"),
+        (Layer::Local, Match::DomainSuffix, "example.com"),
+        (Layer::Local, Match::DomainKeyword, "example"),
+        (Layer::Remote, Match::Domain, "a.example.com"),
+        (Layer::Remote, Match::DomainSuffix, "example.com"),
+        (Layer::Remote, Match::DomainKeyword, "example"),
+        (Layer::Local, Match::IpCidr, "2001:db8::/32"),
+        (Layer::Remote, Match::IpCidr, "2001:db8::/32"),
     ];
-    let values = ["2001:db8::/32", "a.example.com", "example.com", "example"];
-    for first in 0..8 {
-        for second in first + 1..8 {
-            let mut sources = Vec::new();
-            for (position, policy) in [(second, Policy::Direct), (first, Policy::Proxy)] {
-                sources.push(source(
-                    &format!("source-{position}"),
-                    if position % 2 == 0 {
-                        Layer::Local
-                    } else {
-                        Layer::Remote
-                    },
-                    vec![rule(kinds[position / 2], values[position / 2], policy)],
-                ));
-            }
+    for first in 0..ordered.len() {
+        for second in first + 1..ordered.len() {
+            let (a_layer, a_kind, a_value) = ordered[first];
+            let (b_layer, b_kind, b_value) = ordered[second];
+            let sources = vec![
+                source(
+                    "later",
+                    b_layer,
+                    vec![rule(b_kind, b_value, Policy::Direct)],
+                ),
+                source(
+                    "earlier",
+                    a_layer,
+                    vec![rule(a_kind, a_value, Policy::Proxy)],
+                ),
+            ];
             let reference = libfluxa_core::routing::runtime::Reference::compile(
                 Config::default(),
                 sources.clone(),
@@ -687,24 +705,14 @@ fn domain_branch_skips_ip_and_respects_domain_type_and_source_priority() {
             )
             .unwrap();
             let snapshot = Snapshot::generate(Config::default(), sources, 1).unwrap();
-            let request = target("a.example.com", "2001:db8::1");
-            assert_eq!(
-                snapshot.evaluate(&request).unwrap().policy,
-                if first < 2 && second >= 2 {
-                    Policy::Direct
-                } else {
-                    Policy::Proxy
-                },
-                "域名分支中优先级 {first} 与 {second}"
-            );
-            assert_eq!(
-                snapshot.evaluate(&request).unwrap().origin,
-                reference.evaluate(&request).unwrap().origin
-            );
+            let query = target("a.example.com", "2001:db8::1");
+            let actual = snapshot.evaluate(&query).unwrap();
+            assert_eq!(actual.policy, Policy::Proxy, "独立表位置 {first}/{second}");
+            assert_eq!(actual.origin.as_ref().unwrap().source, 1);
+            assert_eq!(actual.origin, reference.evaluate(&query).unwrap().origin);
         }
     }
 }
-
 #[test]
 fn domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject() {
     for kind in [Match::Domain, Match::DomainSuffix, Match::DomainKeyword] {
@@ -969,7 +977,7 @@ fn empty_clash_payload_still_validates_outbound_metadata() {
 
 // 审查回归：直接断言产品规范，再比较独立未裁剪实现，避免只有差分自洽。
 #[test]
-fn audit_primary_domain_and_ip_precede_local_port() {
+fn audit_source_and_port_priority_matrix() {
     for (kind, value, name) in [
         (Match::Domain, "a.example.com", "a.example.com"),
         (Match::DomainSuffix, "example.com", "a.example.com"),
@@ -1006,7 +1014,11 @@ fn audit_primary_domain_and_ip_precede_local_port() {
                 },
             );
             let actual = snapshot.evaluate(&request).unwrap();
-            assert_eq!(actual.policy, Policy::Proxy, "普通主规则不能被端口规则覆盖");
+            assert_eq!(
+                actual.policy,
+                Policy::Direct,
+                "本地端口先于远程来源；同为远程时端口先于域名/IP"
+            );
             assert_eq!(actual.origin, reference.evaluate(&request).unwrap().origin);
         }
     }
@@ -1186,7 +1198,7 @@ fn audit_dns_before_after_matrix() {
             .evaluate(&target("miss.test", "2001:db8::1"))
             .unwrap()
             .policy,
-        Policy::Proxy
+        Policy::Direct
     );
 }
 
@@ -1415,7 +1427,7 @@ fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
     std::fs::remove_dir_all(path).unwrap();
 }
 
-// 预期直接取自用户约定：正式拦截优先，域名+协议优先于普通域名；来源只在同类型比较。
+// 新约定：先来源，再比较类型；以下同来源用例验证域名+协议、去重及往返。
 #[test]
 fn formal_domain_transport_matrix_and_roundtrip() {
     for kind in [Match::Domain, Match::DomainSuffix] {
@@ -1431,8 +1443,13 @@ fn formal_domain_transport_matrix_and_roundtrip() {
             other.policy = Policy::Direct;
             other.outbound = None;
             let snapshot = build(
-                vec![rule(Match::Domain, "example.com", Policy::Direct)],
-                vec![scoped.clone(), other, scoped],
+                vec![],
+                vec![
+                    rule(Match::Domain, "example.com", Policy::Direct),
+                    scoped.clone(),
+                    other,
+                    scoped,
+                ],
             );
             assert_eq!(snapshot.document().report.duplicates, 1);
             assert_eq!(snapshot.document().rules.len(), 3);
@@ -1582,43 +1599,79 @@ fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
 
 #[test]
 fn both_complete_yaml_examples_strictly_compile_formal_rules() {
-    use libfluxa_core::routing::runtime::{GenerationInput, SourceInput};
-    for full in [
-        include_str!("../fluxa.yaml"),
-        include_str!("../fluxa_english.yaml"),
-    ] {
-        // 完整示例的顶层由宿主配置层负责；这里用内核严格解析器验收整个 rules 序列，
-        // 不用字符串替换伪造组合，也不把 JSON Value 解析成功当作规则合法证明。
-        let body = full.split_once("\nrules:\n").unwrap().1;
-        let block: Vec<_> = body
-            .lines()
-            .take_while(|line| line.is_empty() || line.starts_with([' ', '#']))
-            .collect();
-        let mut document = String::from(
-            "format_version: 1\nsettings: {}\nsources:\n  - id: complete\n    layer: local\n    rules:\n",
-        );
-        for line in block {
-            document.push_str("    ");
-            document.push_str(line);
-            document.push('\n');
-        }
-        let input = GenerationInput::from_yaml(&document).unwrap();
-        let sources = input
-            .sources
-            .into_iter()
-            .map(|source| match source {
-                SourceInput::Rules(source) => source,
-                SourceInput::Clash(_) => panic!("完整示例不能被替换成订阅"),
-            })
-            .collect();
-        let snapshot = Snapshot::generate(input.settings, sources, 1).unwrap();
+    // macOS 已接入 OS 真实进程归属；其他非移动平台不得将未实现的进程规则假装可用。
+    let result =
+        libfluxa_core::configuration::Document::from_yaml(include_str!("../example_config.yaml"))
+            .unwrap()
+            .compile_local_rules(1);
+    if cfg!(target_os = "macos") {
         assert!(
-            snapshot
+            result
+                .unwrap()
                 .document()
                 .rules
                 .iter()
-                .any(|row| row.rule.protocol == Some(Transport::Udp))
+                .any(|row| row.rule.r#type == Match::ProcessName)
         );
+    } else if !cfg!(any(target_os = "ios", target_os = "tvos")) {
+        assert!(matches!(
+            result,
+            Err(libfluxa_core::error::Error::Unsupported)
+        ));
+    } else {
+        assert!(
+            !result
+                .unwrap()
+                .document()
+                .rules
+                .iter()
+                .any(|row| row.rule.r#type == Match::ProcessName)
+        );
+    }
+    {
+        let full = include_str!("fixtures/main-config-supported.yaml");
+        let snapshot = libfluxa_core::configuration::Document::from_yaml(full)
+            .unwrap()
+            .compile_local_rules(1)
+            .unwrap();
+        let document = snapshot.document();
+        assert_eq!(document.settings.fallback, Policy::Proxy);
+        assert_eq!(document.settings.outbound.as_deref(), Some("PROXY"));
+        assert!(
+            document
+                .rules
+                .iter()
+                .any(|row| row.rule.r#type == Match::DomainPort)
+        );
+        assert!(
+            document
+                .rules
+                .iter()
+                .any(|row| row.rule.protocol == Some(Transport::Tcp))
+        );
+        assert_eq!(
+            document.report.original, 10,
+            "禁用 GeoIP 与 final 不进入来源合并"
+        );
+        assert_eq!(
+            snapshot
+                .evaluate(&target("ads.example.com", "192.0.2.1"))
+                .unwrap()
+                .policy,
+            Policy::Reject
+        );
+        assert_eq!(
+            snapshot
+                .evaluate(&target("a.example.com", "192.0.2.1"))
+                .unwrap()
+                .policy,
+            Policy::Direct
+        );
+        let fallback = snapshot
+            .evaluate(&target("unmatched.invalid", "203.0.113.1"))
+            .unwrap();
+        assert_eq!(fallback.policy, Policy::Proxy);
+        assert_eq!(fallback.outbound.as_deref(), Some("PROXY"));
     }
 }
 
@@ -1649,6 +1702,159 @@ fn duplicate_vec_capacity_is_accounted_without_false_rejection() {
             .evaluate(&target("duplicate.example.net", "192.0.2.1"))
             .unwrap()
             .policy,
+        Policy::Direct
+    );
+    reopened.close().unwrap();
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn local_plugin_remote_precedence_is_independent_of_slot_and_input_order() {
+    // 来源输入故意逆序；插件使用关键词，远程使用更精确域名，仍应插件优先。
+    let mut remote_protocol = rule(Match::Domain, "a.example.com", Policy::Proxy);
+    remote_protocol.protocol = Some(Transport::Tcp);
+    let remote = source("remote", Layer::Remote, vec![remote_protocol]);
+    let plugin = source(
+        "plugin",
+        Layer::Plugin,
+        vec![rule(Match::DomainKeyword, "example", Policy::Direct)],
+    );
+    let local = source(
+        "local",
+        Layer::Local,
+        vec![rule(Match::DomainSuffix, "example.com", Policy::Proxy)],
+    );
+    for (sources, expected, source_id) in [
+        (
+            vec![remote.clone(), plugin.clone(), local],
+            Policy::Proxy,
+            2u16,
+        ),
+        (vec![remote.clone(), plugin], Policy::Direct, 1u16),
+        (vec![remote], Policy::Proxy, 0u16),
+    ] {
+        let snapshot = Snapshot::generate(Config::default(), sources, 1).unwrap();
+        let query = target("a.example.com", "192.0.2.1");
+        for decision in [
+            snapshot.evaluate(&query).unwrap(),
+            snapshot.evaluate_reference(&query).unwrap(),
+        ] {
+            assert_eq!(decision.policy, expected);
+            assert_eq!(decision.origin.unwrap().source, source_id);
+        }
+    }
+}
+#[test]
+fn special_reject_is_source_independent_but_suffix_and_keyword_are_ordinary() {
+    let query = target("a.example.com", "192.0.2.1");
+    for kind in [Match::DomainSuffix, Match::DomainKeyword, Match::Domain] {
+        let value = match kind {
+            Match::DomainSuffix => "example.com",
+            Match::DomainKeyword => "example",
+            _ => "a.example.com",
+        };
+        let snapshot = Snapshot::generate(
+            Config::default(),
+            vec![
+                source(
+                    "local",
+                    Layer::Local,
+                    vec![rule(Match::Domain, "a.example.com", Policy::Direct)],
+                ),
+                source(
+                    "plugin",
+                    Layer::Plugin,
+                    vec![rule(kind, value, Policy::Reject)],
+                ),
+            ],
+            1,
+        )
+        .unwrap();
+        let expected = if kind == Match::Domain {
+            Policy::Reject
+        } else {
+            Policy::Direct
+        };
+        assert_eq!(snapshot.evaluate(&query).unwrap().policy, expected);
+        assert_eq!(
+            snapshot.evaluate_reference(&query).unwrap().policy,
+            expected
+        );
+    }
+}
+#[test]
+fn ignored_domain_rules_in_global_direct_do_not_hide_ip_reject() {
+    for mode in [Mode::Global, Mode::Direct] {
+        let snapshot = Snapshot::generate(
+            Config {
+                mode,
+                fallback: Policy::Direct,
+                ..Config::default()
+            },
+            vec![
+                source(
+                    "local",
+                    Layer::Local,
+                    vec![rule(Match::DomainSuffix, "example.com", Policy::Reject)],
+                ),
+                source(
+                    "remote",
+                    Layer::Remote,
+                    vec![rule(Match::IpCidr, "192.0.2.0/24", Policy::Reject)],
+                ),
+            ],
+            1,
+        )
+        .unwrap();
+        let mut query = target("a.example.com", "192.0.2.1");
+        query.address = None;
+        assert!(snapshot.evaluate_before_dns(&query).unwrap().is_none());
+        query.address = Some("192.0.2.1".into());
+        assert_eq!(snapshot.evaluate(&query).unwrap().policy, Policy::Reject);
+        assert_eq!(
+            snapshot.evaluate_reference(&query).unwrap().policy,
+            Policy::Reject
+        );
+        query.address = Some("203.0.113.1".into());
+        assert_eq!(snapshot.evaluate(&query).unwrap().policy, Policy::Direct);
+    }
+}
+#[test]
+fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
+    use libfluxa_core::routing::store::Store;
+    let path = std::env::temp_dir().join(format!("fluxa-plugin-source-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let store = Store::open(&path).unwrap();
+    store
+        .update(
+            Config::default(),
+            vec![
+                source(
+                    "remote",
+                    Layer::Remote,
+                    vec![rule(Match::Domain, "a.example.com", Policy::Proxy)],
+                ),
+                source(
+                    "plugin",
+                    Layer::Plugin,
+                    vec![rule(Match::DomainKeyword, "example", Policy::Direct)],
+                ),
+            ],
+        )
+        .unwrap();
+    store.close().unwrap();
+    drop(store);
+    let reopened = Store::open(&path).unwrap();
+    let snapshot = reopened.snapshot().unwrap();
+    let query = target("a.example.com", "192.0.2.1");
+    let decision = snapshot.evaluate(&query).unwrap();
+    assert_eq!(decision.policy, Policy::Direct);
+    assert_eq!(
+        snapshot.document().sources[usize::from(decision.origin.unwrap().source)].layer,
+        Layer::Plugin
+    );
+    assert_eq!(
+        snapshot.evaluate_reference(&query).unwrap().policy,
         Policy::Direct
     );
     reopened.close().unwrap();

@@ -2,14 +2,14 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/routing.rs
 //! 测试内容：
-//! - exact_suffix_order_and_ascii_normalization：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - ipv4_ipv6_prefix_boundaries_and_absent_metadata：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - port_range_transport_and_priority：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - modes_fallback_named_outbound_and_explicit_support：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - malformed_rules_targets_and_unknown_fields_rejected：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - immutable_snapshot_is_shared_without_state_between_connections：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - limits_and_last_owner_return_global_budget：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - arbitrary_short_values_do_not_panic：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - exact_suffix_order_and_ascii_normalization：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - ipv4_ipv6_prefix_boundaries_and_absent_metadata：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - port_range_transport_and_priority：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - modes_fallback_named_outbound_and_explicit_support：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - malformed_rules_targets_and_unknown_fields_rejected：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - immutable_snapshot_is_shared_without_state_between_connections：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - limits_and_last_owner_return_global_budget：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - arbitrary_short_values_do_not_panic：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //!
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
@@ -183,6 +183,7 @@ mod public_contract {
         ] {
             let router = Router::compile(Config {
                 mode,
+                fallback: Policy::Proxy, // global 使用显式兜底节点；direct 仍强制直连。
                 outbound: Some("node-a".into()),
                 rules: vec![rule(Match::Transport, "tcp", Policy::Reject)],
                 ..Config::default()
@@ -254,6 +255,7 @@ mod public_contract {
         assert!(
             Router::compile(Config {
                 mode: Mode::Global,
+                fallback: Policy::Proxy,
                 ..Config::default()
             })
             .is_err()
@@ -274,7 +276,16 @@ mod public_contract {
             })
             .is_err()
         );
-        for outbound in ["", "node/token", "user:secret", "has space"] {
+        // 节点名称是显示/逻辑名称，已采用主配置的 128 字节与 Unicode 约束。
+        // 禁止路径、控制符、首尾空白及分隔符；不能把合法空格名称当作文件标识拒绝。
+        for outbound in [
+            "",
+            "node/token",
+            " node",
+            "node\n",
+            "node,token",
+            "node\\token",
+        ] {
             assert!(
                 Router::compile(Config {
                     outbound: Some(outbound.into()),
@@ -283,6 +294,29 @@ mod public_contract {
                 .is_err()
             );
         }
+        for outbound in ["香港 节点", "has space", "user:label"] {
+            let router = Router::compile(Config {
+                fallback: Policy::Proxy,
+                outbound: Some(outbound.into()),
+                ..Config::default()
+            })
+            .unwrap();
+            assert_eq!(
+                router
+                    .evaluate(target(None, Some("192.0.2.1"), 443, Transport::Tcp))
+                    .unwrap()
+                    .outbound
+                    .as_deref(),
+                Some(outbound)
+            );
+        }
+        assert!(
+            Router::compile(Config {
+                outbound: Some("a".repeat(129)),
+                ..Config::default()
+            })
+            .is_err()
+        );
         let router = compile(vec![]);
         for target in [
             target(None, None, 443, Transport::Tcp),

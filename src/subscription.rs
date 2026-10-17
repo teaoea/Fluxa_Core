@@ -1,4 +1,5 @@
-//! UTC 每日订阅更新计划；宿主提供时钟和持久状态，不在平台侧复制到期判断。
+//! 独立旧 UTC 计划 API 与共用 HTTPS 下载；新主配置本地日历由 providers 自主运行。
+//! Check 仅计算传入状态，不是 rule-providers 的活动调度器。
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 const DAY: u64 = 86400;
@@ -146,7 +147,7 @@ pub async fn fetch(
         Err(Error::ResourceLimit)
     })
     .await
-    .map_err(|_| Error::Internal)?
+    .map_err(|_| Error::NetworkTimeout)?
 }
 /// Clash classical YAML：动作由订阅配置提供；不接受列表内第三列策略、no-resolve 或未知类型。
 pub fn parse_rules(

@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/geoip.rs
 //! 测试内容：
+//! - ready_database_binds_country_rules_and_source_priority：Ready来源验证、同来源显式 CIDR 优先 GeoIP、数据库生命周期与树/平铺一致。
 //! - invalid_database_is_rejected：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - complete_examples_have_strict_yaml_and_disabled_geoip：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - bounded_diagnostic_retains_download_reason_and_correct_levels：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -33,16 +34,15 @@ mod classification_tests {
     use super::super::*;
     #[test]
     fn complete_examples_have_strict_yaml_and_disabled_geoip() {
-        for yaml in [
-            include_str!("../fluxa.yaml"),
-            include_str!("../fluxa_english.yaml"),
-        ] {
-            let document: serde_json::Value = crate::routing::runtime::yaml::decode(yaml).unwrap();
-            let value = document
-                .get("geoip_url")
-                .expect("完整示例须登记 GeoIP 字段");
-            let config: Config =
-                serde_json::from_value(serde_json::json!({"geoip_url": value})).unwrap();
+        {
+            let yaml = include_str!("../example_config.yaml");
+            // 主配置已改为 geoip.enabled/url；必须经真实入口校验，不能把禁用时保留的 URL 当作启用。
+            let document = crate::configuration::Document::from_yaml(yaml).unwrap();
+            assert!(!document.summary().geoip_enabled);
+            assert_eq!(document.geoip_url(), None);
+            let config = Config {
+                geoip_url: document.geoip_url().map(str::to_owned),
+            };
             config.validate().unwrap();
             assert!(Service::new(config).unwrap().is_disabled());
         }
@@ -320,4 +320,245 @@ mod public_contract {
         );
         std::fs::remove_file(path).unwrap();
     }
+}
+
+#[test]
+fn ready_database_binds_country_rules_and_source_priority() {
+    use super::*;
+    use crate::routing::{
+        Config as RoutingConfig, Match, Policy, Rule, Target, Transport,
+        runtime::{Layer, Reference, Snapshot, Source},
+    };
+    use std::sync::Arc;
+    let path = std::env::temp_dir().join(format!(
+        "fluxa-country-rule-{}-{}",
+        std::process::id(),
+        crate::lifecycle::identifier().unwrap()
+    ));
+    std::fs::write(&path, crate::test_fixture_https::geoip_data::fixture()).unwrap();
+    let database = Arc::new(Database::open(&path).unwrap());
+    std::fs::remove_file(path).unwrap();
+    let service = Service::new(super::Config {
+        geoip_url: Some("https://example.com/ready.mmdb".into()),
+    })
+    .unwrap();
+    let yaml = "geoip: {enabled: true, url: 'https://example.com/ready.mmdb'}\nrules: ['geoip,US,direct', 'final,reject']";
+    assert!(matches!(
+        crate::configuration::Document::from_yaml(yaml)
+            .unwrap()
+            .compile_local_rules_with_geoip(1, &service),
+        Err(Error::GeoipInitializationFailed)
+    ));
+    *service.database.lock().unwrap() = Some(database.clone());
+    let compiled = crate::configuration::Document::from_yaml(yaml)
+        .unwrap()
+        .compile_local_rules_with_geoip(2, &service)
+        .unwrap();
+    let wrong = yaml.replace("ready.mmdb", "other.mmdb");
+    assert!(matches!(
+        crate::configuration::Document::from_yaml(&wrong)
+            .unwrap()
+            .compile_local_rules_with_geoip(2, &service),
+        Err(Error::GeoipInitializationFailed)
+    ));
+    let request = |ip: &str| Target {
+        domain: None,
+        address: Some(ip.into()),
+        port: 443,
+        transport: Transport::Tcp,
+    };
+    for (ip, expected) in [
+        ("8.8.8.8", Policy::Direct),
+        ("2001:4860:4860::8888", Policy::Reject),
+        ("192.0.2.1", Policy::Reject),
+    ] {
+        assert_eq!(compiled.evaluate(&request(ip)).unwrap().policy, expected);
+    }
+    let row = |kind, value: &str, policy| Rule {
+        protocol: None,
+        r#type: kind,
+        value: value.into(),
+        policy,
+        outbound: (policy == Policy::Proxy).then(|| "geo-proxy".into()),
+    };
+    let sources = vec![Source {
+        id: "local".into(),
+        layer: Layer::Local,
+        enabled: true,
+        rules: vec![
+            row(Match::GeoIp, "US", Policy::Proxy),
+            row(Match::IpCidr, "8.8.8.8/32", Policy::Direct),
+        ],
+    }];
+    let reference =
+        Reference::compile_with_geoip(RoutingConfig::default(), sources.clone(), 3, &service)
+            .unwrap();
+    let snapshot = Snapshot::generate(RoutingConfig::default(), sources, 3)
+        .unwrap()
+        .bind_geoip(database.clone());
+    let assert_expected = |snapshot: &Snapshot| {
+        let decision = snapshot.evaluate(&request("8.8.8.8")).unwrap();
+        assert_eq!(
+            decision.policy,
+            Policy::Direct,
+            "用户最新确认：同来源显式 IP-CIDR 优先 GeoIP"
+        );
+        assert_eq!(decision, reference.evaluate(&request("8.8.8.8")).unwrap());
+    };
+    assert_expected(&snapshot);
+    let flat = snapshot.into_flat().unwrap();
+    assert_expected(&flat);
+    let loaded =
+        Snapshot::from_flat_document(flat.document().clone(), flat.flat_bytes().unwrap().to_vec())
+            .unwrap();
+    assert!(
+        matches!(
+            loaded.evaluate(&request("8.8.8.8")),
+            Err(Error::GeoipInitializationFailed)
+        ),
+        "恢复的结构化缓存不得伪造 Ready"
+    );
+    let loaded = loaded.bind_geoip(database.clone());
+    assert_expected(&loaded);
+    // 反转输入顺序仍由显式 CIDR 先命中；优先级来自独立业务类型顺序。
+    let reversed = Snapshot::generate(
+        RoutingConfig::default(),
+        vec![Source {
+            id: "local".into(),
+            layer: Layer::Local,
+            enabled: true,
+            rules: vec![
+                row(Match::IpCidr, "8.8.8.8/32", Policy::Direct),
+                row(Match::GeoIp, "US", Policy::Proxy),
+            ],
+        }],
+        4,
+    )
+    .unwrap()
+    .bind_geoip(database.clone())
+    .into_flat()
+    .unwrap();
+    assert_eq!(
+        reversed.evaluate(&request("8.8.8.8")).unwrap().policy,
+        Policy::Direct
+    );
+
+    // 来源先于 IP 同类原序；特殊 REJECT 则跨来源优先。预期直接来自用户约定。
+    let source = |layer, id: &str, rules| Source {
+        id: id.into(),
+        layer,
+        enabled: true,
+        rules,
+    };
+    for (sources, expected) in [
+        (
+            vec![
+                source(
+                    Layer::Remote,
+                    "remote",
+                    vec![row(Match::IpCidr, "8.8.8.8/32", Policy::Direct)],
+                ),
+                source(
+                    Layer::Local,
+                    "local",
+                    vec![row(Match::GeoIp, "US", Policy::Proxy)],
+                ),
+            ],
+            Policy::Proxy,
+        ),
+        (
+            vec![
+                source(
+                    Layer::Remote,
+                    "remote",
+                    vec![row(Match::IpCidr, "8.8.8.8/32", Policy::Direct)],
+                ),
+                source(
+                    Layer::Plugin,
+                    "plugin",
+                    vec![row(Match::GeoIp, "US", Policy::Proxy)],
+                ),
+            ],
+            Policy::Proxy,
+        ),
+        (
+            vec![
+                source(
+                    Layer::Local,
+                    "local",
+                    vec![row(Match::GeoIp, "US", Policy::Proxy)],
+                ),
+                source(
+                    Layer::Remote,
+                    "remote",
+                    vec![row(Match::IpCidr, "8.8.8.8/32", Policy::Reject)],
+                ),
+            ],
+            Policy::Reject,
+        ),
+        (
+            vec![source(
+                Layer::Local,
+                "local",
+                vec![
+                    row(Match::GeoIp, "US", Policy::Reject),
+                    row(Match::IpCidr, "8.8.8.8/32", Policy::Reject),
+                ],
+            )],
+            Policy::Reject,
+        ),
+    ] {
+        let reference =
+            Reference::compile_with_geoip(RoutingConfig::default(), sources.clone(), 5, &service)
+                .unwrap();
+        let tree = Snapshot::generate(RoutingConfig::default(), sources, 5)
+            .unwrap()
+            .bind_geoip(database.clone());
+        let decision = tree.evaluate(&request("8.8.8.8")).unwrap();
+        assert_eq!(decision.policy, expected);
+        assert_eq!(decision, reference.evaluate(&request("8.8.8.8")).unwrap());
+        let flat = tree.into_flat().unwrap();
+        assert_eq!(flat.evaluate(&request("8.8.8.8")).unwrap(), decision);
+    }
+    for mode in [crate::routing::Mode::Global, crate::routing::Mode::Direct] {
+        let settings = RoutingConfig {
+            mode,
+            fallback: Policy::Direct,
+            ..RoutingConfig::default()
+        };
+        let source = |policy| Source {
+            id: "local".into(),
+            layer: Layer::Local,
+            enabled: true,
+            rules: vec![row(Match::GeoIp, "US", policy)],
+        };
+        // 普通规则被忽略时不应查询无关数据库，特殊 REJECT 仍须 Ready 且保留执行。
+        let ignored = Snapshot::generate(settings.clone(), vec![source(Policy::Proxy)], 6)
+            .unwrap()
+            .into_flat()
+            .unwrap();
+        assert_eq!(
+            ignored.evaluate(&request("8.8.8.8")).unwrap().policy,
+            Policy::Direct
+        );
+        let blocked = Snapshot::generate(settings, vec![source(Policy::Reject)], 6).unwrap();
+        assert!(matches!(
+            blocked.evaluate(&request("8.8.8.8")),
+            Err(Error::GeoipInitializationFailed)
+        ));
+        assert_eq!(
+            blocked
+                .bind_geoip(database.clone())
+                .evaluate(&request("8.8.8.8"))
+                .unwrap()
+                .policy,
+            Policy::Reject
+        );
+    }
+    service.close().unwrap();
+    assert_eq!(
+        compiled.evaluate(&request("8.8.8.8")).unwrap().policy,
+        Policy::Direct,
+        "关闭来源服务不撤销已发布不可变数据库内容，实际内存仍有配额"
+    );
 }

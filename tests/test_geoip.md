@@ -1,6 +1,6 @@
 # 测试报告：test_geoip
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-1494eed5db643679", "::test_geoip::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 60.213477333, "status": "PASS", "discovered": ["geoip::test_geoip::classification_tests::bounded_diagnostic_retains_download_reason_and_correct_levels", "geoip::test_geoip::classification_tests::complete_examples_have_strict_yaml_and_disabled_geoip", "geoip::test_geoip::public_contract::all_user_assigned_geoip_failure_codes_are_exact", "geoip::test_geoip::public_contract::configured_https_download_integrity_budget_and_no_match", "geoip::test_geoip::public_contract::configured_url_is_strict_and_never_defaults", "geoip::test_geoip::public_contract::offline_ipv4_ipv6_missing_invalid_and_file_limits", "geoip::test_geoip::public_contract::reachable_corruption_is_rejected_and_query_fault_is_not_no_match", "geoip::test_geoip::tests::invalid_database_is_rejected"], "results": {"geoip::test_geoip::classification_tests::bounded_diagnostic_retains_download_reason_and_correct_levels": "PASS", "geoip::test_geoip::classification_tests::complete_examples_have_strict_yaml_and_disabled_geoip": "PASS", "geoip::test_geoip::public_contract::all_user_assigned_geoip_failure_codes_are_exact": "PASS", "geoip::test_geoip::public_contract::configured_https_download_integrity_budget_and_no_match": "PASS", "geoip::test_geoip::public_contract::configured_url_is_strict_and_never_defaults": "PASS", "geoip::test_geoip::public_contract::offline_ipv4_ipv6_missing_invalid_and_file_limits": "PASS", "geoip::test_geoip::public_contract::reachable_corruption_is_rejected_and_query_fault_is_not_no_match": "PASS", "geoip::test_geoip::tests::invalid_database_is_rejected": "PASS"}, "fingerprint": "dd43ee0d4224e0147a02ec33fe5579aa85cf0d056e1fda591ecb523d2f4d28c1", "time": "2026-10-16T14:47:37.820320+08:00", "attempt": 1, "suite": "test_geoip", "file": "tests/test_geoip.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "bb00aba968e0bd4d23278cb38a6733f6cb7a11bd", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3456211653be5735", "::test_geoip::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 60.22185449999999, "status": "PASS", "discovered": ["geoip::test_geoip::classification_tests::bounded_diagnostic_retains_download_reason_and_correct_levels", "geoip::test_geoip::classification_tests::complete_examples_have_strict_yaml_and_disabled_geoip", "geoip::test_geoip::public_contract::all_user_assigned_geoip_failure_codes_are_exact", "geoip::test_geoip::public_contract::configured_https_download_integrity_budget_and_no_match", "geoip::test_geoip::public_contract::configured_url_is_strict_and_never_defaults", "geoip::test_geoip::public_contract::offline_ipv4_ipv6_missing_invalid_and_file_limits", "geoip::test_geoip::public_contract::reachable_corruption_is_rejected_and_query_fault_is_not_no_match", "geoip::test_geoip::ready_database_binds_country_rules_and_source_priority", "geoip::test_geoip::tests::invalid_database_is_rejected"], "results": {"geoip::test_geoip::classification_tests::bounded_diagnostic_retains_download_reason_and_correct_levels": "PASS", "geoip::test_geoip::classification_tests::complete_examples_have_strict_yaml_and_disabled_geoip": "PASS", "geoip::test_geoip::public_contract::all_user_assigned_geoip_failure_codes_are_exact": "PASS", "geoip::test_geoip::public_contract::configured_https_download_integrity_budget_and_no_match": "PASS", "geoip::test_geoip::public_contract::configured_url_is_strict_and_never_defaults": "PASS", "geoip::test_geoip::public_contract::offline_ipv4_ipv6_missing_invalid_and_file_limits": "PASS", "geoip::test_geoip::public_contract::reachable_corruption_is_rejected_and_query_fault_is_not_no_match": "PASS", "geoip::test_geoip::ready_database_binds_country_rules_and_source_priority": "PASS", "geoip::test_geoip::tests::invalid_database_is_rejected": "PASS"}, "fingerprint": "bfe1a8f1056213e2a1bfa451312696b9e6a1f7cb18c5bb648e4adc627b26e80e", "time": "2026-10-17T15:48:59.075173+08:00", "attempt": 6, "suite": "test_geoip", "file": "tests/test_geoip.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "03b3081b98dbd70be284fa19feea9910b8479f8b", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/geoip.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-1494eed5db643679 ::test_geoip:: --test-threads=1`
-- 执行时间：2026-10-16T14:47:37.820320+08:00
-- 实际耗时：60.213477333 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "bb00aba968e0bd4d23278cb38a6733f6cb7a11bd", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`dd43ee0d4224e0147a02ec33fe5579aa85cf0d056e1fda591ecb523d2f4d28c1`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3456211653be5735 ::test_geoip:: --test-threads=1`
+- 执行时间：2026-10-17T15:48:59.075173+08:00
+- 实际耗时：60.22185449999999 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "03b3081b98dbd70be284fa19feea9910b8479f8b", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`bfe1a8f1056213e2a1bfa451312696b9e6a1f7cb18c5bb648e4adc627b26e80e`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -27,13 +27,14 @@
 | `geoip::test_geoip::public_contract::configured_url_is_strict_and_never_defaults` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `geoip::test_geoip::public_contract::offline_ipv4_ipv6_missing_invalid_and_file_limits` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `geoip::test_geoip::public_contract::reachable_corruption_is_rejected_and_query_fault_is_not_no_match` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `geoip::test_geoip::ready_database_binds_country_rules_and_source_priority` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `geoip::test_geoip::tests::invalid_database_is_rejected` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：8
-- 实际执行完成：8
-- 通过：8
+- 实际发现：9
+- 实际执行完成：9
+- 通过：9
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -53,7 +54,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-f02-final-evidence/test_geoip.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-provider-accepted-20261017/test_geoip.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

@@ -224,3 +224,19 @@ Fluxa Core自有代码采用 MIT 许可协议；第三方依赖适用各自的�
 | zerovec | 0.11.8 | Unicode-3.0 |
 | zerovec-derive | 0.11.6 | Unicode-3.0 |
 | zmij | 1.0.23 | MIT |
+| psl | 2.1.238 | MIT/Apache-2.0 |
+| psl-types | 2.0.11 | MIT/Apache-2.0 |
+
+| libproc | 0.14.11 | MIT |
+| bindgen | 0.72.1 | BSD-3-Clause |
+| cexpr | 0.6.0 | Apache-2.0/MIT |
+| clang-sys | 1.9.1 | Apache-2.0 |
+| glob | 0.3.4 | MIT OR Apache-2.0 |
+| itertools | 0.13.0 | MIT OR Apache-2.0 |
+| libloading | 0.8.9 | ISC |
+| regex | 1.13.1 | MIT OR Apache-2.0 |
+| regex-automata | 0.4.18 | MIT OR Apache-2.0 |
+| regex-syntax | 0.8.11 | MIT OR Apache-2.0 |
+| rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
+| shlex | 1.3.0 | MIT OR Apache-2.0 |
+| errno | 0.3.14 | MIT OR Apache-2.0 |

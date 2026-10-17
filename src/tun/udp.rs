@@ -331,7 +331,7 @@ impl SessionInner {
             let opened = tokio::select! {
                 biased;
                 _ = cancellation.changed() => return Err(Error::Cancelled),
-                result = self.manager.connect_configured_snapshot(request, snapshot) => result?,
+                result = self.manager.connect_configured_datagram_snapshot(request, snapshot, payload, key.source) => result?,
             };
             let connection = ConnectionLease {
                 manager: Arc::clone(&self.manager),

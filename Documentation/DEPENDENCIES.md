@@ -13,3 +13,12 @@ VLESS/REALITY/Vision 由自有 Rust 代码实现；ring 0.17.14、x25519-dalek 2
 运行时规则缓存采用自有小端二进制平铺索引；SHA-256 复用现有 ring。历史上游声明保留于 Notices/，不代表当前仍链接其中的组件。
 
 离线 GeoIP 使用 maxminddb 0.32.0（ISC），关闭默认 mmap 与 unsafe-str-decode 功能；新增传递依赖 ipnetwork 0.21.1（MIT/Apache-2.0）。许可证原文保存于 Notices/maxminddb 与 Notices/ipnetwork。MMDB 数据库不属于 crate，宿主分发免费 DB-IP Lite 时须另行保留 CC BY 4.0 署名。
+
+
+## 注册域名关键词匹配
+
+直接依赖 `psl = 2.1.238`、传递依赖 `psl-types = 2.0.11`，协议均为 `MIT/Apache-2.0`（来自各自实际 Cargo 元数据）。固定静态 PSL 包含 ICANN 与 PRIVATE 后缀，用于借用输入中的可注册域名标签，不在查询时下载列表或建立动态堆索引。`foo.github.io` 的租户标签是 `foo`；`example.co.uk` 是 `example`。数据变化通过审查依赖升级处理，不绕过锁文件。声明见根目录 `LICENSE.md`。
+
+## macOS 进程归属
+
+固定 `libproc = 0.14.11`（MIT）仅用于 macOS 系统 Socket 结构与联合体判别类型；平台模块调用既有 libc，核对返回记录完整长度，不依赖上游字符串错误。新增构建依赖由 Cargo.lock 固定，实际协议登记于 LICENSE.md，声明保留于 Notices。用途不是引入代理内核。上游构建使用 bindgen/libclang 与 Apple SDK；本机 Command Line Tools SDK 已构建验证，其他 Xcode-only、交叉编译环境尚未验证。查询固定 PID/FD 数量、总检查次数、1 秒截止和最多两次并发 64 KiB 扫描，超限返回资源错误而不是假装未知。

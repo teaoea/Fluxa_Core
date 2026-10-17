@@ -197,6 +197,7 @@ pub struct Read {
 }
 struct State {
     debug: Option<Arc<crate::routing::debug::Session>>,
+    providers: Option<Arc<crate::providers::Runtime>>,
     registry: Registry<Arc<Connection>>,
     stopped: bool,
     network: Arc<NetworkSnapshot>,
@@ -205,6 +206,7 @@ pub struct Manager {
     state: Arc<Mutex<State>>,
     reaper: Mutex<Option<tokio::task::JoinHandle<()>>>,
     generation: watch::Sender<u64>,
+    provider_control: tokio::sync::Mutex<()>,
 }
 impl Default for Manager {
     fn default() -> Self {
@@ -212,12 +214,14 @@ impl Default for Manager {
         Self {
             state: Arc::new(Mutex::new(State {
                 debug: None,
+                providers: None,
                 registry: Registry::default(),
                 stopped: false,
                 network: Arc::new(NetworkSnapshot::default()),
             })),
             reaper: Mutex::new(None),
             generation,
+            provider_control: tokio::sync::Mutex::new(()),
         }
     }
 }
@@ -588,8 +592,31 @@ impl Manager {
     pub async fn close_all(&self) -> Result<()> {
         self.clear(false).await
     }
-    pub async fn stop(&self) -> Result<()> {
+    pub(crate) async fn stop_provider_download(&self) -> Result<()> {
+        if self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .providers
+            .is_some()
+        {
+            return Err(Error::InvalidState);
+        }
         self.clear(true).await
+    }
+    pub async fn stop(&self) -> Result<()> {
+        let providers = {
+            let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+            state.stopped = true;
+            state.providers.clone()
+        };
+        // 不移走对象后提前向第二个 close 报成功；所有调用等待同一关闭完成状态。
+        let stopped = self.clear(true).await;
+        let closed = match providers {
+            Some(runtime) => runtime.close().await,
+            None => Ok(()),
+        };
+        stopped.and(closed)
     }
     async fn clear(&self, stop: bool) -> Result<()> {
         let connections = {
@@ -630,6 +657,14 @@ impl Drop for Manager {
         };
         for connection in connections {
             connection.close();
+        }
+        if let Ok(state) = self.state.lock()
+            && let Some(runtime) = &state.providers
+        {
+            let _ = crate::error::diagnostics::observe(
+                runtime.request_close(),
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
         }
         if let Ok(task) = self.reaper.get_mut()
             && let Some(task) = task.take()

@@ -308,6 +308,19 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    /// 只读主配置校验；不创建监听、下载或修改运行状态。
+    ConfigurationValidate {
+        yaml: String,
+    },
+    /// 原子应用主配置；未接入能力返回错误，不允许部分替换。
+    ConfigurationApply {
+        yaml: String,
+    },
+    ConfigurationStatus,
+    ProviderStatus,
+    ProviderRefresh {
+        name: Option<String>,
+    },
     GeoipOpen {},
     GeoipLookup {
         address: String,
@@ -510,6 +523,11 @@ impl RuntimeRulesSummary {
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
+    configuration: Option<crate::configuration::Summary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configuration_status: Option<crate::configuration::ConfigurationStatus>,
+    provider_status: Option<crate::providers::Status>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     warn: Option<crate::geoip::Warning>,
     #[serde(skip_serializing_if = "Option::is_none")]
     level: Option<&'static str>,
@@ -697,6 +715,10 @@ where
     F: std::future::Future<Output = Result<T, Error>> + Send + 'static,
     T: Send + 'static,
 {
+    // 同步 ABI 不能阻塞正在驱动 Tokio 的线程；必须在创建任务前拒绝，避免失败后脱离所有者。
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return Err(Error::InvalidState);
+    }
     let executor = runtime()?;
     let mut task = NetworkTask(executor.spawn(future));
     executor
@@ -1229,6 +1251,70 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             engine.outbound.configure_routing(None)?;
             Ok(Reply {
                 success: true,
+                ..Reply::default()
+            })
+        }
+        Command::ConfigurationApply { yaml } => {
+            // 旧服务各有独立生命周期；尚未实现统一迁移前拒绝混合接管，不能留下运行中的旧服务。
+            if engine
+                .dns_service
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .is_some()
+                || engine
+                    .tun_udp
+                    .lock()
+                    .map_err(|_| Error::Internal)?
+                    .is_some()
+                || engine.proxy.lock().map_err(|_| Error::Internal)?.is_some()
+                || engine
+                    .runtime_rules
+                    .lock()
+                    .map_err(|_| Error::Internal)?
+                    .is_some()
+                || !engine
+                    .geoip
+                    .lock()
+                    .map_err(|_| Error::Internal)?
+                    .is_disabled()
+            {
+                return Err(Error::InvalidState);
+            }
+            let manager = engine.outbound.clone();
+            let revision =
+                run_network(async move { manager.apply_configuration_async(&yaml).await })?;
+            Ok(Reply {
+                success: true,
+                network_revision: Some(revision),
+                provider_status: Some(engine.outbound.provider_status()?),
+                ..Reply::default()
+            })
+        }
+        Command::ProviderStatus => Ok(Reply {
+            success: true,
+            provider_status: Some(engine.outbound.provider_status()?),
+            ..Reply::default()
+        }),
+        Command::ProviderRefresh { name } => {
+            let manager = engine.outbound.clone();
+            let revision = run_network(async move { manager.refresh_providers(name).await })?;
+            Ok(Reply {
+                success: true,
+                network_revision: Some(revision),
+                provider_status: Some(engine.outbound.provider_status()?),
+                ..Reply::default()
+            })
+        }
+        Command::ConfigurationStatus => Ok(Reply {
+            success: true,
+            configuration_status: Some(engine.outbound.configuration_status()?),
+            ..Reply::default()
+        }),
+        Command::ConfigurationValidate { yaml } => {
+            let document = crate::configuration::Document::from_yaml(&yaml)?;
+            Ok(Reply {
+                success: true,
+                configuration: Some(document.summary()),
                 ..Reply::default()
             })
         }

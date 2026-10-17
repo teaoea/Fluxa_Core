@@ -8,8 +8,4 @@
 
 当前未完成事项及暂停状态统一见 [TODO](Documentation/TODO.md)。
 
-## Swift / macOS 适配边界
-
-Swift 数据类型、C ABI 调用封装、系统适配和 Swift 测试已移至 Fluxa 仓库 `Packages/FluxaKernelBridge/`；本仓库不再提供 Swift Package。内核仅交付 Rust、C ABI 和固定校验值的原生二进制。历史发布标签不改写，main 不变。
-
-自研 TCP/TUN dev 数据包会话见 [TunTCP.md](Documentation/TunTCP.md)；正式发布与系统 VPN 接管另行验收。
+主配置规则提供者使用小写 `rules` 正文，Rust 负责设备本地更新时间、缓存和事务；接口、示例及尚未接入的范围见 [规则提供者生命周期](Documentation/Subscriptions.md)。

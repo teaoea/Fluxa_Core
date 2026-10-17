@@ -4,55 +4,41 @@
 
 当前 dev 源码已交付的能力与新二进制发布分开记录；App 仍使用既有已发布内核。历史构建、更新与资源测量见 [规则性能测试](规则性能测试.md)。以下为当前实现的规则语义，替代 Routing.md 中历史版本的首次命中说明。暂不新增日志。
 
-## 匹配顺序
+## 匹配顺序（2026-10-16 dev）
 
-用户最新确认按目标类型分支，替代此前 IP 与域名混合的全局八级顺序。域名目标先匹配域名规则；任一完整域名条件命中（组合须同时命中协议），就完全跳过所有 IP 规则，包括 IP 拦截。域名未命中时才解析 DNS，并匹配 IP 规则。数字 IP 目标直接查询 IP。默认策略最后使用。
+内核正式来源为 `Layer::Local`、`Layer::Plugin`、`Layer::Remote`，不是两层模型中的占位注释。来源定义本身不承担排序；`Layer::ORDER` 和独立 `SourcePriority` 显式规定 **本地 → 插件 → 远程**。插件当前可以没有规则，未来加载插件时直接产生 Plugin 来源，不必再修改来源优先级算法。
 
-| 阶段 | 优先级 | 类型 | 来源 |
-| --- | --- | --- | --- |
-| 域名目标先查 | 特殊 | DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD 拦截 | 本地及远程 |
-| 域名目标先查 | 1 | DOMAIN + protocol | 本地 |
-| 域名目标先查 | 2 | DOMAIN + protocol | 远程 |
-| 域名目标先查 | 3 | DOMAIN-SUFFIX + protocol | 本地 |
-| 域名目标先查 | 4 | DOMAIN-SUFFIX + protocol | 远程 |
-| 域名目标先查 | 5 | DOMAIN | 本地 |
-| 域名目标先查 | 6 | DOMAIN | 远程 |
-| 域名目标先查 | 7 | DOMAIN-SUFFIX | 本地 |
-| 域名目标先查 | 8 | DOMAIN-SUFFIX | 远程 |
-| 域名目标先查 | 9 | DOMAIN-KEYWORD | 本地 |
-| 域名目标先查 | 10 | DOMAIN-KEYWORD | 远程 |
-| 数字 IP 或域名未命中后 | 特殊 | IP-CIDR 拦截（IPv4 / IPv6） | 本地及远程 |
-| 数字 IP 或域名未命中后 | 1 | IP-CIDR（IPv4 / IPv6） | 本地 |
-| 数字 IP 或域名未命中后 | 2 | IP-CIDR（IPv4 / IPv6） | 远程 |
-| 没有适用规则命中 | 最后 | 默认策略 | 主配置 |
+1. 有效 Debug Overlay 保持在正式规则之前；认证、授权、TTL 和会话隔离不变。
+2. 正式特殊 REJECT 不区分来源，类型范围是精确 DOMAIN、IP-CIDR、PORT、TRANSPORT（含完整匹配的域名/传输组合）。DOMAIN-SUFFIX、DOMAIN-KEYWORD 的单独 REJECT 按普通规则，不获得特殊拦截优先级。
+3. 普通规则先比较来源，再在同一来源内依次比较 **process-name → protocol → port → domain → domain-suffix → domain-keyword → ip-cidr → geoip**；同来源同类型按原始顺序。GeoIP 属于 IP 阶段，显式 CIDR 在同来源 GeoIP 前；远程不导入 process-name。
+4. `final` 对应配置 fallback，只在所有来源均未命中后使用。global 忽略普通规则，保留特殊 REJECT，其他流量使用 fallback；direct 保留特殊 REJECT，其他流量直连。
 
-同类型、同来源按原始订阅顺序及订阅内序号选择，不采用最长前缀或最具体后缀覆盖顺序。精确域名优先于后缀，无论其排列位置与来源。关键词为规范化域名的子串，不匹配 URL 路径。域名拦截始终先于其他域名规则；IP 拦截仅在 IP 阶段参与，直连或全局模式不能绕过已参与阶段的有效拦截。
+域名目标先执行域名阶段，完整域名条件命中后跳过 IP 阶段，包括 IP 拦截。无域名命中才解析真实地址；数字 IP 直接进入 IP 阶段。global/direct 中已经忽略的普通域名不能阻断 IP 拦截检查。需要 IP 而地址尚缺失时，DNS 前返回待解析，不能提前按兜底放行。
 
-端口和传输类型只在普通域名/IP 规则未命中时参与，不能越级覆盖已命中的精确域名、后缀或关键词；同类型来源和原始顺序约定保持。全域传输规则仅允许 reject，direct/proxy 明确返回 InvalidInput。正式规则支持在 DOMAIN / DOMAIN-SUFFIX 上增加可选 protocol: tcp / udp，两个条件必须同时匹配。当前阶段有效拦截优先，其后 DOMAIN+协议、DOMAIN-SUFFIX+协议、普通 DOMAIN、普通 DOMAIN-SUFFIX、DOMAIN-KEYWORD；每个类型内部本地优先，之后按原始顺序。协议不匹配的组合规则不算域名命中，不能阻止 DNS/IP 查询。不能通过相邻规则伪装 AND。protocol: quic 明确拒绝，不能以 UDP 冒充 QUIC；已实现的全域 QUIC 拦截保持有效。
+索引 `RuleClass` 仅描述存储槽。为保留原有平铺记录宽度，Plugin 和 Remote 共用以 `PluginRemote` 明确命名的同类型候选槽；编译、未裁剪参考构造和文档顺序验证都强制插件在远程之前，因此共享槽保留更高来源的最早命中。最终裁决读取规则真实 SourceIdentity，绝不把共享存储槽误当成同一业务来源；不按类别编号大小决定优先级。
 
-## 示例与裁剪
+## 示例与保守裁剪
 
-以下为 rules 模式；仅域名未命中进入 IP 阶段时检查全部 DNS 候选，表中 IP 是真实解析地址。
-
-| 本地规则 | 远程规则 | 目标 | 结果 | 生成文件处理 |
+| 本地 | 插件 | 远程 | 目标 | 预期 |
 | --- | --- | --- | --- | --- |
-| 后缀 bbb.com → 直连 | 精确 aaa.bbb.com → 代理 | aaa.bbb.com | 代理 | 两条保留；远程精确域名优先于本地后缀 |
-| 后缀 bbb.com → 直连 | 后缀 aaa.bbb.com → 代理 | x.aaa.bbb.com | 直连 | 完全覆盖的远程同类型条目可裁剪 |
-| 后缀 bbb.com → 直连 | 精确 ads.bbb.com → 拦截 | ads.bbb.com | 拦截 | 拦截必须保留 |
-| 精确 a.example.com → 直连 | IP 192.0.2.0/24 → 代理或拦截 | a.example.com / 192.0.2.1 | 直连 | 域名已命中，跳过 IP；两条仍保留供其他目标使用 |
-| IP 192.0.2.0/24 → 直连 | 精确 a.example.com → 拦截 | a.example.com / 192.0.2.1 | 拦截 | 拦截先于 IP 直连 |
-| 后缀 example.com → 直连；精确 a.example.com → 代理 | 无 | a.example.com | 代理 | 精确规则即使后列也保留 |
-| 后缀 bbb.com → 直连 | 精确 badbbb.com → 代理 | badbbb.com | 代理 | 标签边界不误覆盖 |
-| IP 10.0.0.0/8 → 直连；IP 10.1.0.0/16 → 代理 | 无 | 10.1.1.1 | 直连 | 后列同类型非拦截 /16 完全覆盖可裁剪 |
-| IP 10.0.0.0/8 → 直连；IP 10.1.0.0/16 → 拦截 | 无 | 10.1.1.1 | 拦截 | 不裁剪拦截 |
-| 关键词 example → 直连 | 精确 a.example.com → 代理 | a.example.com | 代理 | 本地关键词不能裁剪远程精确域名 |
-| 关键词 example → 直连 | 关键词 example → 代理 | myexample.net | 直连 | 同类型本地优先，记录被覆盖来源 |
+| 后缀 example.com → 代理 | 关键词 example → 直连 | 精确 a.example.com → 代理 | a.example.com | 本地代理 |
+| 无 | 关键词 example → 直连 | 域名+TCP → 代理 | a.example.com/TCP | 插件直连 |
+| 精确 a.example.com → 直连 | 精确 a.example.com → REJECT | 无 | a.example.com | 特殊拦截 |
+| 精确 a.example.com → 直连 | 后缀 example.com → REJECT | 无 | a.example.com | 本地直连；普通后缀拦截不越级 |
+| 端口 443 → 直连 | 无 | 精确 a.example.com → 代理 | a.example.com:443 | 本地端口直连 |
+| 同来源精确 a.example.com → 直连；同来源域名+TCP → 代理 | 无 | 无 | a.example.com/TCP | 组合协议代理 |
 
-仅合并类型、规范化条件、动作及出站完全相同的重复规则，记录全部来源；拦截不按包含范围裁剪。非拦截只有可证明在所有输入下不生效才裁剪。部分 CIDR、后缀或端口重叠保留。原始输入不改动，删除本地覆盖规则、停用订阅或重新下载后从原始输入再生成。
+合并完全相同条件/动作/出站的重复规则并保留来源记录；仅可证明完全覆盖时裁剪，跨类型保守保留。Plugin/Remote 共享槽的覆盖判断以强制生成顺序为前提；来源顺序异常的文档不能加载。拦截不因为范围重叠直接裁剪。部分后缀、CIDR、端口重叠继续保留。
+
+## 新主配置的编译与执行边界
+
+新主配置的完整本地规则编译和提供者来源合并已接入当前工作区；规则编译不代表完整系统 VPN 启动。新主配置已提供标量到本地正式候选快照的适配、端口+域名组合与包含 PRIVATE 后缀的 PSL 租户标签关键词匹配。GeoIP Ready 绑定、macOS 进程归属及真实报文 QUIC 已接入，具体边界参见《主配置》。远程提供者 policy=reject 时忽略后缀/关键词的过滤由 providers::document 导入阶段落实，执行范围见 Subscriptions.md。插件加载器未实现，但 Plugin 来源与缓存往返已可独立测试。
+
+DOMAIN/DOMAIN-SUFFIX 的 protocol: tcp/udp 必须两个条件同时命中；不匹配协议不能遮蔽 IP。全域 TRANSPORT 只允许 REJECT；不能把 UDP 当 QUIC。完整示例由真实编译入口验证；尚未接入的 DNS/启动编排不能以纯查询代替，提供者生命周期见 Subscriptions.md。
 
 ## 文件、索引与生命周期
 
-用户输入保持 YAML。当前生成产物为 `runtime-rules.bin`，保存缓存格式版本 2 的小端二进制平铺索引和严格校验的规则文档。加载直接查询索引字节，不重建哈希表、域名 Trie、IP 前缀树或关键词自动机。格式版本与宽度以 `src/routing/cache.rs` 和 `src/routing/flat.rs` 为准；版本不兼容时拒绝加载，须从原配置及订阅重新生成，不能混用历史缓存。文件读入仍有系统复制，索引借用不可变字节，文档仍需反序列化，不表示整个加载过程零分配。规则文档 format_version 为 1；来源、规则原序号、策略、出站和删除报告保持完整。
+用户输入保持 YAML。当前生成产物为 `runtime-rules.bin`，保存缓存格式版本 6 的小端二进制平铺索引（来源/拦截语义更新后拒绝旧缓存，必须从原始来源重新生成）和严格校验的规则文档。加载直接查询索引字节，不重建哈希表、域名 Trie、IP 前缀树或关键词自动机。格式版本与宽度以 `src/routing/cache.rs` 和 `src/routing/flat.rs` 为准；版本不兼容时拒绝加载，须从原配置及订阅重新生成，不能混用历史缓存。文件读入仍有系统复制，索引借用不可变字节，文档仍需反序列化，不表示整个加载过程零分配。规则文档 format_version 为 1；来源、规则原序号、策略、出站和删除报告保持完整。
 
 先规范化与裁剪、编译索引、生成临时文件并完整复核，再在锁内原子替换文件及切换网络快照。提交前失败保持旧文件及旧快照。提交后的目录同步失败独立返回状态，不能伪称已回滚。进程中途退出时文件为上一份或新一份完整产物；重新打开加载该文件，不依赖丢失的进程内句柄。临时文件不作为有效规则读取。关闭释放文件锁，操作系统也在进程退出时释放锁。 缓存写入与内容复核复用排他创建的原始读写句柄，不再按路径重开或截断；提交前校验临时路径，Unix 还比较设备号与 inode。缓存读取在 Unix 使用 O_NOFOLLOW 与 O_NONBLOCK。缓存必须位于受信任的应用私有目录；路径复核不保证抵御持续控制目录或父目录的主体，`O_NOFOLLOW` 只约束最终分量，摘要只检测损坏，不作来源认证。回归证据见 `tests/test_routing_store.md`。
 
@@ -60,15 +46,15 @@
 
 精确域名用哈希表，后缀用反向标签树，IPv4/IPv6 用压缩二进制前缀树，端口用重叠区间预编译表与二分查询，传输枚举直接索引，关键词用 Aho–Corasick 连续 NFA。索引保存各类别最早候选，查询不排序、不为单次请求创建并行任务。
 
-域名已命中时固定使用域名决策；直连实际拨号仍需 DNS，但解析结果不重新匹配 IP 规则。未命中域名规则时才通过 DNS 进入 IP 阶段；解析失败明确失败。此时全部可用于连接的候选都检查，任一拒绝或指向未实现代理时整次连接失败，不切换地址族绕过。Fake-IP 通过所属解析器与有效代次还原域名再解析；合成地址不参与真实 IP 规则或连接。数字 IP 不查 DNS。纯 evaluate 是诊断查询，不能作为网络连接已建立的证明；域名未命中且缺少真实地址时返回的兜底也不能替代 DNS 后的实际决策。
+域名已命中时固定使用域名决策；直连实际拨号仍需 DNS，但解析结果不重新匹配 IP 规则。未命中域名规则时才通过 DNS 进入 IP 阶段；解析失败明确失败。此时逐个检查地址候选，IP REJECT 只排除该 IP；还有允许地址就继续评估和尝试，全部被拒绝才返回 REJECT。不可用代理及执行错误仍明确失败，不默认 DIRECT。Fake-IP 通过所属解析器与有效代次还原域名再解析；合成地址不参与真实 IP 规则或连接。数字 IP 不查 DNS。纯 evaluate 是诊断查询，不能作为网络连接已建立的证明；域名未命中且缺少真实地址时返回的兜底也不能替代 DNS 后的实际决策。
 
 ## 限制与验证状态
 
-最多 100000 条输入规则、64 个来源；规则值最多 253 字节，出站最多 64 字节，YAML 最多 32 MiB、深度 32、事件数 3000000，FFI 保留既有 JSON 缓冲区上限，大输入使用有界 YAML 文件。全进程规则预算 512 MiB，按条目、域名标签和关键词长度预留，同时计算编译临时对象及新旧快照；高复杂度输入可在达到数量上限前失败，不仅提升数量上限。
+最多 100000 条输入规则、64 个来源；普通规则值最多 253 字节，端口/域名组合最多 259 字节，出站名称最多 128 UTF-8 字节，YAML 最多 32 MiB、深度 32、事件数 3000000，FFI 保留既有 JSON 缓冲区上限，大输入使用有界 YAML 文件。全进程规则预算 512 MiB，按条目、域名标签和关键词长度预留，同时计算编译临时对象及新旧快照；高复杂度输入可在达到数量上限前失败，不仅提升数量上限。
 
 Rust 业务模块无 unsafe。索引测试分别与同语义线性参考匹配器及未裁剪原始输入参考匹配器比较；发布前还需完成全部 Rust/真实 Swift FFI、最终优化构建性能记录、远程发布及 App 接入验证。当前文档不表示七步交付已经完成。
 
-## 历史本机验证记录
+## 历史本机验证记录（不能作为本轮语义变更的通过证据）
 
 当前开发代码共 121 项 Rust 测试通过，严格 Clippy 和 SwiftLint 通过；十组真实 Swift FFI 回归通过，另行验证 YAML 文件输入、key 别名、重复键失败保留旧版本。包括真实 DNS 与 TCP 连接验证：两种规则排列下，域名直连均跳过 IP 拦截；域名未命中时多候选 IP 拦截仍拒绝拨号。无新增日志通道。
 
@@ -168,9 +154,9 @@ Store 完成结果提供六段 Duration（compile、encode、validate、write_sy
 
 复现：优化构建 examples/runtime_rules_bench 后分别传入 10000 / 50000 / 100000，查询不加其他参数，完整更新加 --persist，后台更新另加 --background。使用 /usr/bin/time -l 统计全进程峰值；固定相同环境与设置，交替运行前后版本并记录所有样本。
 
-## Clash 订阅与持久化
+## 独立旧 Clash 订阅 API 与持久化
 
-订阅使用根字段 `payload`，每行严格采用 `DOMAIN,value`、`DOMAIN-SUFFIX,value`、`DOMAIN-KEYWORD,value` 或 `IP-CIDR,value`。IP-CIDR 统一支持 IPv4/IPv6。小写类型、第三列、IP-CIDR6、no-resolve、重复键和未知字段均明确拒绝。动作由订阅元数据 `policy` 指定，代理出站由 `outbound` 指定；省略代理出站时在生成快照时继承主配置出站。原始订阅不改写。完整订阅样例见根目录 rules.yaml。
+订阅使用根字段 `payload`，每行严格采用 `DOMAIN,value`、`DOMAIN-SUFFIX,value`、`DOMAIN-KEYWORD,value` 或 `IP-CIDR,value`。IP-CIDR 统一支持 IPv4/IPv6。小写类型、第三列、IP-CIDR6、no-resolve、重复键和未知字段均明确拒绝。动作由订阅元数据 `policy` 指定，代理出站由 `outbound` 指定；省略代理出站时在生成快照时继承主配置出站。原始订阅不改写。该独立 API 的旧格式不能传给主配置提供者；根目录 rules.yaml 现为新的小写 rules 正文。
 
 后台任务接收原始 payload，合并、去重、裁剪后生成二进制平铺缓存；持久化和原子更新约定见前文，性能测量见 [规则性能测试](规则性能测试.md)。
 
@@ -208,19 +194,12 @@ protocol 可在 API 中限定 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD 的 TCP/UD
 
 ## 主配置的远程来源字段
 
-远程规则集使用 `rule-providers` 列表，节点使用 `proxy-providers`，插件使用 `plugin-providers`；`kind` 分别必须为 `rules`、`nodes`、`plugin`，三类合计最多 64 项。旧 `subscriptions` 字段不再接受，旧配置按每项 kind 拆分迁移。各条目字段及每日 UTC `update-time` 计划不变，规则集正文仍为 Clash classical `payload`。主配置由 App 严格解析，并非 Rust 运行时生成文档或 API 来源字段；本次不改变规则匹配、来源顺序、资源预算或下载行为。
+主配置 rule-providers 采用 name/url/policy/enable/update-time；远程正文为小写 `rules` 列表，不携带策略。Rust 内核拥有下载、设备本地日历、~/.fluxa/rules/<name>.yaml 缓存、原子批次及关闭；具体接口和失败后果见 [规则提供者生命周期](Subscriptions.md)。插件来源已保留，插件/代理提供者执行仍暂缓。旧 subscriptions、kind、id、enabled、policy: proxy + outbound 和 payload 不用于新主配置。
 
-```yaml
-proxy-providers: []
-plugin-providers: []
-rule-providers:
-  - id: daily-rules
-    name: 每日远程规则
-    url: https://example.com/fluxa/rules.yaml
-    kind: rules
-    enabled: false
-    policy: proxy
-    update-time: "12:00"
-```
+## 报文、进程与国家条件
 
-字段类型、未知或重复字段、错放 kind 及远程文档嵌套来源均拒绝；没有新增 `type`、`behavior`、`path` 或 `interval`，不表示支持完整 Clash 配置。根目录两份完整示例使用相同的来源字段 schema；App 尚未接入的其他字段不在本次跨仓库兼容性验证范围内。
+主配置接入及语义见 [主配置](主配置.md#完整规则编译与裁决接口2026-10-17)。`ProcessName` 精确名称使用 `#process:` 独立索引键，`GeoIp` 国家使用 `#US` 等隔离键；这些键不接受为域名，防止跨类型冲突。QUIC 独立后缀森林与普通端口森林共用目录布局，条件标签不是优先级。候选槽数量保持 21，分别合并后按真实来源/类型/序号裁决。二进制缓存 v6 验证键、条件、来源及候选关系；旧版本拒绝并从原始来源重建。
+
+实际 MAC 进程归属只由平台模块查询，纯路由诊断没有流身份而跳过该项。GeoIP 数据绑定不持久化到规则缓存，恢复后必须重新绑定同来源 Ready 数据库；缺失不能返回兜底成功。编译与查询的系统/资源失败保留现有整数错误协议。
+
+进程规则来源约束：process-name 只在 macOS 本地配置参与；iOS/iPadOS/tvOS 本地编译忽略；远程规则集一律单行忽略（direct、reject 或节点策略均相同）。无法由操作系统确定流归属时跳过进程规则继续匹配，禁止接受远程自报进程身份。

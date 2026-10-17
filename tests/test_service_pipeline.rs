@@ -2,11 +2,11 @@
 //! 测试类型：集成测试、回归测试
 //! 测试对象：src/http.rs、src/https.rs
 //! 测试内容：
-//! - service_requires_explicit_route_and_dns：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - configured_rejection_never_dials_and_reconfiguration_recovers：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - unsupported_proxy_is_not_direct：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - cancellation_interrupts_tls_and_plain_requests_and_releases_resources：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - idle_expiry_also_interrupts_managed_tls：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - service_requires_explicit_route_and_dns：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - configured_rejection_never_dials_and_reconfiguration_recovers：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - unsupported_proxy_is_not_direct：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - cancellation_interrupts_tls_and_plain_requests_and_releases_resources：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - idle_expiry_also_interrupts_managed_tls：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //!
 //! 测试依据：保留原有公开接口契约及全部断言；测试文件原注释保留在下方，L3 必须独立核对。
 //!
@@ -21,7 +21,7 @@ use libfluxa_core::{
     error::Error,
     https::HttpsClient,
     outbound::Limits,
-    routing::{Config, Mode, Router},
+    routing::{Config, Mode, Policy, Router},
 };
 use rustls::RootCertStore;
 use std::{sync::Arc, time::Duration};
@@ -97,6 +97,7 @@ async fn unsupported_proxy_is_not_direct() {
         .configure_routing(Some(Arc::new(
             Router::compile(Config {
                 mode: Mode::Global,
+                fallback: Policy::Proxy, // 显式代理兜底，仍必须拒绝未实现代理，不能默认直连。
                 outbound: Some("unimplemented".into()),
                 ..Config::default()
             })

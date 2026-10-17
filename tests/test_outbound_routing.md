@@ -1,6 +1,6 @@
 # 测试报告：test_outbound_routing
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_outbound_routing-6bf02d94168bd810", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.12266366699999764, "status": "PASS", "discovered": ["domain_match_skips_ip_rejection_in_both_orders", "fake_ip_route_matches_restored_domain_and_real_cidr_with_generation", "fake_preallocation_exclusion_does_not_touch_dns", "formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp", "known_rejection_proxy_and_missing_dns_never_connect_or_fallback", "mixed_address_policies_reject_before_any_candidate_is_dialed", "numeric_udp_skips_dns_and_direct_mode_preserves_rejection", "routed_dns_deadline_and_close_cancel_before_dial"], "results": {"domain_match_skips_ip_rejection_in_both_orders": "PASS", "fake_ip_route_matches_restored_domain_and_real_cidr_with_generation": "PASS", "fake_preallocation_exclusion_does_not_touch_dns": "PASS", "formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp": "PASS", "known_rejection_proxy_and_missing_dns_never_connect_or_fallback": "PASS", "mixed_address_policies_reject_before_any_candidate_is_dialed": "PASS", "numeric_udp_skips_dns_and_direct_mode_preserves_rejection": "PASS", "routed_dns_deadline_and_close_cancel_before_dial": "PASS"}, "fingerprint": "dd43ee0d4224e0147a02ec33fe5579aa85cf0d056e1fda591ecb523d2f4d28c1", "time": "2026-10-16T14:47:37.820320+08:00", "attempt": 1, "suite": "test_outbound_routing", "file": "tests/test_outbound_routing.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "bb00aba968e0bd4d23278cb38a6733f6cb7a11bd", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_outbound_routing-115f849ffba0490d", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.12476866699999789, "status": "PASS", "discovered": ["domain_match_skips_ip_rejection_in_both_orders", "fake_ip_route_matches_restored_domain_and_real_cidr_with_generation", "fake_preallocation_exclusion_does_not_touch_dns", "formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp", "known_rejection_proxy_and_missing_dns_never_connect_or_fallback", "mixed_address_rejection_excludes_only_blocked_ip", "numeric_udp_skips_dns_and_direct_mode_preserves_rejection", "routed_dns_deadline_and_close_cancel_before_dial"], "results": {"domain_match_skips_ip_rejection_in_both_orders": "PASS", "fake_ip_route_matches_restored_domain_and_real_cidr_with_generation": "PASS", "fake_preallocation_exclusion_does_not_touch_dns": "PASS", "formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp": "PASS", "known_rejection_proxy_and_missing_dns_never_connect_or_fallback": "PASS", "mixed_address_rejection_excludes_only_blocked_ip": "PASS", "numeric_udp_skips_dns_and_direct_mode_preserves_rejection": "PASS", "routed_dns_deadline_and_close_cancel_before_dial": "PASS"}, "fingerprint": "bfe1a8f1056213e2a1bfa451312696b9e6a1f7cb18c5bb648e4adc627b26e80e", "time": "2026-10-17T15:48:59.075173+08:00", "attempt": 6, "suite": "test_outbound_routing", "file": "tests/test_outbound_routing.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "03b3081b98dbd70be284fa19feea9910b8479f8b", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/dns/mod.rs、src/routing/runtime.rs
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_outbound_routing-6bf02d94168bd810 --test-threads=1`
-- 执行时间：2026-10-16T14:47:37.820320+08:00
-- 实际耗时：0.12266366699999764 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "bb00aba968e0bd4d23278cb38a6733f6cb7a11bd", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`dd43ee0d4224e0147a02ec33fe5579aa85cf0d056e1fda591ecb523d2f4d28c1`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_outbound_routing-115f849ffba0490d --test-threads=1`
+- 执行时间：2026-10-17T15:48:59.075173+08:00
+- 实际耗时：0.12476866699999789 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "03b3081b98dbd70be284fa19feea9910b8479f8b", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`bfe1a8f1056213e2a1bfa451312696b9e6a1f7cb18c5bb648e4adc627b26e80e`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -25,7 +25,7 @@
 | `fake_preallocation_exclusion_does_not_touch_dns` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `formal_scoped_udp_reject_does_not_break_tcp_or_silently_send_udp` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `known_rejection_proxy_and_missing_dns_never_connect_or_fallback` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `mixed_address_policies_reject_before_any_candidate_is_dialed` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `mixed_address_rejection_excludes_only_blocked_ip` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `numeric_udp_skips_dns_and_direct_mode_preserves_rejection` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `routed_dns_deadline_and_close_cancel_before_dial` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
@@ -53,7 +53,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-f02-final-evidence/test_outbound_routing.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-provider-accepted-20261017/test_outbound_routing.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

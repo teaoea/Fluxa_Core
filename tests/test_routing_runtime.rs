@@ -2,11 +2,13 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/routing/runtime.rs
 //! 测试内容：
-//! - full_value_validation_detects_provenance_and_report_changes：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_migration_and_input_leases_are_bounded：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - audit_registry_uses_weak_owners_and_releases_handles：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - shared_pool_covers_compilation_flattening_cache_io_and_retained_snapshots：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - rule_class_slots_never_define_decision_priority：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - process_facts_preserve_source_type_and_special_reject_contract：进程精确匹配、未知跳过、来源优先与特殊拦截。
+//! - scoped_quic_requires_real_packet_and_preserves_priority_in_flat_index：实际报文、标签边界、来源和特殊 REJECT 在树/平铺/独立参考中保持一致。
+//! - full_value_validation_detects_provenance_and_report_changes：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_migration_and_input_leases_are_bounded：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - audit_registry_uses_weak_owners_and_releases_handles：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - shared_pool_covers_compilation_flattening_cache_io_and_retained_snapshots：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - rule_class_slots_never_define_decision_priority：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //!
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
@@ -137,36 +139,243 @@ mod validation_tests {
             RuleClass::LocalDomain,
             RuleClass::LocalDomainSuffix,
             RuleClass::LocalPortTransport,
-            RuleClass::RemoteIp,
-            RuleClass::RemoteDomain,
-            RuleClass::RemoteDomainSuffix,
-            RuleClass::RemotePortTransport,
+            RuleClass::PluginRemoteIp,
+            RuleClass::PluginRemoteDomain,
+            RuleClass::PluginRemoteDomainSuffix,
+            RuleClass::PluginRemotePortTransport,
             RuleClass::LocalKeyword,
-            RuleClass::RemoteKeyword,
+            RuleClass::PluginRemoteKeyword,
             RuleClass::RejectTcp,
             RuleClass::RejectUdp,
             RuleClass::LocalDomainTcp,
-            RuleClass::RemoteDomainTcp,
+            RuleClass::PluginRemoteDomainTcp,
             RuleClass::LocalDomainUdp,
-            RuleClass::RemoteDomainUdp,
+            RuleClass::PluginRemoteDomainUdp,
             RuleClass::LocalSuffixTcp,
-            RuleClass::RemoteSuffixTcp,
+            RuleClass::PluginRemoteSuffixTcp,
             RuleClass::LocalSuffixUdp,
-            RuleClass::RemoteSuffixUdp,
+            RuleClass::PluginRemoteSuffixUdp,
         ];
         assert_eq!(classes.len(), RuleClass::COUNT);
         for (slot, class) in classes.into_iter().enumerate() {
             assert_eq!(slot, class as usize);
         }
+        let rules = [
+            (Match::IpCidr, "192.0.2.0/24"),
+            (Match::Domain, "example.com"),
+            (Match::DestinationPort, "443"),
+        ]
+        .into_iter()
+        .map(|(kind, value)| Rule {
+            protocol: None,
+            r#type: kind,
+            value: value.into(),
+            policy: Policy::Direct,
+            outbound: None,
+        })
+        .collect();
+        let snapshot = Snapshot::generate(
+            Config::default(),
+            vec![Source {
+                id: "local".into(),
+                layer: Layer::Local,
+                enabled: true,
+                rules,
+            }],
+            1,
+        )
+        .unwrap();
         let mut values = Candidates::default();
-        values.add(RuleClass::LocalDomain as usize, 10);
-        values.add(RuleClass::RemoteIp as usize, 11);
+        values.add(RuleClass::LocalIp as usize, 0);
+        values.add(RuleClass::LocalDomain as usize, 1);
         assert_eq!(
-            Snapshot::selected(values),
-            Some(11),
-            "槽位2不能因为数值更小而覆盖槽位5的IP候选"
+            snapshot.selected(values),
+            Some(1),
+            "同来源 DOMAIN 优先于 IP，不能按槽位编号选择"
         );
-        values.add(RuleClass::LocalPortTransport as usize, 1);
-        assert_eq!(Snapshot::selected(values), Some(11), "端口规则不得越级");
+        values.add(RuleClass::LocalPortTransport as usize, 2);
+        assert_eq!(
+            snapshot.selected(values),
+            Some(2),
+            "同来源 PORT 优先于 DOMAIN，编号更大的槽位也能先匹配"
+        );
+    }
+}
+
+#[test]
+fn scoped_quic_requires_real_packet_and_preserves_priority_in_flat_index() {
+    use super::*;
+    let mut quic = vec![0xc0, 0, 0, 0, 1, 1, 1, 1, 2, 0, 17];
+    quic.extend([0; 17]);
+    let rule = |kind, value: &str, policy| Rule {
+        protocol: None,
+        r#type: kind,
+        value: value.into(),
+        policy,
+        outbound: None,
+    };
+    let source = |layer, id: &str, rules| Source {
+        id: id.into(),
+        layer,
+        enabled: true,
+        rules,
+    };
+    let sources = vec![
+        source(
+            Layer::Local,
+            "local",
+            vec![rule(Match::DomainQuic, "example.com", Policy::Direct)],
+        ),
+        source(
+            Layer::Remote,
+            "remote",
+            vec![rule(Match::Domain, "example.com", Policy::Reject)],
+        ),
+    ];
+    let reference = Reference::compile(Config::default(), sources.clone(), 9).unwrap();
+    let snapshot = Snapshot::generate(Config::default(), sources, 9).unwrap();
+    let verify = |snapshot: &Snapshot| {
+        for (domain, bytes, expected) in [
+            ("a.example.com", quic.as_slice(), Policy::Direct),
+            ("deep.a.example.com", quic.as_slice(), Policy::Direct),
+            ("badexample.com", quic.as_slice(), Policy::Reject),
+            ("example.com.evil", quic.as_slice(), Policy::Reject),
+            ("example.com", quic.as_slice(), Policy::Reject), // exact 特殊 REJECT 高于正式协议规则。
+            ("a.example.com", b"not-quic".as_slice(), Policy::Reject),
+            ("a.example.com", &quic[..10], Policy::Reject),
+        ] {
+            let target = Target {
+                domain: Some(domain.into()),
+                address: Some("192.0.2.1".into()),
+                port: 5555,
+                transport: super::super::Transport::Udp,
+            };
+            let actual = snapshot.evaluate_datagram(&target, bytes).unwrap();
+            assert_eq!(actual.policy, expected, "{domain}");
+            assert_eq!(actual, reference.evaluate_datagram(&target, bytes).unwrap());
+        }
+    };
+    verify(&snapshot);
+    let flat = snapshot.into_flat().unwrap();
+    verify(&flat);
+    let restored =
+        Snapshot::from_flat_document(flat.document.clone(), flat.flat_bytes().unwrap().to_vec())
+            .unwrap();
+    verify(&restored);
+    let tcp = Target {
+        domain: Some("a.example.com".into()),
+        address: None,
+        port: 443,
+        transport: super::super::Transport::Tcp,
+    };
+    assert!(matches!(
+        restored.evaluate_datagram(&tcp, &quic),
+        Err(Error::InvalidInput)
+    ));
+}
+
+#[test]
+fn process_facts_preserve_source_type_and_special_reject_contract() {
+    use super::*;
+    let rule = |kind, value: &str, policy| Rule {
+        protocol: None,
+        r#type: kind,
+        value: value.into(),
+        policy,
+        outbound: None,
+    };
+    let source = |layer, id: &str, rules| Source {
+        id: id.into(),
+        layer,
+        enabled: true,
+        rules,
+    };
+    let settings = Config::default();
+    let sources = vec![
+        source(
+            Layer::Local,
+            "local",
+            vec![
+                rule(Match::ProcessName, "App", Policy::Direct),
+                rule(Match::DomainSuffix, "local.example", Policy::Direct),
+            ],
+        ),
+        source(
+            Layer::Plugin,
+            "plugin",
+            vec![rule(Match::ProcessName, "Plugin", Policy::Reject)],
+        ),
+        source(
+            Layer::Remote,
+            "remote",
+            vec![
+                rule(Match::Domain, "blocked.example", Policy::Reject),
+                rule(Match::ProcessName, "Remote", Policy::Reject),
+            ],
+        ),
+    ];
+    let snapshot = Snapshot::generate(settings, sources, 11).unwrap();
+    let verify = |snapshot: &Snapshot| {
+        // 预期从已确认规范独立写出；进程并不绕过特殊 REJECT，来源又优先于进程类型。
+        for (domain, process, expected) in [
+            ("other.example", Some("App"), Policy::Direct),
+            ("other.example", Some("app"), Policy::Reject),
+            ("other.example", None, Policy::Reject),
+            ("blocked.example", Some("App"), Policy::Reject),
+            ("a.local.example", Some("Remote"), Policy::Direct),
+            ("a.local.example", Some("Plugin"), Policy::Direct),
+        ] {
+            let target = Target {
+                domain: Some(domain.into()),
+                address: Some("192.0.2.1".into()),
+                port: 443,
+                transport: super::super::Transport::Tcp,
+            };
+            let actual = snapshot.evaluate_facts(&target, false, process).unwrap();
+            assert_eq!(actual.policy, expected, "{domain} {process:?}");
+            assert_eq!(
+                actual,
+                snapshot
+                    .evaluate_reference_facts(&target, false, process)
+                    .unwrap()
+            );
+        }
+    };
+    verify(&snapshot);
+    let flat = snapshot.into_flat().unwrap();
+    verify(&flat);
+    let restored =
+        Snapshot::from_flat_document(flat.document.clone(), flat.flat_bytes().unwrap().to_vec())
+            .unwrap();
+    verify(&restored);
+    for mode in [Mode::Direct, Mode::Global] {
+        let snapshot = Snapshot::generate(
+            Config {
+                mode,
+                fallback: Policy::Direct,
+                ..Config::default()
+            },
+            vec![source(
+                Layer::Local,
+                "local",
+                vec![rule(Match::ProcessName, "App", Policy::Reject)],
+            )],
+            1,
+        )
+        .unwrap();
+        let target = Target {
+            domain: Some("other.example".into()),
+            address: None,
+            port: 443,
+            transport: super::super::Transport::Tcp,
+        };
+        assert_eq!(
+            snapshot
+                .evaluate_facts(&target, false, Some("App"))
+                .unwrap()
+                .policy,
+            Policy::Direct,
+            "global/direct 不执行普通进程拒绝"
+        );
     }
 }

@@ -15,7 +15,7 @@ geoip_url: null
 
 YAML 使用冒号，不使用等号。显式空串、控制符、超过 1024 字节、无有效主机、凭据、片段、端口 0 或格式非法返回 2401；非 HTTPS 协议返回 2402。整个非法配置拒绝，不改变旧来源、数据库或网络配置。主配置片段的未知字段、重复键沿用严格解析错误；Config::from_yaml 仅解析 GeoIP 片段，不能把完整主配置传入这个片段接口。
 
-Rust 可运行示例为 examples/geoip_configuration.rs；运行 cargo run --example geoip_configuration，会打印 Disabled 状态，不下载占位地址。实际下载使用 Service::new(Config)、Service::refresh 和已配置 DNS/路由的 HttpsClient。完整主配置示例 fluxa.yaml 与 fluxa_english.yaml 同步提供该字段。
+Rust 可运行示例为 examples/geoip_configuration.rs；运行 cargo run --example geoip_configuration，会打印 Disabled 状态，不下载占位地址。实际下载使用 Service::new(Config)、Service::refresh 和已配置 DNS/路由的 HttpsClient。完整主配置示例 example_config.yaml 同步提供该字段。
 
 C ABI 命令仍经现有 ABI 2 JSON 协议：
 
@@ -70,3 +70,9 @@ MMDB 识别检查元数据标记与格式；初始化检查元数据及布局边
 数据库失败与正式路由、Debug Overlay、DNS 决策、REJECT 无关。公开错误不包含 URL、IP、凭据或内部路径。固定诊断环保存受控底层代码，等级由中央 ErrorCode 分类决定；没有无界错误日志或错误参数。
 
 公网 IP 回显仍是独立的现有能力，与 GeoIP 数据源无关，本次未修改。系统 VPN、所有平台/最低系统、真实用户数据库及来源授权不以回环测试替代验证。
+
+新主配置使用 example_config.yaml 的 geoip.enabled/url/update-time，每日时间为设备本地时区；本文 geoip_url 是既有底层服务 API 的输入，不是新主配置根字段别名。启用下载编排仍待完整事务接入。
+
+## Ready 数据库与规则绑定
+
+`Document::compile_local_rules_with_geoip(version, &service)` 校验主配置有效 URL 与 Service 来源完全一致，再借用已 Ready 的不可变数据库。缺失、不同来源或未 Ready 返回 2408。规则查询直接读取 MMDB 国家两字母代码，不构造完整城市结果；无记录正常未匹配，读取失败返回 2409。关闭 GeoIP 的主配置不会编译国家行。数据库绑定不写入规则缓存，缓存恢复不得冒充 Ready。来源下载和主配置自动编排仍属于后续阶段。

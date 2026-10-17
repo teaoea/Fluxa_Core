@@ -3,11 +3,30 @@ use super::super::{Matcher, Transport};
 use super::{Entry, RuleClass};
 use crate::error::{Error, Result};
 use aho_corasick::{AhoCorasick, AhoCorasickKind};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::IpAddr;
 
 pub(super) const CLASSES: usize = RuleClass::COUNT;
 pub(super) const NONE: u32 = u32::MAX;
+// 森林目录的条件标识；1..=65535 是端口，独立标识用于 QUIC 条件，绝不表示优先级。
+pub(super) const QUIC_SCOPE_TAG: u32 = 65536;
+// '#' 不是合法域名字符，国家条件与普通域名在精确表中保持不可混淆的命名空间。
+// 独立精确命名空间，不能被普通域名或关键词查询；查询使用固定栈缓冲区。
+pub(super) const PROCESS_KEY_BYTES: usize =
+    super::super::MAX_PROCESS_NAME_BYTES + "#process:".len();
+const PROCESS_PREFIX: &str = "#process:";
+pub(super) fn process_key<'a>(name: &str, bytes: &'a mut [u8; PROCESS_KEY_BYTES]) -> &'a str {
+    let end = PROCESS_PREFIX.len() + name.len();
+    bytes[..PROCESS_PREFIX.len()].copy_from_slice(PROCESS_PREFIX.as_bytes());
+    bytes[PROCESS_PREFIX.len()..end].copy_from_slice(name.as_bytes());
+    std::str::from_utf8(&bytes[..end]).expect("进程名来自有效 UTF-8 字符串")
+}
+pub(super) fn geoip_key(code: &str) -> [u8; 3] {
+    [b'#', code.as_bytes()[0], code.as_bytes()[1]]
+}
+pub(super) fn geoip_name(bytes: &[u8; 3]) -> &str {
+    std::str::from_utf8(bytes).expect("国家代码已校验为两字节 ASCII")
+}
 #[derive(Clone, Copy)]
 pub(super) struct Candidates(pub [u32; CLASSES]);
 impl Default for Candidates {
@@ -22,16 +41,16 @@ impl Candidates {
             Transport::Tcp => [
                 RuleClass::RejectUdp,
                 RuleClass::LocalDomainUdp,
-                RuleClass::RemoteDomainUdp,
+                RuleClass::PluginRemoteDomainUdp,
                 RuleClass::LocalSuffixUdp,
-                RuleClass::RemoteSuffixUdp,
+                RuleClass::PluginRemoteSuffixUdp,
             ],
             Transport::Udp => [
                 RuleClass::RejectTcp,
                 RuleClass::LocalDomainTcp,
-                RuleClass::RemoteDomainTcp,
+                RuleClass::PluginRemoteDomainTcp,
                 RuleClass::LocalSuffixTcp,
-                RuleClass::RemoteSuffixTcp,
+                RuleClass::PluginRemoteSuffixTcp,
             ],
         };
         for class in excluded {
@@ -68,7 +87,10 @@ impl Domains {
         if self.nodes.is_empty() {
             self.nodes.push(DomainNode::default());
         }
-        let mut node = 0;
+        self.insert_from(name, class, id, 0);
+    }
+    fn insert_from(&mut self, name: &str, class: usize, id: u32, root: usize) {
+        let mut node = root;
         for label in name.rsplit('.') {
             let child = match self.nodes[node].children.get(label) {
                 Some(child) => *child,
@@ -84,11 +106,14 @@ impl Domains {
         self.nodes[node].values.add(class, id);
     }
     fn query(&self, name: &str) -> Candidates {
+        self.query_from(name, 0)
+    }
+    fn query_from(&self, name: &str, root: usize) -> Candidates {
         let mut result = Candidates::default();
         if self.nodes.is_empty() {
             return result;
         }
-        let mut node = 0;
+        let mut node = root;
         for label in name.rsplit('.') {
             let Some(child) = self.nodes[node].children.get(label) else {
                 break;
@@ -295,6 +320,8 @@ pub(super) struct Index {
     port_coverage: Option<PortCoverage>,
     pub(super) exact: HashMap<String, Candidates>,
     pub(super) suffix: Domains,
+    // 每个端口拥有独立后缀树根，节点仍共用有界森林；普通域名查询只从根 0 开始。
+    pub(super) scoped_ports: BTreeMap<u32, u32>,
     pub(super) v4: Prefixes,
     pub(super) v6: Prefixes,
     pub(super) ports: Ports,
@@ -308,6 +335,7 @@ impl Default for Index {
             port_coverage: None,
             exact: HashMap::new(),
             suffix: Domains::default(),
+            scoped_ports: BTreeMap::new(),
             v4: Prefixes::new(32),
             v6: Prefixes::new(128),
             ports: Ports::default(),
@@ -319,6 +347,19 @@ impl Index {
     pub fn insert(&mut self, entry: &Entry, id: u32) {
         let class = entry.class() as usize;
         match &entry.matcher {
+            Matcher::ProcessName(value) => {
+                let mut buffer = [0; PROCESS_KEY_BYTES];
+                self.exact
+                    .entry(process_key(value, &mut buffer).to_owned())
+                    .or_default()
+                    .add(class, id);
+            }
+            Matcher::GeoIp(value) => {
+                self.exact
+                    .entry(geoip_name(&geoip_key(value)).to_owned())
+                    .or_default()
+                    .add(class, id);
+            }
             Matcher::Quic => {}
             Matcher::Keyword(value) => self
                 .keyword_exact
@@ -329,6 +370,31 @@ impl Index {
                 self.exact.entry(value.clone()).or_default().add(class, id)
             }
             Matcher::Domain(value, true) => self.suffix.insert(value, class, id),
+            Matcher::DomainQuic(value) => {
+                if self.suffix.nodes.is_empty() {
+                    self.suffix.nodes.push(DomainNode::default());
+                }
+                let root = *self.scoped_ports.entry(QUIC_SCOPE_TAG).or_insert_with(|| {
+                    let root = self.suffix.nodes.len() as u32;
+                    self.suffix.nodes.push(DomainNode::default());
+                    root
+                });
+                self.suffix.insert_from(value, class, id, root as usize);
+            }
+            Matcher::DomainPort(value, port) => {
+                if self.suffix.nodes.is_empty() {
+                    self.suffix.nodes.push(DomainNode::default());
+                }
+                let root = *self
+                    .scoped_ports
+                    .entry(u32::from(*port))
+                    .or_insert_with(|| {
+                        let root = self.suffix.nodes.len() as u32;
+                        self.suffix.nodes.push(DomainNode::default());
+                        root
+                    });
+                self.suffix.insert_from(value, class, id, root as usize);
+            }
             Matcher::Network(network) => {
                 let (key, prefix, v4) = network.key();
                 if v4 {
@@ -372,7 +438,23 @@ impl Index {
     /// 覆盖查询只接受整个条件被包含；后缀条件不能由精确域名覆盖。
     pub fn coverage(&self, matcher: &Matcher) -> Candidates {
         match matcher {
-            Matcher::Quic => Candidates::default(),
+            // 不从普通 UDP/域名覆盖推断 QUIC 条件；精确重复仍由来源生成器消除。
+            Matcher::Quic
+            | Matcher::DomainQuic(_)
+            | Matcher::GeoIp(_)
+            | Matcher::ProcessName(_) => Candidates::default(),
+            Matcher::DomainPort(value, port) => {
+                let mut values = self
+                    .scoped_ports
+                    .get(&u32::from(*port))
+                    .map_or_else(Candidates::default, |root| {
+                        self.suffix.query_from(value, *root as usize)
+                    });
+                if let Some(index) = &self.port_coverage {
+                    values.merge(index.query(*port, *port));
+                }
+                values
+            }
             Matcher::Keyword(value) => self.keyword_exact.get(value).copied().unwrap_or_default(),
             Matcher::Domain(value, suffix) => {
                 let mut values = self.suffix.query(value);
@@ -396,11 +478,37 @@ impl Index {
                 .map_or_else(Candidates::default, |index| index.query(*first, *last)),
         }
     }
-    pub fn domain_candidates(&self, name: &str) -> Candidates {
+    pub fn process_candidates(&self, name: &str) -> Candidates {
+        let mut bytes = [0; PROCESS_KEY_BYTES];
+        self.exact
+            .get(process_key(name, &mut bytes))
+            .copied()
+            .unwrap_or_default()
+    }
+    pub fn geoip_candidates(&self, code: &str) -> Candidates {
+        self.exact
+            .get(geoip_name(&geoip_key(code)))
+            .copied()
+            .unwrap_or_default()
+    }
+    pub fn quic_candidates(&self, name: &str) -> Candidates {
+        self.scoped_ports
+            .get(&QUIC_SCOPE_TAG)
+            .map_or_else(Candidates::default, |root| {
+                self.suffix.query_from(name, *root as usize)
+            })
+    }
+    pub fn domain_candidates(&self, name: &str, port: u16) -> Candidates {
         let mut values = self.suffix.query(name);
+        if let Some(root) = self.scoped_ports.get(&u32::from(port)) {
+            values.merge(self.suffix.query_from(name, *root as usize));
+        }
         values.merge(self.exact.get(name).copied().unwrap_or_default());
         if let Some((engine, candidates)) = &self.keywords {
-            for found in engine.find_overlapping_iter(name) {
+            for found in super::super::keyword_subject(name)
+                .into_iter()
+                .flat_map(|label| engine.find_overlapping_iter(label))
+            {
                 values.merge(candidates[found.pattern().as_usize()]);
             }
         }
@@ -416,7 +524,7 @@ impl Index {
         let mut values = self.ports.query(port);
         values.merge(self.transports[usize::from(transport == Transport::Udp)]);
         if let Some(name) = name {
-            let domains = self.domain_candidates(name).for_transport(transport);
+            let domains = self.domain_candidates(name, port).for_transport(transport);
             let hit = domains.0.iter().any(|value| *value != NONE);
             values.merge(domains);
             // 用户确定域名命中后跳过所有 IP 规则，包括 IP 拦截。

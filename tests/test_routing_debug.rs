@@ -2,6 +2,8 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/routing/debug.rs
 //! 测试内容：
+//! - debug_precedes_formal_quic_payload_requirement：Debug 最高优先且撤销后恢复真实首包条件。
+//! - debug_type_order_precedes_policy_and_keeps_scoped_port_boundaries：独立类型顺序、组合端口边界及关闭撤销。
 //! - individual_deadlines_expire_even_in_retained_views：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - audit_debug_not_configurable_or_persistent_and_has_quota：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - audit_debug_ip_waits_for_dns_before_formal_reject：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -725,6 +727,127 @@ mod semantic_tests {
                 .unwrap()
                 .policy,
             Policy::Reject
+        );
+    }
+    /// Overlay 内部只按类型/原序号，正式 REJECT 的特殊顺序不能泄漏进 Debug。
+    #[test]
+    fn debug_type_order_precedes_policy_and_keeps_scoped_port_boundaries() {
+        use crate::routing::debug::{DebugRule, Session};
+        let session = Session::new().unwrap();
+        session
+            .replace(
+                vec![
+                    DebugRule {
+                        rule: rule(Match::Domain, "example.com", Policy::Reject),
+                        protocol: None,
+                        lifetime_seconds: Some(60),
+                    },
+                    DebugRule {
+                        rule: rule(Match::DomainPort, "443,example.com", Policy::Direct),
+                        protocol: None,
+                        lifetime_seconds: Some(60),
+                    },
+                    DebugRule {
+                        rule: rule(Match::DomainSuffix, "example.com", Policy::Proxy),
+                        protocol: Some(Transport::Tcp),
+                        lifetime_seconds: Some(60),
+                    },
+                ],
+                None,
+            )
+            .unwrap();
+        let view = session.view().unwrap();
+        let tcp = target("example.com", "192.0.2.1");
+        let decision = view.evaluate(&tcp).unwrap().unwrap();
+        assert_eq!(decision.policy, Policy::Proxy);
+        assert_eq!(decision.rule_index, Some(2));
+        let mut udp = tcp;
+        udp.transport = Transport::Udp;
+        assert_eq!(view.evaluate(&udp).unwrap().unwrap().policy, Policy::Direct);
+        udp.port = 444;
+        assert_eq!(view.evaluate(&udp).unwrap().unwrap().policy, Policy::Reject);
+        let mut child = target("a.example.com", "192.0.2.1");
+        child.transport = Transport::Udp;
+        assert_eq!(
+            view.evaluate(&child).unwrap().unwrap().policy,
+            Policy::Direct
+        );
+        child.domain = Some("badexample.com".into());
+        assert!(view.evaluate(&child).unwrap().is_none());
+        session.close().unwrap();
+        assert!(view.evaluate(&udp).unwrap().is_none());
+    }
+}
+
+#[test]
+fn debug_precedes_formal_quic_payload_requirement() {
+    use crate::routing::{
+        Config, Match, Policy, Router, Rule, Target, Transport,
+        debug::{DebugRule, Session},
+    };
+    let session = Session::new().unwrap();
+    session
+        .replace(
+            vec![DebugRule {
+                rule: Rule {
+                    r#type: Match::Domain,
+                    value: "example.com".into(),
+                    policy: Policy::Direct,
+                    outbound: None,
+                    protocol: None,
+                },
+                protocol: None,
+                lifetime_seconds: Some(60),
+            }],
+            None,
+        )
+        .unwrap();
+    let router = Router::compile(Config {
+        rules: vec![Rule {
+            r#type: Match::DomainQuic,
+            value: "example.com".into(),
+            policy: Policy::Reject,
+            outbound: None,
+            protocol: None,
+        }],
+        ..Config::default()
+    })
+    .unwrap()
+    .with_debug(&session)
+    .unwrap();
+    let target = Target {
+        domain: Some("example.com".into()),
+        address: None,
+        port: 5555,
+        transport: Transport::Udp,
+    };
+    assert!(
+        !router.needs_datagram(&target).unwrap(),
+        "不能因正式规则缺首包绕过已命中 Debug"
+    );
+    assert_eq!(
+        router.evaluate(target.clone()).unwrap().policy,
+        Policy::Direct
+    );
+    session.clear().unwrap();
+    assert!(router.needs_datagram(&target).unwrap());
+    for mode in [crate::routing::Mode::Global, crate::routing::Mode::Direct] {
+        let router = Router::compile(Config {
+            mode,
+            fallback: Policy::Direct,
+            rules: vec![Rule {
+                r#type: Match::DomainQuic,
+                value: "example.com".into(),
+                policy: Policy::Direct,
+                outbound: None,
+                protocol: None,
+            }],
+            ..Config::default()
+        })
+        .unwrap();
+        assert!(
+            !router.needs_datagram(&target).unwrap(),
+            "global/direct 忽略普通 QUIC 规则，不应要求首包"
         );
     }
 }

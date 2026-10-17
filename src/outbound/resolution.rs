@@ -1,4 +1,5 @@
-//! 配置 DNS 与 Fake-IP 到出站的桥接；不使用系统解析或 hosts 回退。
+//! 配置 DNS 与 Fake-IP 到出站的桥接；业务路径不使用系统解析或 hosts 回退。
+//! DNS 关闭的内核下载上下文单独使用有会话/预算约束的 resolve_system。
 use super::{Manager, dial, duration};
 use crate::{
     dns::{Answer, Query, Resolver},
@@ -247,4 +248,50 @@ pub(super) async fn candidates(
             else => return Err(failure),
         }
     }
+}
+
+// 系统调用不可强行终止：配额与会话操作必须移动进阻塞线程，关闭等待真实退出。
+static SYSTEM_LOOKUPS: crate::budget::ByteBudget = crate::budget::ByteBudget::new(8 * 65536);
+pub(super) async fn resolve_system(
+    name: &str,
+    family: Family,
+    owner: Option<std::sync::Arc<crate::lifecycle::session::Authority>>,
+) -> Result<Vec<IpAddr>> {
+    let owner = owner.ok_or(Error::InvalidState)?;
+    let operation = owner.enter(owner.identity())?;
+    let memory = SYSTEM_LOOKUPS.reserve(65536)?;
+    let name = name.to_owned();
+    tokio::task::spawn_blocking(move || {
+        use std::net::ToSocketAddrs;
+        let _operation = operation;
+        let _memory = memory;
+        owner.check(owner.identity())?;
+        let mut values = Vec::new();
+        for address in (name.as_str(), 0)
+            .to_socket_addrs()
+            .map_err(|_| Error::DnsResponse)?
+        {
+            let ip = address.ip();
+            if ip.is_unspecified()
+                || matches!(
+                    (family, ip),
+                    (Family::Ipv4, IpAddr::V6(_)) | (Family::Ipv6, IpAddr::V4(_))
+                )
+            {
+                continue;
+            }
+            if !values.contains(&ip) {
+                if values.len() == 16 {
+                    return Err(Error::ResourceLimit);
+                }
+                values.push(ip);
+            }
+        }
+        if values.is_empty() {
+            return Err(Error::DnsResponse);
+        }
+        Ok(values)
+    })
+    .await
+    .map_err(|_| Error::Internal)?
 }

@@ -5,7 +5,7 @@
 //! - known_rejection_proxy_and_missing_dns_never_connect_or_fallback：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - domain_match_skips_ip_rejection_in_both_orders：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - numeric_udp_skips_dns_and_direct_mode_preserves_rejection：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - mixed_address_policies_reject_before_any_candidate_is_dialed：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - mixed_address_rejection_excludes_only_blocked_ip：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - fake_ip_route_matches_restored_domain_and_real_cidr_with_generation：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - fake_preallocation_exclusion_does_not_touch_dns：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - routed_dns_deadline_and_close_cancel_before_dial：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -200,7 +200,7 @@ async fn numeric_udp_skips_dns_and_direct_mode_preserves_rejection() {
     manager.close(opened.connection.id).await.unwrap();
 }
 #[tokio::test]
-async fn mixed_address_policies_reject_before_any_candidate_is_dialed() {
+async fn mixed_address_rejection_excludes_only_blocked_ip() {
     let fixture = support::fixture().await;
     let resolver = Resolver::new(dns(fixture.port)).unwrap();
     let manager = Manager::default();
@@ -213,13 +213,45 @@ async fn mixed_address_policies_reject_before_any_candidate_is_dialed() {
     .unwrap();
     let mut request = target(listener.local_addr().unwrap().port());
     request.family = Family::Auto;
+    // 用户已确认：IP REJECT 只排除该地址，不是整个域名 REJECT；允许的 IPv4 必须连接。
+    let opened = manager
+        .connect_routed(&router, Some(&resolver), request.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        opened.connection.address,
+        listener.local_addr().unwrap().to_string()
+    );
+    assert_eq!(opened.decision.policy, Policy::Direct);
+    assert_eq!(fixture.count.load(Ordering::SeqCst), 2);
+    let (mut peer, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    manager
+        .write(opened.connection.id, b"allowed-ip", 1000)
+        .await
+        .unwrap();
+    let mut bytes = [0; 10];
+    peer.read_exact(&mut bytes).await.unwrap();
+    assert_eq!(&bytes, b"allowed-ip");
+    manager.close(opened.connection.id).await.unwrap();
+    // 两个地址都被显式拦截时，保持 REJECT，绝不能为了继续访问而忽略拦截。
+    let blocked = Router::compile(Config {
+        fallback: Policy::Direct,
+        rules: vec![
+            rule(Match::IpCidr, "::1/128", Policy::Reject),
+            rule(Match::IpCidr, "127.0.0.1/32", Policy::Reject),
+        ],
+        ..Config::default()
+    })
+    .unwrap();
     assert!(matches!(
         manager
-            .connect_routed(&router, Some(&resolver), request)
+            .connect_routed(&blocked, Some(&resolver), request)
             .await,
         Err(Error::Rejected)
     ));
-    assert_eq!(fixture.count.load(Ordering::SeqCst), 2);
     assert!(
         tokio::time::timeout(Duration::from_millis(20), listener.accept())
             .await

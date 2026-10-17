@@ -27,15 +27,15 @@ def suites():
 
 
 def fingerprint():
-    """报告自身不参与指纹；源码、断言、夹具、构建、规范和执行工具均参与。"""
+    """报告自身不参与指纹；源码、断言、夹具、构建、AGENTS 规范和执行工具均参与。"""
     paths = set()
-    for directory in ('src', 'tests', 'Tools', 'include', '.github', 'Documentation', 'examples', 'Sources'):
+    for directory in ('src', 'tests', 'Tools', 'include', '.github', 'AGENTS', 'Documentation', 'examples', 'Sources'):
         for path in (ROOT / directory).rglob('*'):
             if path.is_file() and '__pycache__' not in path.parts:
                 if directory == 'tests' and path.suffix == '.md':
                     continue
                 paths.add(path)
-    for name in ('Cargo.toml', 'Cargo.lock', 'Package.swift', 'fluxa.yaml', 'fluxa_english.yaml', 'AGENTS.md'):
+    for name in ('Cargo.toml', 'Cargo.lock', 'Package.swift', 'example_config.yaml', 'AGENTS.md'):
         if (ROOT / name).exists():
             paths.add(ROOT / name)
     for path in ROOT.glob('*.sh'):

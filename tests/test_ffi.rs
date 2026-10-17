@@ -2,6 +2,9 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - provider_commands_use_real_tls_and_keep_process_rules_ignored：真实 ABI 刷新由内核下载，远程进程条目不注入。
+//! - main_configuration_apply_is_atomic_and_status_is_read_only：公开命令原子提交、错误不改版本且查询不启动 VPN。
+//! - main_configuration_validation_is_read_only_and_structured：主配置 C ABI 校验不改网络版本，失败返回整数错误。
 //! - invalid_internal_error_encoding_does_not_become_no_error：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - error_protocol_is_thread_local_and_success_clears_stale_error：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - error_query_remains_available_when_response_registry_is_full：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -23,6 +26,219 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[tokio::test]
+    async fn main_configuration_validation_is_read_only_and_structured() {
+        let _gate = TEST_GATE.lock().await;
+        let owner = TestHandle(fluxa_engine_create());
+        let initial = engine(owner.0)
+            .unwrap()
+            .outbound
+            .network_snapshot()
+            .unwrap()
+            .revision;
+        for (yaml, expected) in [
+            ("rules: ['final,direct']", None),
+            ("rules: ['final,missing']", Some(1001u64)),
+            // 普通配置校验命令不能授予全量解密权限，失败也不能改变当前网络 revision。
+            (
+                "rules: ['final,direct']\nmitm: {enabled: false, decrypt-all: true}",
+                Some(2002u64),
+            ),
+            (
+                "rules: ['final,direct']\nunknown: secret-value",
+                Some(2002u64),
+            ),
+        ] {
+            let request = serde_json::to_vec(
+                &serde_json::json!({"operation":"configuration_validate", "yaml":yaml}),
+            )
+            .unwrap();
+            // SAFETY: 不可变请求字节在同步调用期间保持有效，不向内核转移所有权。
+            let output = TestHandle(unsafe {
+                fluxa_engine_command_v2(owner.0, request.as_ptr(), request.len())
+            });
+            assert_ne!(output.0, 0);
+            let reply: serde_json::Value =
+                serde_json::from_slice(&buffer(output.0).unwrap().bytes).unwrap();
+            assert_eq!(reply["success"], expected.is_none());
+            if let Some(code) = expected {
+                assert_eq!(reply["error_info"]["code"], code);
+                assert!(reply.get("configuration").is_none());
+            } else {
+                assert_eq!(reply["configuration"]["mode"], "rule");
+                assert_eq!(reply["configuration"]["rule_count"], 1);
+            }
+            assert!(!reply.to_string().contains("secret-value"));
+            assert_eq!(
+                engine(owner.0)
+                    .unwrap()
+                    .outbound
+                    .network_snapshot()
+                    .unwrap()
+                    .revision,
+                initial
+            );
+        }
+    }
+    #[tokio::test]
+    async fn main_configuration_apply_is_atomic_and_status_is_read_only() {
+        let _gate = TEST_GATE.lock().await;
+        let owner = TestHandle(fluxa_engine_create());
+        let handle = owner.0;
+        // 同步 ABI 从不带 Tokio 上下文的独立系统线程调用，异步宿主必须采用此模式，不能嵌套 block_on。
+        let call = move |value: serde_json::Value| async move {
+            std::thread::spawn(move || {
+                let bytes = serde_json::to_vec(&value).unwrap();
+                // SAFETY: 请求字节在同步调用期间有效，返回缓冲区由 TestHandle 确定性回收。
+                let output = TestHandle(unsafe {
+                    fluxa_engine_command_v2(handle, bytes.as_ptr(), bytes.len())
+                });
+                assert_ne!(output.0, 0);
+                serde_json::from_slice::<serde_json::Value>(&buffer(output.0).unwrap().bytes)
+                    .unwrap()
+            })
+            .join()
+            .unwrap()
+        };
+        let applied = call(
+            serde_json::json!({"operation":"configuration_apply", "yaml":"rules: ['final,reject']"}),
+        ).await;
+        assert_eq!(applied["success"], true, "{applied}");
+        assert_eq!(applied["provider_status"]["active"], false);
+        let status = call(serde_json::json!({"operation":"provider_status"})).await;
+        assert_eq!(status["success"], true);
+        assert_eq!(
+            status["provider_status"]["providers"],
+            serde_json::json!([])
+        );
+        let missing =
+            call(serde_json::json!({"operation":"provider_refresh", "name":"missing"})).await;
+        assert_eq!(missing["success"], false);
+        assert_eq!(missing["error_info"]["code"], 9001);
+        let revision = applied["network_revision"].as_u64().unwrap();
+        let nested = serde_json::to_vec(&serde_json::json!({"operation":"configuration_apply", "yaml":"rules: ['final,direct']"})).unwrap();
+        // SAFETY: 请求只读且在整个同步调用存活；此处故意验证异步线程上的准入拒绝。
+        let denied =
+            TestHandle(unsafe { fluxa_engine_command_v2(handle, nested.as_ptr(), nested.len()) });
+        let denied: serde_json::Value =
+            serde_json::from_slice(&buffer(denied.0).unwrap().bytes).unwrap();
+        assert_eq!(denied["success"], false);
+        assert_eq!(denied["error_info"]["code"], 9001);
+        assert_eq!(
+            engine(handle)
+                .unwrap()
+                .outbound
+                .network_snapshot()
+                .unwrap()
+                .revision,
+            revision
+        );
+        for (yaml, code) in [
+            ("rules: ['final,unknown']", 1001),
+            ("rules: ['final,direct']\nsystem-proxy: {port: 1054}", 1021),
+        ] {
+            let failed =
+                call(serde_json::json!({"operation":"configuration_apply", "yaml":yaml})).await;
+            assert_eq!(failed["success"], false);
+            assert_eq!(failed["error_info"]["code"], code);
+            let status = call(serde_json::json!({"operation":"configuration_status"})).await;
+            assert_eq!(status["configuration_status"]["revision"], revision);
+            assert_eq!(
+                status["configuration_status"]["configuration"]["rule_count"],
+                1
+            );
+            assert!(status.to_string().find("running").is_none());
+        }
+        let valid = call(
+            serde_json::json!({"operation":"configuration_validate", "yaml":"rules: ['final,direct']"}),
+        ).await;
+        assert_eq!(valid["success"], true);
+        assert_eq!(
+            engine(owner.0)
+                .unwrap()
+                .outbound
+                .network_snapshot()
+                .unwrap()
+                .revision,
+            revision
+        );
+    }
+    #[tokio::test]
+    async fn provider_commands_use_real_tls_and_keep_process_rules_ignored() {
+        let _gate = TEST_GATE.lock().await;
+        let fixture = crate::test_fixture_https::fixture().await;
+        let home = std::env::temp_dir().join(format!(
+            "fluxa-ffi-provider-{}",
+            crate::lifecycle::identifier().unwrap()
+        ));
+        std::fs::create_dir(&home).unwrap();
+        let owner = TestHandle(fluxa_engine_create());
+        let manager = engine(owner.0).unwrap().outbound.clone();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(fixture.root.clone()).unwrap();
+        let client = crate::https::HttpsClient::with_roots(roots).unwrap();
+        fixture.provider.bodies.lock().unwrap().insert(
+            "/provider-one".into(),
+            "rules: ['domain,one.example', 'process-name,WeChat']".into(),
+        );
+        let yaml = format!(
+            "rule-providers: [{{name: one, url: 'https://localhost:{}/provider-one', policy: direct, enable: true}}]\nrules: ['domain,localhost,direct','final,reject']",
+            fixture.port
+        );
+        manager
+            .apply_provider_document(
+                Arc::new(crate::configuration::Document::from_yaml(&yaml).unwrap()),
+                client,
+                Some(home.clone()),
+            )
+            .await
+            .unwrap();
+        let handle = owner.0;
+        // Tokio 的 blocking 线程仍带运行时上下文；再进入独立系统线程调用同步 ABI。
+        let call = move |value: serde_json::Value| async move {
+            tokio::task::spawn_blocking(move || {
+                std::thread::spawn(move || {
+                    let request = serde_json::to_vec(&value).unwrap();
+                    // SAFETY: 不变请求字节真实有效；响应句柄按所有权释放。
+                    let output = TestHandle(unsafe {
+                        fluxa_engine_command_v2(handle, request.as_ptr(), request.len())
+                    });
+                    assert_ne!(output.0, 0);
+                    serde_json::from_slice::<serde_json::Value>(&buffer(output.0).unwrap().bytes)
+                        .unwrap()
+                })
+                .join()
+                .unwrap()
+            })
+            .await
+            .unwrap()
+        };
+        let status = call(serde_json::json!({"operation":"provider_status"})).await;
+        assert_eq!(status["provider_status"]["providers"][0]["ignored"], 1);
+        fixture.provider.bodies.lock().unwrap().insert(
+            "/provider-one".into(),
+            "rules: ['domain,two.example', 'process-name,WeChat']".into(),
+        );
+        let updated = call(serde_json::json!({"operation":"provider_refresh","name":"one"})).await;
+        assert_eq!(updated["success"], true, "{updated}");
+        assert_eq!(updated["provider_status"]["providers"][0]["rules"], 1);
+        assert_eq!(updated["provider_status"]["providers"][0]["ignored"], 1);
+        assert!(
+            std::fs::read_to_string(home.join(".fluxa/rules/one.yaml"))
+                .unwrap()
+                .contains("two.example")
+        );
+        let invalid =
+            call(serde_json::json!({"operation":"provider_refresh","name":"absent"})).await;
+        assert_eq!(invalid["success"], false);
+        assert_eq!(invalid["error_info"]["code"], 1001);
+        assert_eq!(
+            manager.network_snapshot().unwrap().revision,
+            updated["network_revision"].as_u64().unwrap()
+        );
+        manager.stop().await.unwrap();
+        std::fs::remove_dir_all(home).unwrap();
+    }
     fn last_info() -> Option<ErrorInfo> {
         let mut bytes = [0; crate::error::MAX_ERROR_BYTES];
         // SAFETY: 固定数组在本同步调用中可写，无并发访问。

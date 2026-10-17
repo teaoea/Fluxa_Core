@@ -9,8 +9,9 @@ use std::{
     path::Path,
 };
 const MAGIC: &[u8; 8] = b"FLXARULE";
-// v3 支持精确域名碰撞后的有序布局，并加强节点语义验证；旧缓存从来源重建。
-const VERSION: u32 = 3;
+// v6 为 QUIC 组合条件增加独立森林条件根；同时隔离进程/国家精确键，候选槽位数量不变；v5 及更早布局须重建。
+// 旧布局/旧语义必须从原始来源重建；禁止把旧缓存当作当前规则接受。
+const VERSION: u32 = 6;
 const WORD_BYTES: usize = 4;
 const VERSION_OFFSET: usize = MAGIC.len();
 const DOCUMENT_LENGTH_OFFSET: usize = VERSION_OFFSET + WORD_BYTES;

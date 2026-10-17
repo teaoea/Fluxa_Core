@@ -1,6 +1,6 @@
 //! 编译索引的平铺表示：固定小端记录、相对偏移和字符串池；查询直接借用字节切片。
 //! 不把文件字节转换为 Rust 裸指针或本机结构体，不依赖对齐、主机字节序或 unsafe。
-use super::index::{Candidates, Index, NONE};
+use super::index::{Candidates, Index, NONE, QUIC_SCOPE_TAG};
 use super::{Entry, MAX_RULES, RuleClass};
 use crate::{
     budget::ByteLease,
@@ -32,7 +32,7 @@ const MAX_EXACT_PROBES: usize = 64;
 const BYTE_MASK_WORDS: usize = 4;
 const MASK_WORD_BITS: usize = 64;
 const CANDIDATE_BYTES: usize = RuleClass::COUNT * WORD;
-const SECTION_COUNT: usize = 10;
+const SECTION_COUNT: usize = 11;
 const DIRECTORY_BYTES: usize = SECTION_COUNT * 2 * WORD;
 const HEADER_BYTES: usize = DIRECTORY_BYTES + 2 * WORD;
 const EXACT_BYTES: usize = 2 * WORD + CANDIDATE_BYTES;
@@ -62,6 +62,7 @@ enum Section {
     KeywordEdges,
     Transports,
     Strings,
+    ScopedPorts,
 }
 const SECTIONS: [Section; SECTION_COUNT] = [
     Section::Exact,
@@ -74,6 +75,7 @@ const SECTIONS: [Section; SECTION_COUNT] = [
     Section::KeywordEdges,
     Section::Transports,
     Section::Strings,
+    Section::ScopedPorts,
 ];
 const WIDTHS: [usize; SECTION_COUNT] = [
     EXACT_BYTES,
@@ -86,6 +88,7 @@ const WIDTHS: [usize; SECTION_COUNT] = [
     KEYWORD_EDGE_BYTES,
     CANDIDATE_BYTES,
     1,
+    2 * WORD,
 ];
 fn invalid() -> Error {
     Error::InvalidInput
@@ -228,8 +231,121 @@ impl FlatIndex {
         let value = pool
             .get(start..start.checked_add(length).ok_or_else(invalid)?)
             .ok_or_else(invalid)?;
-        if length > 253 || std::str::from_utf8(value).is_err() {
+        if length > super::index::PROCESS_KEY_BYTES || std::str::from_utf8(value).is_err() {
             return Err(invalid());
+        }
+        Ok(())
+    }
+    /// 森林来源/路径校验：端口根不能指向普通根或其他端口的子树；候选必须对应完整条件。
+    /// 所有临时父链元数据先申请预算，深度和标签长度独立受限，不信任文件中的偏移或摘要。
+    fn validate_domain_forest(&self, entries: &[Entry]) -> Result<()> {
+        let nodes = self.section(Section::SuffixNodes);
+        let edges = self.section(Section::SuffixEdges);
+        let count = nodes.len() / NODE_BYTES;
+        if count == 0 {
+            return Ok(());
+        }
+        #[derive(Clone, Copy, Default)]
+        struct Parent<'a> {
+            parent: Option<usize>,
+            label: &'a str,
+            port: Option<u32>,
+        }
+        let bytes = count
+            .checked_mul(std::mem::size_of::<Parent<'_>>())
+            .and_then(|n| n.checked_add(BUILD_BASE_BYTES))
+            .ok_or(Error::ResourceLimit)?;
+        let _lease = BUILD_MEMORY.reserve(bytes)?;
+        let mut parents = Vec::new();
+        parents
+            .try_reserve_exact(count)
+            .map_err(|_| Error::ResourceLimit)?;
+        parents.resize(count, Parent::default());
+        parents[0].port = Some(0);
+        for row in self
+            .section(Section::ScopedPorts)
+            .as_chunks::<{ 2 * WORD }>()
+            .0
+        {
+            let root = word(row, WORD) as usize;
+            if parents[root].port.replace(word(row, 0)).is_some() {
+                return Err(invalid());
+            }
+        }
+        for (id, row) in nodes.as_chunks::<NODE_BYTES>().0.iter().enumerate() {
+            let port = parents[id].port.ok_or_else(invalid)?;
+            let start = word(row, 0) as usize;
+            let amount = (word(row, WORD) & EDGE_COUNT_MASK) as usize;
+            for edge in edges[start * EDGE_BYTES..(start + amount) * EDGE_BYTES]
+                .as_chunks::<EDGE_BYTES>()
+                .0
+            {
+                let child = word(edge, 2 * WORD);
+                if child == NONE {
+                    continue;
+                }
+                let label = self.string(edge, 0);
+                if label.is_empty()
+                    || label.len() > 63
+                    || label.starts_with('-')
+                    || label.ends_with('-')
+                    || !label
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                {
+                    return Err(invalid());
+                }
+                let next = &mut parents[child as usize];
+                if next.parent.is_some() || next.port.is_some() {
+                    return Err(invalid());
+                }
+                *next = Parent {
+                    parent: Some(id),
+                    label,
+                    port: Some(port),
+                };
+            }
+            let mut name = [0u8; 253];
+            let mut length = 0;
+            let mut current = id;
+            while let Some(parent) = parents[current].parent {
+                let label = parents[current].label.as_bytes();
+                if length != 0 {
+                    if length == name.len() {
+                        return Err(invalid());
+                    }
+                    name[length] = b'.';
+                    length += 1;
+                }
+                let end = length
+                    .checked_add(label.len())
+                    .filter(|n| *n <= name.len())
+                    .ok_or_else(invalid)?;
+                name[length..end].copy_from_slice(label);
+                length = end;
+                current = parent;
+            }
+            for candidate in candidates(row, 2 * WORD)
+                .0
+                .into_iter()
+                .filter(|id| *id != NONE)
+            {
+                let valid = match &entries[candidate as usize].matcher {
+                    Matcher::Domain(value, true) => {
+                        port == 0 && value.as_bytes() == &name[..length]
+                    }
+                    Matcher::DomainQuic(value) => {
+                        port == QUIC_SCOPE_TAG && value.as_bytes() == &name[..length]
+                    }
+                    Matcher::DomainPort(value, expected) => {
+                        port == u32::from(*expected) && value.as_bytes() == &name[..length]
+                    }
+                    _ => false,
+                };
+                if !valid {
+                    return Err(invalid());
+                }
+            }
         }
         Ok(())
     }
@@ -276,8 +392,18 @@ impl FlatIndex {
                 .into_iter()
                 .filter(|id| *id != NONE)
             {
-                if !matches!(&entries[id as usize].matcher, Matcher::Domain(value, false) if value == name)
-                {
+                let valid = match &entries[id as usize].matcher {
+                    Matcher::Domain(value, false) => value == name,
+                    Matcher::ProcessName(value) => {
+                        let mut bytes = [0; super::index::PROCESS_KEY_BYTES];
+                        super::index::process_key(value, &mut bytes) == name
+                    }
+                    Matcher::GeoIp(code) => {
+                        super::index::geoip_name(&super::index::geoip_key(code)) == name
+                    }
+                    _ => false,
+                };
+                if !valid {
                     return Err(invalid());
                 }
             }
@@ -381,6 +507,24 @@ impl FlatIndex {
         if expected_edge * EDGE_BYTES != edges.len() {
             return Err(invalid());
         }
+        let mut previous_port = 0;
+        for row in self
+            .section(Section::ScopedPorts)
+            .as_chunks::<{ 2 * WORD }>()
+            .0
+        {
+            let port = word(row, 0);
+            let root = word(row, WORD) as usize;
+            if port <= previous_port
+                || port > QUIC_SCOPE_TAG
+                || root == 0
+                || root >= nodes.len() / NODE_BYTES
+            {
+                return Err(invalid());
+            }
+            previous_port = port;
+        }
+
         for (slot, section) in [Section::V4, Section::V6].into_iter().enumerate() {
             let prefixes = self.section(section);
             let width = if slot == 0 { 32 } else { 128 };
@@ -450,6 +594,7 @@ impl FlatIndex {
                 }
             }
         }
+        self.validate_domain_forest(entries)?;
         let mut previous = None;
         for row in self
             .section(Section::Ports)
@@ -566,12 +711,15 @@ impl FlatIndex {
         Candidates::default()
     }
     fn suffix(&self, name: &str) -> Candidates {
+        self.suffix_from(name, 0)
+    }
+    fn suffix_from(&self, name: &str, root: usize) -> Candidates {
         let nodes = self.section(Section::SuffixNodes);
         if nodes.is_empty() {
             return Candidates::default();
         }
         let edges = self.section(Section::SuffixEdges);
-        let mut id = 0usize;
+        let mut id = root;
         let mut values = Candidates::default();
         for label in name.rsplit('.') {
             let node = &nodes[id * NODE_BYTES..];
@@ -643,14 +791,46 @@ impl FlatIndex {
         (low < start + amount && word(edges, low * KEYWORD_EDGE_BYTES) == u32::from(byte))
             .then(|| word(edges, low * KEYWORD_EDGE_BYTES + WORD) as usize)
     }
-    pub(super) fn domain_candidates(&self, name: &str) -> Candidates {
+    pub(super) fn process_candidates(&self, name: &str) -> Candidates {
+        let mut bytes = [0; super::index::PROCESS_KEY_BYTES];
+        self.exact(super::index::process_key(name, &mut bytes))
+    }
+    pub(super) fn geoip_candidates(&self, code: &str) -> Candidates {
+        self.exact(super::index::geoip_name(&super::index::geoip_key(code)))
+    }
+    pub(super) fn quic_candidates(&self, name: &str) -> Candidates {
+        let roots = self
+            .section(Section::ScopedPorts)
+            .as_chunks::<{ 2 * WORD }>()
+            .0;
+        roots
+            .binary_search_by_key(&QUIC_SCOPE_TAG, |row| word(row, 0))
+            .ok()
+            .map_or_else(Candidates::default, |slot| {
+                self.suffix_from(name, word(&roots[slot], WORD) as usize)
+            })
+    }
+    pub(super) fn domain_candidates(&self, name: &str, port: u16) -> Candidates {
         let mut values = self.exact(name);
         values.merge(self.suffix(name));
-        // 单首字节场景让标准库字节查找快速排除；不会遗漏重叠匹配或关键词拦截。
-        if !self.keyword_has_patterns
-            || self
-                .keyword_single_first_byte
-                .is_some_and(|first| !name.as_bytes().contains(&first))
+        let roots = self
+            .section(Section::ScopedPorts)
+            .as_chunks::<{ 2 * WORD }>()
+            .0;
+        if let Ok(slot) = roots.binary_search_by_key(&u32::from(port), |row| word(row, 0)) {
+            values.merge(self.suffix_from(name, word(&roots[slot], WORD) as usize));
+        }
+        // 没有关键词时不查询 PSL；存在时只扫描注册域名的租户标签，包含私有后缀。
+        if !self.keyword_has_patterns {
+            return values;
+        }
+        let Some(name) = super::super::keyword_subject(name) else {
+            return values;
+        };
+        // 单首字节场景让标准库字节查找快速排除，保留全部重叠匹配。
+        if self
+            .keyword_single_first_byte
+            .is_some_and(|first| !name.as_bytes().contains(&first))
         {
             return values;
         }
@@ -733,7 +913,7 @@ impl FlatIndex {
             values.merge(candidates(ports, (low - 1) * PORT_BYTES + WORD));
         }
         if let Some(name) = name {
-            let domains = self.domain_candidates(name).for_transport(transport);
+            let domains = self.domain_candidates(name, port).for_transport(transport);
             values.merge(domains);
             if domains.any() {
                 return values;
@@ -760,7 +940,9 @@ impl Builder {
     pub(super) fn compile(index: &Index, entries: &[Entry]) -> Result<FlatIndex> {
         let estimate = entries.iter().try_fold(BUILD_BASE_BYTES, |sum, entry| {
             let labels = match &entry.matcher {
-                Matcher::Domain(value, true) => value.split('.').count(),
+                Matcher::Domain(value, true)
+                | Matcher::DomainPort(value, _)
+                | Matcher::DomainQuic(value) => value.split('.').count(),
                 _ => 0,
             };
             let keyword = match &entry.matcher {
@@ -907,6 +1089,10 @@ impl Builder {
                     push(edges, *child);
                 }
             }
+        }
+        for (port, root) in &index.scoped_ports {
+            push(&mut sections[Section::ScopedPorts as usize], *port);
+            push(&mut sections[Section::ScopedPorts as usize], *root);
         }
         for (section, prefixes) in [(Section::V4, &index.v4), (Section::V6, &index.v6)] {
             let out = &mut sections[section as usize];

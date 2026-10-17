@@ -288,7 +288,7 @@ async fn relay(
             _ = context.cancel.changed() => return Err(Error::Cancelled),
             result = tokio::time::timeout_at(
                 tokio::time::Instant::from_std(tcp.handshake_deadline()),
-                context.manager.connect_configured_snapshot(request, snapshot),
+                context.manager.connect_configured_snapshot(request, snapshot, context.key.source),
             ) => result.map_err(|_| Error::NetworkTimeout)?,
         };
         match opened {

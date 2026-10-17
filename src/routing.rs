@@ -32,13 +32,22 @@ pub enum Transport {
 pub enum Match {
     #[serde(rename = "DOMAIN")]
     Domain,
+    /// 操作系统可执行文件名；精确、区分大小写，不接受路径或通配符。
+    ProcessName,
     #[serde(rename = "DOMAIN-SUFFIX")]
     DomainSuffix,
     #[serde(rename = "DOMAIN-KEYWORD")]
     DomainKeyword,
     #[serde(rename = "IP-CIDR")]
     IpCidr,
+    /// 已就绪 MMDB 的国家条件；与显式 CIDR 同属 IP 阶段，同来源显式 CIDR 优先。
+    #[serde(rename = "GEOIP")]
+    GeoIp,
     DestinationPort,
+    /// 端口与基域名后缀的 AND 条件，内部规范值为 `端口,域名`。
+    DomainPort,
+    /// 域名后缀与实际 QUIC 报文的 AND 条件；不把 UDP/443 视为 QUIC。
+    DomainQuic,
     Transport,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -117,7 +126,11 @@ enum Matcher {
     Domain(String, bool),
     Keyword(String),
     Network(Network),
+    GeoIp(String),
+    ProcessName(String),
     Port(u16, u16),
+    DomainPort(String, u16),
+    DomainQuic(String),
     Transport(Transport),
     Quic,
 }
@@ -152,6 +165,26 @@ fn domain(value: &str) -> Result<String> {
     }
     Ok(value)
 }
+/// 关键词只观察可注册域名的租户标签；PSL 包括 ICANN 与 PRIVATE 后缀。
+/// 例如 a.foo.github.io -> foo、a.example.co.uk -> example；不观察子域名或后缀。
+/// 返回借用切片，不下载列表、不分配内存；输入必须已经通过域名规范化。
+pub(super) fn keyword_subject(name: &str) -> Option<&str> {
+    let registered = psl::domain_str(name)?;
+    registered.split_once('.').map(|(label, _)| label)
+}
+/// 节点名用于逻辑引用，不作为文件名；保持主配置的 Unicode、大小写及 128 字节约束。
+pub(crate) fn outbound_name(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || value != value.trim()
+        || value
+            .chars()
+            .any(|c| c.is_control() || matches!(c, ',' | '/' | '\\'))
+    {
+        return Err(Error::InvalidInput);
+    }
+    Ok(())
+}
 fn policy_outbound(
     policy: Policy,
     own: Option<String>,
@@ -164,14 +197,30 @@ fn policy_outbound(
         return Ok(None);
     }
     let result = own.or_else(|| default.clone()).ok_or(Error::InvalidInput)?;
-    identifier(&result)?;
+    outbound_name(&result)?;
     Ok(Some(result))
 }
+// DNS 名称最大 253 字节；组合值额外包含 u16 端口的十进制字符和一个逗号。
+const MAX_DOMAIN_BYTES: usize = 253;
+/// 操作系统可执行文件名的 UTF-8 字节上限，不截断参与匹配。
+pub(crate) const MAX_PROCESS_NAME_BYTES: usize = 255;
+const MAX_PORT_DIGITS: usize = 5;
+pub(super) const MAX_DOMAIN_PORT_BYTES: usize = MAX_DOMAIN_BYTES + MAX_PORT_DIGITS + 1;
 fn matcher(kind: Match, value: &str) -> Result<Matcher> {
-    if value.is_empty() || value.len() > 253 {
+    if value.is_empty()
+        || value.len()
+            > if kind == Match::ProcessName {
+                MAX_PROCESS_NAME_BYTES
+            } else if kind == Match::DomainPort {
+                MAX_DOMAIN_PORT_BYTES
+            } else {
+                MAX_DOMAIN_BYTES
+            }
+    {
         return Err(Error::InvalidInput);
     }
     Ok(match kind {
+        Match::DomainQuic => Matcher::DomainQuic(domain(value)?),
         Match::Domain => Matcher::Domain(domain(value)?, false),
         Match::DomainSuffix => Matcher::Domain(domain(value)?, true),
         Match::DomainKeyword => {
@@ -183,6 +232,21 @@ fn matcher(kind: Match, value: &str) -> Result<Matcher> {
             }
             Matcher::Keyword(value.to_ascii_lowercase())
         }
+        Match::ProcessName => {
+            if value
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '/' | '\\' | '*' | ','))
+            {
+                return Err(Error::InvalidInput);
+            }
+            Matcher::ProcessName(value.to_owned())
+        }
+        Match::GeoIp => {
+            if value.len() != 2 || !value.bytes().all(|byte| byte.is_ascii_uppercase()) {
+                return Err(Error::InvalidInput);
+            }
+            Matcher::GeoIp(value.to_owned())
+        }
         Match::IpCidr => Matcher::Network(Network::parse(value)?),
         Match::Transport if value == "quic" => Matcher::Quic,
         Match::Transport => Matcher::Transport(match value {
@@ -190,6 +254,17 @@ fn matcher(kind: Match, value: &str) -> Result<Matcher> {
             "udp" => Transport::Udp,
             _ => return Err(Error::InvalidInput),
         }),
+        Match::DomainPort => {
+            let (port, host) = value.split_once(',').ok_or(Error::InvalidInput)?;
+            if !port.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(Error::InvalidInput);
+            }
+            let port: u16 = port.parse().map_err(|_| Error::InvalidInput)?;
+            if port == 0 {
+                return Err(Error::InvalidInput);
+            }
+            Matcher::DomainPort(domain(host)?, port)
+        }
         Match::DestinationPort => {
             let (first, last) = value.split_once('-').unwrap_or((value, value));
             if !first.bytes().all(|b| b.is_ascii_digit())
@@ -232,11 +307,32 @@ impl Router {
         self.check_transport(target.transport)
     }
     pub(crate) fn protection(&self, target: Target) -> Result<TrafficProtection> {
-        let rejected =
-            self.debug.is_some() && self.runtime.evaluate(&target)?.policy == Policy::Reject;
+        self.protection_identified(target, false)
+    }
+    pub(crate) fn protection_identified(
+        &self,
+        target: Target,
+        quic: bool,
+    ) -> Result<TrafficProtection> {
+        self.protection_facts(target, quic, None)
+    }
+    pub(crate) fn protection_facts(
+        &self,
+        target: Target,
+        quic: bool,
+        process: Option<&str>,
+    ) -> Result<TrafficProtection> {
+        let first = self.runtime.evaluate_facts(&target, quic, process)?;
+        let identified =
+            self.runtime
+                .evaluate_facts(&target, target.transport == Transport::Udp, process)?;
+        let quic_changes_route =
+            first.policy != identified.policy || first.outbound != identified.outbound;
+        let rejected = self.debug.is_some() && first.policy == Policy::Reject;
         Ok(TrafficProtection {
             transport_reject: rejected || self.runtime.blocks_transport(target.transport),
-            quic_reject: self.runtime.blocks_quic(),
+            quic_reject: identified.policy == Policy::Reject,
+            quic_changes_route,
             grant: match &self.debug {
                 Some(view) => view.evaluate(&target)?.map(|decision| DebugProtection {
                     view: view.clone(),
@@ -247,6 +343,64 @@ impl Router {
                 None => None,
             },
         })
+    }
+    pub(crate) fn needs_process(&self) -> bool {
+        self.runtime.needs_process()
+    }
+    pub(crate) fn evaluate_flow(
+        &self,
+        target: Target,
+        bytes: Option<&[u8]>,
+        process: Option<&str>,
+    ) -> Result<Decision> {
+        let quic = bytes
+            .map(|bytes| runtime::Snapshot::identify_datagram(&target, bytes))
+            .transpose()?
+            .unwrap_or(false);
+        if let Some(debug) = &self.debug
+            && let Some(decision) = debug.evaluate(&target)?
+        {
+            return Ok(decision);
+        }
+        self.runtime.evaluate_facts(&target, quic, process)
+    }
+    pub(crate) fn before_dns_flow(
+        &self,
+        target: Target,
+        bytes: Option<&[u8]>,
+        process: Option<&str>,
+    ) -> Result<Option<Decision>> {
+        let quic = bytes
+            .map(|bytes| runtime::Snapshot::identify_datagram(&target, bytes))
+            .transpose()?
+            .unwrap_or(false);
+        if let Some(debug) = &self.debug {
+            match debug.before_dns(&target)? {
+                DebugPreDecision::Decided(decision) => return Ok(Some(decision)),
+                DebugPreDecision::WaitForDns => return Ok(None),
+                DebugPreDecision::Continue => (),
+            }
+        }
+        self.runtime.before_dns_facts(&target, quic, process)
+    }
+    /// 纯报文决策入口，Debug 仍先于全部正式规则；不创建或扩大 Debug 授权。
+    pub fn evaluate_datagram(&self, target: Target, bytes: &[u8]) -> Result<Decision> {
+        runtime::Snapshot::identify_datagram(&target, bytes)?;
+        if let Some(debug) = &self.debug
+            && let Some(decision) = debug.evaluate(&target)?
+        {
+            return Ok(decision);
+        }
+        self.runtime.evaluate_datagram(&target, bytes)
+    }
+    pub(crate) fn needs_datagram(&self, target: &Target) -> Result<bool> {
+        // 已命中的 Debug 决策仍最高；报文写入时保留授权/到期/协议安全检查。
+        if let Some(debug) = &self.debug
+            && debug.evaluate(target)?.is_some()
+        {
+            return Ok(false);
+        }
+        self.runtime.needs_datagram(target)
     }
     pub fn blocks_quic(&self) -> bool {
         self.runtime.blocks_quic()
@@ -279,12 +433,14 @@ impl Router {
             }],
             1,
         )?;
+        snapshot.require_ready_geoip()?;
         Ok(Self {
             runtime: std::sync::Arc::new(snapshot),
             debug: None,
         })
     }
     pub fn from_runtime(snapshot: std::sync::Arc<runtime::Snapshot>) -> Result<Self> {
+        snapshot.require_ready_geoip()?;
         runtime::register(&snapshot)?;
         Ok(Self {
             runtime: snapshot,
@@ -336,6 +492,8 @@ mod cache;
 pub(crate) struct TrafficProtection {
     transport_reject: bool,
     quic_reject: bool,
+    // 已发送数据后识别成另一出站策略时拒绝继续，禁止跨节点重放或静默改用原出站。
+    quic_changes_route: bool,
     grant: Option<DebugProtection>,
 }
 struct DebugProtection {
@@ -383,6 +541,8 @@ impl TrafficProtection {
         }
         if self.transport_reject || (quic && self.quic_reject) {
             Err(Error::Rejected)
+        } else if quic && self.quic_changes_route {
+            Err(Error::InvalidState)
         } else {
             Ok(())
         }

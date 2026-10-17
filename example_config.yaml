@@ -1,24 +1,43 @@
 # 完整主配置示例
 
-# 日志记录等级，日志文件默认保存到[用户目录/.fluxa/log/silent（日志等级）/（年-月-日）]文件夹下
+# 日志记录等级，
+# macOS保存到[用户目录/.fluxa/log/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
+# iOS、iPadOS保存到[Library/Application Support/Fluxa/Logs/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
+# tvOS保存到[ibrary/Caches/Fluxa/Logssilent（日志等级）/（年-月-日）/（整点小时）.jsonl]
 # 按照1小时为间隔，每小时的日志为独立文件
+# 目录结构示例
+# .fluxa/
+# └── log/
+#     ├── info/
+#     │   └── 2026-10-17/
+#     │       ├── 09:00.jsonl
+#     │       ├── 10:00.jsonl
+#     │       └── 11:00.jsonl
+#     └── error/
+#         └── 2026-10-17/
+#             └── 12:00.jsonl
+#
 # silent，不记录日志
 # info，记录完整日志，含debug、warn、error
 # debug，仅记录调试日志
 # warn，仅记录警告日志
 # error，仅记录错误日志
-log-level: silent
+log-level: silent # 默认silent
 
-# 系统代理绕过地址
-system-proxy-bypass:
-  ["127.0.0.1", "192.168.0.0/16", "10.0.0.0/8", "localhost", "*.local", "::1"]
-# 系统代理监听端口，默认0，表示禁用系统代理，http/https/socks5共用同一端口，禁止使用1–1053在内的端口，禁止使用局域网共享端口
-system-proxy-port: 0
-# 局域网共享监听端口，默认0，表示禁用局域网共享，禁止使用1–1053在内的端口，禁止使用系统代理端口
-lan-share-port: 0
-# 局域网http/https/socks5访问用户和密码,默认为空
-lan-share-account: "username"
-lan-share-password: "12345678"
+system-proxy:
+  # 系统代理监听端口，默认0，表示禁用系统代理，http/https/socks5共用同一端口
+  # 禁止使用1–1053在内的端口，禁止使用与局域网共享相同端口
+  port: 0
+  # 需要绕过的地址
+  bypass:
+    ["127.0.0.1", "192.168.0.0/16", "10.0.0.0/8", "localhost", "*.local", "::1"]
+
+lan-share:
+  # 局域网共享监听端口，默认0，表示禁用局域网共享，禁止使用1–1053在内的端口，禁止使用系统代理端口
+  port: 0
+  # 局域网http/https/socks5访问用户和密码,默认为空
+  account: ""
+  password: ""
 
 # 运行模式，默认 rule（规则模式），可选值：rule、global、direct
 # rule：规则模式，按规则匹配，未命中时使用 final配置的策略
@@ -38,12 +57,15 @@ geoip:
   url: "https://example.com" # 示例占位地址，请换成自己的原始 .mmdb HTTPS 地址。
   update-time: "00:00" # 每天00:00更新；必须使用带引号的 HH:mm，使用设备本地时区
 
-# ip出站策略，默认prefer_ipv4
-# prefer_ipv4 IPv4优先，如果IPv4无法使用，回退到IPv6出站
-# prefer_ipv6 IPv6优先，如果IPv6无法使用，回退到IPv4出站
-# only_ipv4 仅IPv4，即使IPv4无法使用，也不会回退到IPv6出站
-# only_ipv6 仅IPv6，即使IPv6无法使用，也不会回退到IPv4出站
-ip_strategy: prefer_ipv6
+# IP出站策略，默认prefer-ipv4
+# 无法使用：首选地址族无可用记录、无网络路由、连接失败或超时
+# dns返回NXDOMAIN、DNSSEC验证失败或命中拦截策略，不触发地址族回退
+# 同一地址族返回多个地址时，某个IP被规则拦截，只排除该IP，继续评估并尝试其他地址
+# prefer-ipv4：优先查询A记录并尝试IPv4，无法使用时才查询AAAA记录并尝试IPv6
+# prefer-ipv6：优先查询AAAA记录并尝试IPv6，无法使用时才查询A记录并尝试IPv4
+# only-ipv4：仅使用IPv4，主动解析时不查询AAAA记录，不允许回退
+# only-ipv6：仅使用IPv6，主动解析时不查询A记录，不允许回退
+ip-strategy: prefer-ipv6
 
 # 支持的代理协议示例配置
 proxies:
@@ -72,8 +94,9 @@ plugin-providers:
     update-time: "12:00" #插件集每日更新的时间，必须使用带引号的 HH:mm，使用设备本地时区。省略此字段则不自动更新，仅在第一次导入时更新一次
 
 # 远程规则集
+# 正文格式为 rules: ["domain,example.com", "protocol,quic,example.com"]，类型小写，不携带策略。
+# YAML 结构错误拒绝整个更新；自带策略或不合法的行单独忽略。
 # 订阅的规则集会下载下来，保存到[用户目录/.fluxa/rules]
-# policy: reject 时忽略远程 domain-suffix、domain-keyword 条目，防止扩大拦截范围。
 # 订阅的规则集会在每天指定时间自动更新，自动更新与手动更新会覆盖旧规则集文件，未配置update-time字段则不自动更新，仅在第一次导入时下载
 # 规则集更新或者本地规则变动，会进行合并裁剪，写入到内存，如果本地规则变动，但是订阅规则还未到更新时间
 # 订阅规则不会更新，而是直接使用rules文件夹下被激活的规则集文件
@@ -92,15 +115,18 @@ rule-providers:
     enable: true
 
 # 网络流量处理包含：direct（直连）、reject（拦截）、节点名称
-# 域名目标先查询域名规则；域名命中后跳过IP规则
+# 域名目标先查询域名规则，域名命中后跳过IP规则，命中final不被视为命中域名规则
 # 没有域名命中时才解析真实IP并匹配ip-cidr，数字IP直接进入IP阶段
 # 来源优先级：本地规则->插件规则->远程规则
 # 规则优先级：process-name->protocol->port->domain->domain-suffix->domain-keyword->ip-cidr->final
 # 拦截规则不区分来源，优先适用：domain，ip-cidr，protocol，port
 # debug临时规则永远处于第一优先，多条debug临时规则，按照规则优先级处理
 # 同一来源命中多条，按照规则优先级处理
-# process-name仅适用于macOS，iOS、iPadOS、tvOS默认忽略，无法确定连接所属进程时，跳过 process-name，继续匹配其他规则
+# process-name仅适用于macOS，iOS、iPadOS、tvOS默认忽略
+# 无法确定连接所属进程时，跳过process-name，继续匹配其他规则
+# 远程订阅规则集，默认忽略process-name
 # port、protocol 中的域名参数采用domain-suffix语义，匹配域名本身及各级子域名，并要求端口或协议同时符合
+# geoip视为ip-cidr处理 (显式ip-cidr优先于geoip)，未配置有效geoip.url时默认忽略geoip规则并返回warn
 rules:
   - domain-suffix,example.com,direct # 针对 example.com 及其所有子域名的流量走直连
   - domain,ads.example.com,reject # 针对精确域名 ads.example.com 的流量拦截
@@ -118,23 +144,26 @@ rules:
 
 # dns示例配置
 dns:
-  enable: true # true：启用dns解析；false：禁用dns解析，采用系统默认dns
-  # 此地址用于解析doh、dot域名，不用于业务域名解析，未配置此项时,使用系统DNS解析doh与dot
-  default-nameserver:
+  enable: true # false：禁用配置的dns，采用系统默认dns，默认false
+  # 此地址用于解析doh、dot域名，不用于业务域名解析，未配置此项时,使用系统dns解析doh与dot
+  # 每次启动时，bootstrap会解析server列表内全部doh和dot，并将结果缓存到内存之中
+  # 缓存的结果会遵循TTL，如果服务商未配置TTL，默认TTL为3600秒，缓存过期重新执行bootstrap查询
+  bootstrap:
     - 1.1.1.1
-  # 按顺序解析；timeout 为每个上游的独立期限。所有上游超时返回错误，禁止回退系统 DNS 或 default-nameserver。
-  nameserver:
+  # 按列表顺序解析；timeout 为每个上游的独立期限。只有显式列出 system 才使用系统 DNS，未列出时绝不自动回退。
+  server:
     - https://doh.pub/dns-query,direct # doh地址及网络模式，默认direct，可以设置为节点名称
     - 1.1.1.1
     - 2400:3200::1
-  timeout: 3 # DNS查询超时，默认单位“秒”，可选范围 1–30 秒，超过范围会被自动修正为默认值 3 秒。
+    - system # 系统dns
+  timeout: 3 # dns查询超时，默认单位“秒”，可选范围 1–30 秒，超过范围会被自动修正为默认值 3 秒。
   dnssec: false # 设为 true 启用 DNSSEC 验证；验证失败不静默放行。
   # fake-ip 软件内部根据子网大小与内存预算固定分配最优容量
   fake-ip:
     enable: false # true，开启fake-ip，false，不开启fake-ip，默认为false，
     ipv4-range: 198.18.0.0/16
     ipv6-range: fd00:198:18::/64
-    exclude: ["*.local", "*.lan", "time.apple.com", "*.push.apple.com"]
+    bypass: ["*.local", "*.lan", "time.apple.com", "*.push.apple.com"]
 
   # 将域名映射到指定的 IP 地址，优先于 DNS 解析。仅支持 IPv4 和 IPv6，禁止使用域名作为映射值。
   hosts: { "example.com": "192.168.1.1" }
@@ -144,8 +173,8 @@ tun:
   enable: false # true：启用tun模式；false：禁用tun模式
   name: utun # tun模式的虚拟网卡名称，支持字母、数字、下划线和中划线，不能以数字开头，Apple全平台不支持自定义虚拟网卡名称，默认忽略此选项
   mtu: 1500 # tun模式的最大传输单元
-  # 绕过的地址，TUN模式不接管exclude-routes配置的地址
-  exclude-routes: ["192.168.0.0/16", "10.0.0.0/8", "100.64.0.0/10"]
+  # 绕过的地址，TUN模式不接管bypass配置的地址
+  bypass: ["192.168.0.0/16", "10.0.0.0/8", "100.64.0.0/10"]
 
 # HTTPS 解密需用户明确启用、导出并在系统中信任公开 CA；私钥不放入配置。
 mitm:
@@ -153,20 +182,20 @@ mitm:
   skip-server-cert-verify: false
   capture-body: true # 是否捕获 HTTP/HTTPS 请求与响应正文
   # hosts
-  # 针对域名进行解密，如果hosts配置和exclude-hosts有冲突，优先适用exclude-hosts
+  # 针对域名进行解密，如果hosts配置和bypass有冲突，优先适用bypass
   # 使用通配符，例如*.chatgpt.com，会解密chatgpt.com，a.chatgpt.com
   # 未使用通配符，例如wechat.com，只会解密wechat.com，不会解密a.wechat.com
   # 如果输入*、*.com等，属于无效条目，默认忽略，且不会对任何域名进行解密，全局解密为调试功能，禁止通过配置实现相同功能
   hosts:
     - "*.chatgpt.com"
     - "wechat.com"
-  # exclude-hosts
-  # 开启全局解密之后，会忽略hosts，但是不会对exclude-hosts配置的域名进行解密，防止配置了SSL Pinning应用无法正常使用
-  # 优先级顺序：exclude-hosts -> 全局解密 -> hosts
+  # bypass
+  # 开启全局解密之后，会忽略hosts，但是不会对bypass配置的域名进行解密，防止配置了SSL Pinning应用无法正常使用
+  # 优先级顺序：bypass -> 全局解密 -> hosts
   # 使用通配符，例如*.chatgpt.com，会绕过chatgpt.com，a.chatgpt.com
   # 未使用通配符，例如wechat.com，只会绕过wechat.com，不会绕过a.wechat.com
   # 如果输入*、*.com等，属于无效条目，默认忽略，不会绕过任何域名
-  exclude-hosts:
+  bypass:
     - "*.chatgpt.com"
     - "wechat.com"
 

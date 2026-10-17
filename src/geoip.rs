@@ -160,6 +160,13 @@ impl Service {
         );
         Ok(Status::ready())
     }
+    /// 主配置候选必须绑定同一显式来源的 Ready 数据库，不能借用其他 URL 的旧库。
+    pub(crate) fn database_for_url(&self, url: &str) -> Result<Arc<Database>> {
+        if self.config.geoip_url.as_deref() != Some(url) {
+            return Err(Error::GeoipInitializationFailed);
+        }
+        self.database()
+    }
     pub fn database(&self) -> Result<Arc<Database>> {
         self.database
             .lock()
@@ -295,6 +302,26 @@ impl Database {
             reader,
             _lease: lease,
         })
+    }
+    /// 规则查询只借用两字节国家代码；无记录返回 None，数据库错误不可变成未命中。
+    pub(crate) fn country_code(&self, ip: IpAddr) -> Result<Option<&str>> {
+        let record = self
+            .reader
+            .lookup(ip)
+            .map_err(|_| Error::GeoipQueryFailed)?;
+        if !record.has_data() {
+            return Ok(None);
+        }
+        let code: Option<&str> = record
+            .decode_path(&path!["country", "iso_code"])
+            .map_err(|_| Error::GeoipQueryFailed)?;
+        let Some(code) = code else {
+            return Err(Error::GeoipQueryFailed);
+        };
+        if code.len() != 2 || !code.bytes().all(|byte| byte.is_ascii_uppercase()) {
+            return Err(Error::GeoipQueryFailed);
+        }
+        Ok(Some(code))
     }
     /// 只解码所需短字符串，避免把完整记录或坐标复制到宿主。
     pub fn lookup(&self, address: &str, language: &str) -> Result<Option<Location>> {

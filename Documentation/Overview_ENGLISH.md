@@ -17,15 +17,14 @@ Author: 可莉唯一的狗.
 - UDP/TCP DNS, DoT/DoH, configurable upstreams, positive/negative caching, DNSSEC, Fake-IP mappings, and access-controlled LAN DNS service.
 - Runtime rule generation, normalization, deduplication, proven full-coverage pruning, and indexed matching. Domain targets use domain rules first; a domain match skips IP rules. Missing or unsupported proxy outbounds fail explicitly.
 - Shared TCP/UDP outbounds, cancellation, half-close, idle expiry, and atomic configuration snapshots.
-- Daily remote subscription schedules in UTC and bounded HTTPS subscription downloads. A missing schedule means manual updates only. On resume, only the most recent missed occurrence is handled; missed days are not replayed as separate jobs.
+- The legacy UTC schedule helper remains separate. Main rule providers use the device local calendar and bounded HTTPS downloads; without a schedule they download on first import and explicit refresh, reusing cache after restart. On resume, only the most recent missed occurrence is handled; missed days are not replayed as separate jobs.
 - TUN packet inspection and checksum validation. Bounded UDP forwarding is supported; TCP and system tunnels remain unsupported.
 
 ## Configuration examples
 
 The complete host configuration examples are in the repository root:
 
-- [fluxa.yaml](../fluxa.yaml): Chinese display names and Chinese comments.
-- [fluxa_english.yaml](../fluxa_english.yaml): English display names and Chinese comments.
+- [example_config.yaml](../example_config.yaml): current complete example, with Chinese comments.
 
 Use `update-time: "12:00"` for a daily update at 12:00 UTC. Omit the field to disable automatic updates. Individual updates and Update All are manual actions. The removed `update-interval-hours` field is rejected. Failed attempts retain the previous content and retry with a minimum 60-second backoff; a successful catch-up is not repeated. Schedules require a running host and network access; they do not promise operating-system wakeup while the host is closed or suspended.
 
@@ -37,7 +36,7 @@ TUN forwarding, gateway operation, and additional proxy protocols remain in deve
 
 Original code is licensed under MIT; see [LICESE.md](../LICESE.md). Third-party dependencies retain their upstream licenses.
 
-Rule subscriptions use Clash classical `payload` with uppercase DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD and IP-CIDR (IPv4/IPv6). Subscription policy/outbound selects the action. 合并规则使用 runtime-rules.bin 二进制平铺缓存，加载不重建匹配索引；见 BinaryRuleCache.md。 See [rules.yaml](../rules.yaml).
+The independent legacy subscription API uses Clash classical payload. Main rule providers use lowercase rules and metadata policy, as described in Subscriptions.md. 合并规则使用 runtime-rules.bin 二进制平铺缓存，加载不重建匹配索引；见 BinaryRuleCache.md。 See [rules.yaml](../rules.yaml).
 
 Offline GeoIP uses bounded MMDB loading and IPv4/IPv6 lookup, with fixed free public-IP echo endpoints and TCP connection timing. Databases are supplied separately by the host. Failures are explicit; these features do not imply system TUN support. See GeoIP.md for resource limits, privacy and licensing.
 
@@ -48,7 +47,7 @@ Offline GeoIP uses bounded MMDB loading and IPv4/IPv6 lookup, with fixed free pu
 TUN UDP v1.9.0 adds bounded IPv4/IPv6 UDP packet forwarding through the shared routing/outbound manager, return packet generation, cancellation and binary C ABI. No main configuration fields are added. TCP forwarding, system tunnels and DNS interception remain unsupported. See TUN.md.
 
 
-## 本地规则审查修订（未发布）
+## 历史本地规则审查记录（由当前 RuntimeRules.md 取代）
 
 规则类别编号仅作为索引槽位，优先级独立表达。普通端口/传输规则不能覆盖域名/IP 普通规则，全域传输直连/代理被拒绝。API 专用临时调试 Overlay 可覆盖正式拦截；每条必须提供 1–3600 秒生命周期，内部存过期时间，到期失效并丢弃。配置和订阅不允许声明调试规则。原始来源可用时重新验证诊断；没有原始来源的生成文档仅标记结构验证。可运行示例为 cargo run --example runtime_rules_audit。C ABI/Swift 调试接入、控制接口认证及 App 集成尚未交付，本地修改暂缓提交与发布。
 
@@ -68,8 +67,18 @@ FFI reserves a response slot, byte quota, and serialization buffer before execut
 
 按用户要求全部已有接口统一新方案，ABI 版本为 2，旧错误编号不再兼容；command 与 `fluxa_engine_command_v2` 均返回结构化字段，`fluxa_engine_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
 
-运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](错误代码体系设计.md)。
+运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](../AGENTS/错误代码体系设计.md)。
 
 未完成任务与当前暂停状态见 [TODO.md](TODO.md)。
 
-Host configuration uses `rule-providers` for remote rule sets, `proxy-providers` for nodes, and `plugin-providers` for plugins. The old `subscriptions` field is rejected. Item fields and daily UTC `update-time` schedules are unchanged; see [subscription configuration](Subscriptions.md).
+Host configuration uses `rule-providers` for remote rule sets, `proxy-providers` for nodes, and `plugin-providers` for plugins. The old `subscriptions` field is rejected. Main rule-provider items use name/url/policy/enable/update-time and device-local time; see [subscription configuration](Subscriptions.md).
+
+## Main configuration validation in dev
+
+The new kernel-owned `configuration::Document::from_yaml()` validates the revised `example_config.yaml` schema without network side effects. The `configuration_validate` JSON command returns a bounded credential-free summary or the existing structured integer error protocol. See [主配置说明](主配置.md) and the executable `examples/validate_main_configuration.rs`.
+
+The revised rule compiler and provider lifecycle are implemented in the current dev worktree. DNS/GeoIP orchestration, mixed proxy listeners and system VPN remain incomplete. The fixed remote App binary does not gain these commands automatically. Source precedence is local, plugin, remote; plugin execution remains deferred.
+
+Current main-configuration schedules use the device local timezone for GeoIP, rule providers and plugin providers. Earlier UTC schedule descriptions refer to legacy helper APIs. Rule providers now use the kernel local-calendar worker; GeoIP/plugin scheduling remains deferred. See 主配置.md for actual implementation limits.
+
+Rule providers now use lowercase `rules` condition lists and metadata policy. The Rust core owns local-calendar scheduling, bounded HTTPS downloads, atomic cache batches and shutdown. See [Subscriptions](Subscriptions.md). This does not establish DNS/GeoIP orchestration, system VPN or App acceptance.
