@@ -130,3 +130,7 @@ path = "tests/test_main_configuration_contract.rs"
 [[test]]
 name = "test_provider_contract"
 path = "tests/test_provider_contract.rs"
+
+[[test]]
+name = "test_dns_geoip_contract"
+path = "tests/test_dns_geoip_contract.rs"

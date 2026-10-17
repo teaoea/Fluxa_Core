@@ -99,6 +99,18 @@ impl Authority {
         self.changed.notify_waiters();
         Ok(true)
     }
+    /// 将有界外部提交与撤销置于同一准入锁：提交失败时权限不变，成功后才撤销新操作。
+    pub(crate) fn revoke_after(&self, commit: impl FnOnce() -> Result<()>) -> Result<bool> {
+        let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.phase != Phase::Active {
+            return Err(Error::InvalidState);
+        }
+        commit()?;
+        state.phase = Phase::Closing;
+        self.canceled.send_replace(true);
+        self.changed.notify_waiters();
+        Ok(true)
+    }
     pub(crate) async fn canceled(&self) {
         let mut signal = self.canceled.subscribe();
         if *signal.borrow() {

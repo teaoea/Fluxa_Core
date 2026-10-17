@@ -1,5 +1,5 @@
-//! 配置 DNS 与 Fake-IP 到出站的桥接；业务路径不使用系统解析或 hosts 回退。
-//! DNS 关闭的内核下载上下文单独使用有会话/预算约束的 resolve_system。
+//! 配置 DNS 与 Fake-IP 到出站的桥接；启用 DNS 后不隐式回退系统解析。
+//! 主配置关闭 DNS 或显式 system 时使用有会话/预算约束的 resolve_system。
 use super::{Manager, dial, duration};
 use crate::{
     dns::{Answer, Query, Resolver},
@@ -101,7 +101,7 @@ pub(super) async fn resolve(
         Family::Ipv6 => (None, Some(lookup(query("AAAA")).await)),
     };
     // 验证/资源错误不能被另一地址族掩盖；单族网络失败可以使用另一族的有效记录。
-    let mut failure = Error::DnsResponse;
+    let mut failure = None;
     let mut lists = Vec::new();
     for (answer, v4) in [(v6, false), (v4, true)] {
         let Some(answer) = answer else {
@@ -117,7 +117,7 @@ pub(super) async fn resolve(
                 | Error::Unsupported),
             ) => return Err(error),
             Err(error) => {
-                failure = error;
+                failure = Some(error);
                 lists.push(Vec::new());
             }
         }
@@ -134,9 +134,13 @@ pub(super) async fn resolve(
     if values.len() > 16 {
         return Err(Error::ResourceLimit);
     }
-    if values.is_empty() {
+    if values.is_empty()
+        && let Some(failure) = failure
+    {
         return Err(failure);
     }
+    // NOERROR 无地址与 NXDOMAIN/失败分离：主配置仅前者允许地址族回退。
+
     Ok(values)
 }
 impl Manager {
@@ -209,6 +213,11 @@ impl Manager {
         }
         self.establish_with(snapshot, deadline, async |permission| {
             let addresses = resolve(resolver, &name, target.family, real, permission).await?;
+            // 底层固定地址族连接没有主配置的换族编排；无记录继续返回既有 DNS 错误，
+            // 不能交给空拨号列表而误报 Network，也不能尝试未授权的系统解析。
+            if addresses.is_empty() {
+                return Err(Error::DnsResponse);
+            }
             candidates(
                 addresses
                     .into_iter()
@@ -287,9 +296,8 @@ pub(super) async fn resolve_system(
                 values.push(ip);
             }
         }
-        if values.is_empty() {
-            return Err(Error::DnsResponse);
-        }
+        // OS 调用成功但筛选后没有该地址族，属于无记录；主配置可按策略尝试另一族。
+        // 调用本身失败仍是 DnsResponse，不能把未知原因伪装成无记录。
         Ok(values)
     })
     .await

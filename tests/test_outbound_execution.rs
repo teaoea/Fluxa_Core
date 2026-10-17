@@ -64,6 +64,7 @@ async fn scoped_quic_is_decided_before_real_udp_outbound() {
             manager.network_snapshot().unwrap(),
             None,
             FlowFacts {
+                permission: None,
                 datagram: payload,
                 source: None,
             },
@@ -110,6 +111,7 @@ async fn scoped_quic_is_decided_before_real_udp_outbound() {
                 manager.network_snapshot().unwrap(),
                 None,
                 FlowFacts {
+                    permission: None,
                     datagram: Some(&quic),
                     source: None
                 }
@@ -177,6 +179,7 @@ async fn process_proof_admits_new_flow_without_owning_live_connection() {
             manager.network_snapshot().unwrap(),
             None,
             FlowFacts {
+                permission: None,
                 datagram: None,
                 source: Some(flow),
             },
@@ -207,6 +210,7 @@ async fn process_proof_admits_new_flow_without_owning_live_connection() {
                     manager.network_snapshot().unwrap(),
                     None,
                     FlowFacts {
+                        permission: None,
                         datagram: None,
                         source: Some(flow)
                     }

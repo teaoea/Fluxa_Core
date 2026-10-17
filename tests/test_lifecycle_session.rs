@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/lifecycle/session.rs
 //! 测试内容：
+//! - failed_commit_preserves_admission：外部提交失败不撤销旧权限，成功后才撤销。
 //! - retained_objects_do_not_restore_revoked_rights_and_completion_waits_for_operations：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - invalid_identity_and_failed_cleanup_are_not_success：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //!
@@ -51,4 +52,18 @@ mod tests {
         assert!(matches!(owner.wait_closed().await, Err(Error::Internal)));
         assert_eq!(owner.phase().unwrap(), Phase::Failed);
     }
+}
+
+#[test]
+fn failed_commit_preserves_admission() {
+    use super::*;
+    let owner = Authority::new().unwrap();
+    assert_eq!(
+        owner.revoke_after(|| Err(Error::InvalidInput)),
+        Err(Error::InvalidInput)
+    );
+    assert!(owner.check(owner.identity()).is_ok());
+    assert_eq!(owner.revoke_after(|| Ok(())), Ok(true));
+    assert_eq!(owner.check(owner.identity()), Err(Error::InvalidState));
+    owner.complete(Ok(())).unwrap();
 }

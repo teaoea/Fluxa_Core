@@ -28,6 +28,7 @@ struct Tasks {
 pub(crate) struct ManagedRuntime {
     delegate: TokioRuntimeProvider,
     tasks: Arc<Tasks>,
+    route: Option<Arc<crate::outbound::Manager>>,
 }
 #[derive(Clone)]
 pub(crate) struct ManagedHandle(Arc<Tasks>);
@@ -38,6 +39,24 @@ fn record_join(result: std::result::Result<(), tokio::task::JoinError>) {
     );
 }
 impl Tasks {
+    fn transport_failed(&self, error: Error) {
+        // 普通网络失败仍可尝试列表中的下一上游；资源/权限/内核故障必须保留真实错误，不能被重试掩盖。
+        if matches!(
+            error,
+            Error::ResourceLimit
+                | Error::ResourceBudgetExceeded { .. }
+                | Error::InvalidState
+                | Error::Cancelled
+                | Error::Internal
+        ) {
+            self.failed(error);
+        } else {
+            crate::error::diagnostics::record(
+                error,
+                crate::error::diagnostics::DiagnosticSite::DnsService,
+            );
+        }
+    }
     fn failed(&self, error: Error) {
         crate::error::diagnostics::record(
             error,
@@ -50,11 +69,19 @@ impl ManagedRuntime {
     pub(crate) fn new(authority: Arc<Authority>) -> Self {
         Self {
             delegate: TokioRuntimeProvider::default(),
+            route: None,
             tasks: Arc::new(Tasks {
                 authority,
                 workers: Mutex::new(JoinSet::new()),
                 fault: tokio::sync::watch::channel(None).0,
             }),
+        }
+    }
+    /// DNS 的显式节点路由（UDP/加密传输）；共享任务预算和撤销权限，绝不失败后直连。
+    pub(crate) fn routed(&self, network: Arc<crate::outbound::Manager>) -> Self {
+        Self {
+            route: Some(network),
+            ..self.clone()
         }
     }
     /// 准入故障是事件而非解析器健康状态。每次查询只观察开始后的事件；
@@ -160,8 +187,8 @@ async fn controlled<T>(
 impl RuntimeProvider for ManagedRuntime {
     type Handle = ManagedHandle;
     type Timer = <TokioRuntimeProvider as RuntimeProvider>::Timer;
-    type Udp = <TokioRuntimeProvider as RuntimeProvider>::Udp;
-    type Tcp = <TokioRuntimeProvider as RuntimeProvider>::Tcp;
+    type Udp = RuntimeUdp;
+    type Tcp = hickory_resolver::net::runtime::iocompat::AsyncIoTokioAsStd<RuntimeStream>;
     fn create_handle(&self) -> Self::Handle {
         ManagedHandle(self.tasks.clone())
     }
@@ -171,20 +198,67 @@ impl RuntimeProvider for ManagedRuntime {
         bind: Option<SocketAddr>,
         timeout: Option<Duration>,
     ) -> Pin<Box<dyn Send + Future<Output = io::Result<Self::Tcp>>>> {
-        Box::pin(controlled(
-            self.tasks.authority.clone(),
-            self.delegate.connect_tcp(server, bind, timeout),
-        ))
+        let owner = self.tasks.authority.clone();
+        let delegate = self.delegate.clone();
+        let route = self.route.clone();
+        let faults = self.tasks.clone();
+        Box::pin(controlled(owner, async move {
+            let stream: crate::network::SecureStream = match route {
+                Some(network) => Box::new(
+                    network
+                        .connect_stream(&server.ip().to_string(), server.port(), None)
+                        .await
+                        .map_err(|error| {
+                            faults.transport_failed(error);
+                            io::Error::other(error)
+                        })?,
+                ),
+                None => Box::new(delegate.connect_tcp(server, bind, timeout).await?.0),
+            };
+            Ok(hickory_resolver::net::runtime::iocompat::AsyncIoTokioAsStd(
+                RuntimeStream(Mutex::new(stream)),
+            ))
+        }))
     }
+
     fn bind_udp(
         &self,
         local: SocketAddr,
         server: SocketAddr,
     ) -> Pin<Box<dyn Send + Future<Output = io::Result<Self::Udp>>>> {
-        Box::pin(controlled(
-            self.tasks.authority.clone(),
-            self.delegate.bind_udp(local, server),
-        ))
+        let owner = self.tasks.authority.clone();
+        let route = self.route.clone();
+        let faults = self.tasks.clone();
+        Box::pin(controlled(owner, async move {
+            if let Some(network) = route {
+                let request = crate::outbound::RoutedTarget {
+                    target: crate::routing::Target {
+                        domain: None,
+                        address: Some(server.ip().to_string()),
+                        port: server.port(),
+                        transport: crate::routing::Transport::Udp,
+                    },
+                    timeout_ms: 30000,
+                    family: crate::outbound::Family::Auto,
+                    mapping_generation: None,
+                };
+                let opened = network.connect_configured(request).await.map_err(|error| {
+                    faults.transport_failed(error);
+                    io::Error::other(error)
+                })?;
+                Ok(RuntimeUdp::Routed {
+                    network,
+                    id: opened.connection.id,
+                    peer: server,
+                    faults: ManagedHandle(faults),
+                    state: Mutex::new(UdpPoll::default()),
+                })
+            } else {
+                Ok(RuntimeUdp::Direct(
+                    tokio::net::UdpSocket::bind(local).await?,
+                ))
+            }
+        }))
     }
 }
 
@@ -194,3 +268,204 @@ use crate::test_fixture_https::dns as test_upstream;
 #[cfg(test)]
 #[path = "../../tests/test_dns_runtime.rs"]
 mod test_dns_runtime;
+
+/// Hickory 要求 Sync；短锁仅覆盖一次 poll，不持锁跨 await，不把业务流变成共享控制接口。
+pub(crate) struct RuntimeStream(Mutex<crate::network::SecureStream>);
+impl tokio::io::AsyncRead for RuntimeStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        b: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        Pin::new(
+            &mut *self
+                .0
+                .lock()
+                .map_err(|_| io::Error::other(Error::Internal))?,
+        )
+        .poll_read(cx, b)
+    }
+}
+impl tokio::io::AsyncWrite for RuntimeStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        b: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        Pin::new(
+            &mut *self
+                .0
+                .lock()
+                .map_err(|_| io::Error::other(Error::Internal))?,
+        )
+        .poll_write(cx, b)
+    }
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        Pin::new(
+            &mut *self
+                .0
+                .lock()
+                .map_err(|_| io::Error::other(Error::Internal))?,
+        )
+        .poll_flush(cx)
+    }
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        Pin::new(
+            &mut *self
+                .0
+                .lock()
+                .map_err(|_| io::Error::other(Error::Internal))?,
+        )
+        .poll_shutdown(cx)
+    }
+}
+
+/// UDP 适配仍由共用出站注册真实连接；轮询状态有限，取消由内核会话决定。
+pub(crate) enum RuntimeUdp {
+    Direct(tokio::net::UdpSocket),
+    Routed {
+        network: Arc<crate::outbound::Manager>,
+        id: u64,
+        peer: SocketAddr,
+        faults: ManagedHandle,
+        state: Mutex<UdpPoll>,
+    },
+}
+type ReadFuture = Pin<Box<dyn Future<Output = crate::error::Result<crate::outbound::Read>> + Send>>;
+type WriteFuture = Pin<Box<dyn Future<Output = crate::error::Result<usize>> + Send>>;
+#[derive(Default)]
+pub(crate) struct UdpPoll {
+    read: Option<ReadFuture>,
+    write: Option<([u8; 32], WriteFuture)>,
+}
+impl hickory_resolver::net::runtime::DnsUdpSocket for RuntimeUdp {
+    type Time = hickory_resolver::net::runtime::TokioTime;
+    fn poll_recv_from(
+        &self,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<io::Result<(usize, SocketAddr)>> {
+        use std::task::Poll;
+        match self {
+            Self::Direct(socket) => {
+                let mut buffer = tokio::io::ReadBuf::new(buf);
+                match socket.poll_recv_from(cx, &mut buffer) {
+                    Poll::Ready(Ok(peer)) => Poll::Ready(Ok((buffer.filled().len(), peer))),
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                    Poll::Pending => Poll::Pending,
+                }
+            }
+            Self::Routed {
+                network,
+                id,
+                peer,
+                state,
+                ..
+            } => {
+                let mut state = state
+                    .lock()
+                    .map_err(|_| io::Error::other(Error::Internal))?;
+                if state.read.is_none() {
+                    let network = network.clone();
+                    let id = *id;
+                    state.read = Some(Box::pin(
+                        async move { network.read(id, 65535, 30000).await },
+                    ));
+                }
+                match state
+                    .read
+                    .as_mut()
+                    .ok_or_else(|| io::Error::other(Error::Internal))?
+                    .as_mut()
+                    .poll(cx)
+                {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(result) => {
+                        state.read = None;
+                        let value = result.map_err(|error| self.failure(error))?;
+                        if value.bytes.len() > buf.len() {
+                            return Poll::Ready(Err(io::Error::other(Error::ResourceLimit)));
+                        }
+                        buf[..value.bytes.len()].copy_from_slice(&value.bytes);
+                        Poll::Ready(Ok((value.bytes.len(), *peer)))
+                    }
+                }
+            }
+        }
+    }
+    fn poll_send_to(
+        &self,
+        cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+        target: SocketAddr,
+    ) -> std::task::Poll<io::Result<usize>> {
+        use std::task::Poll;
+        match self {
+            Self::Direct(socket) => socket.poll_send_to(cx, bytes, target),
+            Self::Routed {
+                network,
+                id,
+                peer,
+                state,
+                ..
+            } => {
+                if target != *peer || bytes.len() > 4096 {
+                    return Poll::Ready(Err(io::Error::other(Error::InvalidInput)));
+                }
+                let mut state = state
+                    .lock()
+                    .map_err(|_| io::Error::other(Error::Internal))?;
+                if state.write.is_none() {
+                    let network = network.clone();
+                    let id = *id;
+                    let bytes = bytes.to_vec();
+                    let key = ring::digest::digest(&ring::digest::SHA256, &bytes)
+                        .as_ref()
+                        .try_into()
+                        .map_err(|_| io::Error::other(Error::Internal))?;
+                    state.write = Some((
+                        key,
+                        Box::pin(async move { network.write(id, &bytes, 30000).await }),
+                    ));
+                }
+                let (key, future) = state
+                    .write
+                    .as_mut()
+                    .ok_or_else(|| io::Error::other(Error::Internal))?;
+                if key.as_slice() != ring::digest::digest(&ring::digest::SHA256, bytes).as_ref() {
+                    return Poll::Ready(Err(self.failure(Error::ResourceLimit)));
+                }
+                match future.as_mut().poll(cx) {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(value) => {
+                        state.write = None;
+                        Poll::Ready(value.map_err(|error| self.failure(error)))
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for RuntimeUdp {
+    fn drop(&mut self) {
+        if let Self::Routed { network, id, .. } = self {
+            network.release_dns_datagram(*id);
+        }
+    }
+}
+
+impl RuntimeUdp {
+    fn failure(&self, error: Error) -> io::Error {
+        if let Self::Routed { faults, .. } = self {
+            faults.0.transport_failed(error);
+        }
+        io::Error::other(error)
+    }
+}

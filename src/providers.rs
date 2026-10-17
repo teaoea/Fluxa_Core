@@ -53,12 +53,15 @@ struct State {
     error: Option<ErrorInfo>,
     directory_synced: bool,
     last_cycle: Option<u64>,
+    geoip_slot: Option<i32>,
 }
 pub(crate) struct Runtime {
     owner: Weak<Manager>,
     home: PathBuf,
     tls: HttpsClient,
     authority: Arc<Authority>,
+    // 流量权限与控制提交锁分离，避免连接提交 State→Authority 与更新 Authority→State 倒序。
+    traffic: Arc<Authority>,
     control: AsyncMutex<()>,
     state: Mutex<State>,
     worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -104,6 +107,7 @@ impl Runtime {
             home,
             tls,
             authority: Authority::new()?,
+            traffic: Authority::new()?,
             control: AsyncMutex::new(()),
             state: Mutex::new(State {
                 cache: None,
@@ -114,6 +118,7 @@ impl Runtime {
                 error: None,
                 directory_synced: true,
                 last_cycle: None,
+                geoip_slot: None,
             }),
             worker: Mutex::new(None),
             changed: Notify::new(),
@@ -186,11 +191,13 @@ impl Runtime {
         self: &Arc<Self>,
         configuration: Arc<Document>,
         manual: Option<Option<String>>,
+        force_geoip: bool,
     ) -> Result<u64> {
         let _operation = self.authority.enter(self.authority.identity())?;
         let result = tokio::select! {
             _=self.authority.canceled()=>Err(Error::Cancelled),
-            result=async {let _serial=self.control.lock().await;self.initialize().await?;if manual.is_none(){self.verify_cache().await?;}self.update(configuration,manual).await}=>result,
+            result=async {let _serial=self.control.lock().await;if !configuration.provider_settings().is_empty()||configuration.geoip_url().is_some(){self.initialize().await?;}
+                if manual.is_none() && !force_geoip {self.verify_cache().await?;}self.update(configuration,manual,force_geoip).await}=>result,
         };
         if let Err(error) = result {
             self.record(error)
@@ -205,6 +212,12 @@ impl Runtime {
             .is_some_and(|last| at < last.saturating_add(RETRY_SECONDS))
         {
             return Ok(false);
+        }
+        if configuration.geoip_url().is_some()
+            && let Some(slot) = slot(configuration.geoip_time(), at)?
+            && state.geoip_slot.is_none_or(|old| old < slot)
+        {
+            return Ok(true);
         }
         for p in configuration
             .provider_settings()
@@ -241,7 +254,7 @@ impl Runtime {
                 let Some(configuration)=configuration else{return Ok(())};let at=now()?;
                 if self.due(&configuration,at)? {
                     self.state.lock().map_err(|_|Error::Internal)?.last_cycle=Some(at);
-                    self.verify_cache().await?;self.update(configuration,None).await?;
+                    self.verify_cache().await?;self.update(configuration,None,false).await?;
                 }Ok(())
             }=>result,
         };
@@ -304,6 +317,7 @@ impl Runtime {
         self: &Arc<Self>,
         configuration: Arc<Document>,
         manual: Option<Option<String>>,
+        force_geoip: bool,
     ) -> Result<u64> {
         let owner = self.owner.upgrade().ok_or(Error::InvalidState)?;
         let baseline = owner.network_snapshot()?.revision;
@@ -315,25 +329,134 @@ impl Runtime {
         {
             return Err(Error::InvalidInput);
         }
+        let previous_database = if let Some(url) = configuration.geoip_url() {
+            owner
+                .network_snapshot()?
+                .geoip
+                .as_ref()
+                .filter(|s| s.source_url() == Some(url))
+                .map(|s| s.database_for_url(url))
+                .transpose()?
+        } else {
+            None
+        };
         let doc = configuration.clone();
         let operation = self.authority.enter(self.authority.identity())?;
-        let transport = tokio::task::spawn_blocking(move || {
+        let mut transport = tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            doc.prepare_download()
+            doc.prepare_download(previous_database)
         })
         .await
         .map_err(|_| Error::Internal)??;
+        let resolver = crate::dns::Resolver::from_main(
+            configuration.dns_settings(),
+            transport.outbounds.clone(),
+            self.tls.tls_config(),
+        )
+        .await?;
+        transport.resolver = resolver.clone();
         // TLS 信任可来自系统/显式企业根；网络、源策略和恢复由内核构建，不复用客户端自报身份。
         let network = Arc::new(Manager::default());
         network.configure_provider_download(&transport, self.authority.clone())?;
         let client = self.tls.clone().with_network(network.clone());
-        let result = self.load(&configuration, &client, manual).await;
-        let stopped = network.stop_provider_download().await;
-        let (mut data, sources, counts, leases, downloaded) = match (result, stopped) {
-            (Err(e), _) => return Err(e),
-            (Ok(_), Err(e)) => return Err(e),
-            (Ok(v), Ok(())) => v,
+        let geoip_slot = if configuration.geoip_url().is_some() {
+            slot(configuration.geoip_time(), now()?)?
+        } else {
+            None
         };
+        let result = async {
+            let geoip = if let Some(url) = configuration.geoip_url() {
+                let (previous, previous_slot) = {
+                    let state = self.state.lock().map_err(|_| Error::Internal)?;
+                    (owner.network_snapshot()?.geoip.clone(), state.geoip_slot)
+                };
+                if let Some(service) =
+                    previous
+                        .filter(|s| s.source_url() == Some(url))
+                        .filter(|_| {
+                            !force_geoip && (geoip_slot.is_none() || geoip_slot == previous_slot)
+                        })
+                {
+                    Some(service)
+                } else {
+                    let service = Arc::new(crate::geoip::Service::new(crate::geoip::Config {
+                        geoip_url: Some(url.into()),
+                    })?);
+                    service.refresh(&client).await?;
+                    Some(service)
+                }
+            } else {
+                crate::geoip::Warning::disabled();
+                None
+            };
+            if let Some(service) = &geoip {
+                // 库一旦 Ready，后续提供者下载必须使用已绑定国家规则，不能继续沿用冷启动自举索引。
+                let mut ready = configuration
+                    .clone()
+                    .prepare_download(Some(service.database()?))?;
+                ready.resolver = resolver.clone();
+                network.configure_provider_download(&ready, self.authority.clone())?;
+            }
+            let mut loaded = self.load(&configuration, &client, manual).await?;
+            let old = owner.network_snapshot()?.geoip.clone();
+            let geoip_downloaded = geoip
+                .as_ref()
+                .is_some_and(|new| old.as_ref().is_none_or(|old| !Arc::ptr_eq(old, new)));
+            if let Some(service) = &geoip {
+                let database = service.database()?;
+                let path = self
+                    .state
+                    .lock()
+                    .map_err(|_| Error::Internal)?
+                    .cache
+                    .as_ref()
+                    .ok_or(Error::InvalidState)?
+                    .directory
+                    .join(cache::GEOIP_FILE);
+                let metadata = if !geoip_downloaded {
+                    loaded
+                        .0
+                        .geoip
+                        .as_ref()
+                        .map(|g| g.metadata.clone())
+                        .ok_or(Error::GeoipIntegrityFailed)?
+                } else {
+                    Metadata {
+                        url_hash: cache::hash(
+                            configuration
+                                .geoip_url()
+                                .ok_or(Error::GeoipInitializationFailed)?
+                                .as_bytes(),
+                        ),
+                        digest: cache::hash(database.bytes()),
+                        fetched_at: now()?,
+                        last_slot: geoip_slot,
+                    }
+                };
+                loaded.0.geoip = Some(cache::GeoipFile {
+                    metadata,
+                    database: Some(database),
+                    path,
+                });
+            }
+            Ok((loaded, geoip, geoip_downloaded))
+        }
+        .await;
+        let stopped = network.stop_provider_download().await;
+        let ((mut data, sources, counts, leases, downloaded), geoip, geoip_downloaded) =
+            match (result, stopped) {
+                (Err(e), _) => {
+                    if let Some(resolver) = &resolver {
+                        let _ = crate::error::diagnostics::observe(
+                            resolver.close().await,
+                            crate::error::diagnostics::DiagnosticSite::Cleanup,
+                        );
+                    }
+                    return Err(e);
+                }
+                (Ok(_), Err(e)) => return Err(e),
+                (Ok(v), Ok(())) => v,
+            };
         // 尝试日志单独提交过；候选基于最新日志，不能在主批次回滚计时状态。
         data.attempts = self
             .state
@@ -349,7 +472,7 @@ impl Runtime {
             let _operation = operation;
             let _leases = leases;
             me.authority.check(me.authority.identity())?;
-            document.prepare_shared(sources)
+            document.prepare_ready(sources, resolver, geoip)
         })
         .await
         .map_err(|_| Error::Internal)??;
@@ -357,6 +480,7 @@ impl Runtime {
         let changed = {
             let state = self.state.lock().map_err(|_| Error::Internal)?;
             downloaded
+                || geoip_downloaded
                 || data.entries.len() != state.data.entries.len()
                 || data.entries.iter().any(|(name, (meta, _))| {
                     state
@@ -373,15 +497,23 @@ impl Runtime {
         };
         let revision = self.authority.with_active(self.authority.identity(), || {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
-            let revision = owner.commit_provider_configuration(baseline, prepared, || {
-                batch.as_mut().map_or(Ok(()), |b| b.commit())
-            })?;
+            let revision = owner.commit_provider_configuration(
+                baseline,
+                prepared,
+                self.traffic.clone(),
+                || batch.as_mut().map_or(Ok(()), |b| b.commit()),
+            )?;
+            // 数据库仅由已发布服务/规则快照持有；磁盘元数据不延长内存或资源占用。
+            if let Some(asset) = &mut data.geoip {
+                asset.database = None;
+            }
             state.data = data;
             state.configuration = Some(configuration);
             state.revision = Some(revision);
             state.counts = counts;
+            state.geoip_slot = geoip_slot;
             // 仅真实下载成功可清除下载失败；本地编辑不能伪装后台源已恢复。
-            if downloaded {
+            if downloaded || geoip_downloaded {
                 state.error = None;
             }
             Ok(revision)
@@ -543,7 +675,20 @@ impl Runtime {
             .configuration
             .clone()
             .ok_or(Error::InvalidState)?;
-        self.apply(configuration, Some(name)).await
+        self.apply(configuration, Some(name), false).await
+    }
+    pub(crate) async fn refresh_geoip(self: &Arc<Self>) -> Result<u64> {
+        let configuration = self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .configuration
+            .clone()
+            .ok_or(Error::InvalidState)?;
+        if configuration.geoip_url().is_none() {
+            return Err(Error::InvalidState);
+        }
+        self.apply(configuration, None, true).await
     }
     async fn verify_cache(self: &Arc<Self>) -> Result<()> {
         let me = self.clone();
@@ -554,8 +699,7 @@ impl Runtime {
             state
                 .cache
                 .as_ref()
-                .ok_or(Error::InvalidState)?
-                .verify(&state.data)
+                .map_or(Ok(()), |cache| cache.verify(&state.data))
         })
         .await
         .map_err(|_| Error::Internal)?
@@ -565,6 +709,7 @@ impl Runtime {
         self.authority.wait_closed().await
     }
     pub(crate) fn request_close(self: &Arc<Self>) -> Result<()> {
+        self.traffic.revoke()?;
         if self.authority.revoke()? {
             let me = self.clone();
             crate::lifecycle::runtime()?.spawn(async move {
@@ -598,7 +743,9 @@ impl Runtime {
                     .map(|mut lease| {
                         lease.take();
                     });
-                let result = idle.and(joined).and(resources).and(released);
+                let traffic = me.traffic.wait_idle().await;
+                let traffic = traffic.and_then(|_| me.traffic.complete(Ok(())));
+                let result = idle.and(joined).and(resources).and(released).and(traffic);
                 let _ = crate::error::diagnostics::observe(
                     me.authority.complete(result),
                     crate::error::diagnostics::DiagnosticSite::Cleanup,

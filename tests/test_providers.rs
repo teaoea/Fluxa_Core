@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、跨模块集成、真实 HTTPS 与缓存生命周期
 //! 测试对象：src/providers.rs、configuration、outbound、https、规则快照
 //! 测试内容：
+//! - geoip_daily_slot_is_kernel_owned_and_idempotent：设备本地到期由内核更新，单个日期不重复。
 //! - scheduler_outlives_request_runtime：外部请求运行时销毁后，内核计划和刷新继续有效。
 //! - import_reuse_refresh_and_restart_keep_policy_and_atomic_cache：首次导入、复用、更新、重启与策略隔离。
 //! - invalid_update_keeps_files_snapshot_and_live_connection：坏 YAML/下载错误保留旧目录、快照及已建立连接。
@@ -553,6 +554,35 @@ async fn scheduler_outlives_request_runtime() {
         0,
         "手动更新不能启用停用来源"
     );
+    manager.stop().await.unwrap();
+    std::fs::remove_dir_all(home).unwrap();
+}
+
+#[tokio::test]
+async fn geoip_daily_slot_is_kernel_owned_and_idempotent() {
+    let _gate = TEST_PROVIDER_GATE.lock().await;
+    let fixture = crate::test_fixture_https::fixture().await;
+    let manager = Arc::new(Manager::default());
+    let home = home();
+    let configuration=Arc::new(Document::from_yaml(&format!("geoip: {{enabled: true,url: 'https://localhost:{}/geoip',update-time: '00:00'}}\nrules: ['geoip,US,reject','final,direct']",fixture.port)).unwrap());
+    manager
+        .apply_provider_document(configuration, client(&fixture), Some(home.clone()))
+        .await
+        .unwrap();
+    let runtime = manager.provider_runtime().unwrap().unwrap();
+    // 停止真实时钟执行器后用内核当前本地日历驱动一次到期；不伪造业务时钟或来源。
+    let worker = runtime.worker.lock().unwrap().take().unwrap();
+    worker.abort();
+    let _ = worker.await;
+    let before = manager.network_snapshot().unwrap().revision;
+    runtime.state.lock().unwrap().geoip_slot = None;
+    let current = runtime.state.lock().unwrap().configuration.clone().unwrap();
+    assert!(runtime.due(&current, now().unwrap()).unwrap());
+    runtime.automatic().await.unwrap();
+    let after = manager.network_snapshot().unwrap().revision;
+    assert_ne!(before, after);
+    runtime.automatic().await.unwrap();
+    assert_eq!(manager.network_snapshot().unwrap().revision, after);
     manager.stop().await.unwrap();
     std::fs::remove_dir_all(home).unwrap();
 }

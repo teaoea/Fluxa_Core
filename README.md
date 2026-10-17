@@ -9,3 +9,5 @@
 当前未完成事项及暂停状态统一见 [TODO](Documentation/TODO.md)。
 
 主配置规则提供者使用小写 `rules` 正文，Rust 负责设备本地更新时间、缓存和事务；接口、示例及尚未接入的范围见 [规则提供者生命周期](Documentation/Subscriptions.md)。
+
+主配置 DNS 与 GeoIP 已接入内核异步事务：逐上游独立期限、专用 DNS 出站、地址族选择、Ready 数据库编译及同目录原子缓存。接口、示例和真实验证边界见 [DNS/GeoIP 编排](Documentation/DNSGeoIP编排.md)。系统代理、局域网共享及文件日志执行仍暂存 TODO。

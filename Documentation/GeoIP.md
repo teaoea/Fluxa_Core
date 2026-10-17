@@ -71,8 +71,14 @@ MMDB 识别检查元数据标记与格式；初始化检查元数据及布局边
 
 公网 IP 回显仍是独立的现有能力，与 GeoIP 数据源无关，本次未修改。系统 VPN、所有平台/最低系统、真实用户数据库及来源授权不以回环测试替代验证。
 
-新主配置使用 example_config.yaml 的 geoip.enabled/url/update-time，每日时间为设备本地时区；本文 geoip_url 是既有底层服务 API 的输入，不是新主配置根字段别名。启用下载编排仍待完整事务接入。
+新主配置使用 example_config.yaml 的 geoip.enabled/url/update-time，每日时间为设备本地时区；本文 geoip_url 是既有底层服务 API 的输入，不是新主配置根字段别名。主配置异步编排已接入，见下述当前契约。
 
 ## Ready 数据库与规则绑定
 
-`Document::compile_local_rules_with_geoip(version, &service)` 校验主配置有效 URL 与 Service 来源完全一致，再借用已 Ready 的不可变数据库。缺失、不同来源或未 Ready 返回 2408。规则查询直接读取 MMDB 国家两字母代码，不构造完整城市结果；无记录正常未匹配，读取失败返回 2409。关闭 GeoIP 的主配置不会编译国家行。数据库绑定不写入规则缓存，缓存恢复不得冒充 Ready。来源下载和主配置自动编排仍属于后续阶段。
+`Document::compile_local_rules_with_geoip(version, &service)` 校验主配置有效 URL 与 Service 来源完全一致，再借用已 Ready 的不可变数据库。缺失、不同来源或未 Ready 返回 2408。规则查询直接读取 MMDB 国家两字母代码，不构造完整城市结果；无记录正常未匹配，读取失败返回 2409。关闭 GeoIP 的主配置不会编译国家行。数据库绑定不写入规则缓存，缓存恢复不得冒充 Ready。来源下载和自动编排已接入主配置异步事务。
+
+## 当前主配置编排（2026-10-17）
+
+上文 geoip_url/独立服务 API 描述保留底层用法；新主配置统一使用 geoip.enabled/url/update-time。异步 apply 在数据库校验 Ready 后才发布国家规则；同来源更新失败返回 Err 并保留旧配置/数据库/连接。configuration_status、geoip_lookup 和 geoip_refresh 使用同一内核状态；主配置活动时禁止独立 geoip_configure/close 绕过事务。
+
+库与规则提供者使用同一规则资产目录，文件固定为 geoip.mmdb；平台路径、预算、重启下载和原子缓存边界见 [DNS/GeoIP 编排](DNSGeoIP编排.md)。不是 App 自行解析 MMDB 或管理资源；本次未修改 App 和固定远程二进制。

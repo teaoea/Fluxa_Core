@@ -50,7 +50,7 @@ pub(crate) fn local_day(now: u64) -> Result<Day> {
 /// 两个同级目录原子交换，文件、来源和更新时间记录始终属于同一缓存代次。
 /// 不使用先删旧目录再 rename 的窗口；不支持的系统/文件系统明确报错。
 pub(crate) fn exchange(left: &Path, right: &Path) -> Result<()> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
     {
         use std::{ffi::CString, os::unix::ffi::OsStrExt};
         if left.parent() != right.parent() {
@@ -58,7 +58,7 @@ pub(crate) fn exchange(left: &Path, right: &Path) -> Result<()> {
         }
         let left = CString::new(left.as_os_str().as_bytes()).map_err(|_| Error::InvalidInput)?;
         let right = CString::new(right.as_os_str().as_bytes()).map_err(|_| Error::InvalidInput)?;
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         // SAFETY: 两个 NUL 结尾路径在同步调用期间有效；标志只允许原子交换，不传递业务裸指针。
         let code = unsafe {
             libc::renameatx_np(
@@ -89,7 +89,7 @@ pub(crate) fn exchange(left: &Path, right: &Path) -> Result<()> {
         }
         Ok(())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
     {
         let _ = (left, right);
         Err(Error::Unsupported)
@@ -99,3 +99,19 @@ pub(crate) fn exchange(left: &Path, right: &Path) -> Result<()> {
 #[cfg(test)]
 #[path = "../../tests/test_platform_providers.rs"]
 mod test_platform_providers;
+
+/// 数据目录来自当前进程沙盒 HOME；内核选择系统约定，不接受远程配置任意写入路径。
+pub(crate) fn asset_parent_components() -> &'static [&'static str] {
+    #[cfg(any(target_os = "ios", target_os = "tvos"))]
+    {
+        if cfg!(target_os = "tvos") {
+            &["Library", "Caches", "Fluxa"]
+        } else {
+            &["Library", "Application Support", "Fluxa"]
+        }
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+    {
+        &[".fluxa"]
+    }
+}

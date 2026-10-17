@@ -25,10 +25,11 @@ pub struct RoutedOpened {
     pub decision: Decision,
 }
 /// 只能由内核入口补充的报文/系统元组，不参与公开请求反序列化。
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct FlowFacts<'a> {
     datagram: Option<&'a [u8]>,
     source: Option<crate::platform::process::Flow>,
+    permission: Option<&'a crate::dns::ResolverOperation>,
 }
 impl Manager {
     /// 节点 TCP 建连耗时；测量后立即关闭，不发送应用数据，不冒充代理握手验证。
@@ -129,6 +130,7 @@ impl Manager {
             FlowFacts {
                 datagram: None,
                 source: Some(flow),
+                permission: None,
             },
         )
         .await
@@ -183,6 +185,7 @@ impl Manager {
             FlowFacts {
                 datagram: Some(bytes),
                 source: Some(flow),
+                permission: None,
             },
         )
         .await
@@ -196,8 +199,122 @@ impl Manager {
         hop: Option<SocketAddr>,
         facts: FlowFacts<'_>,
     ) -> Result<RoutedOpened> {
-        let FlowFacts { datagram, source } = facts;
-        snapshot.ensure_active()?;
+        // 两族尝试属于同一建连事务；退休仅禁止新的请求，不能在族切换时取消已准入请求。
+        let admitted = snapshot
+            .resolver
+            .as_ref()
+            .map(|r| r.operation())
+            .transpose()?;
+        let facts = FlowFacts {
+            permission: admitted.as_ref(),
+            ..facts
+        };
+        use crate::configuration::models::IpStrategy;
+        if snapshot.configuration_complete {
+            let enforced = match snapshot.ip_strategy {
+                IpStrategy::OnlyIpv4 => Some(Family::Ipv4),
+                IpStrategy::OnlyIpv6 => Some(Family::Ipv6),
+                _ => None,
+            };
+            if let Some(family) = enforced
+                && !matches!(request.family, Family::Auto)
+                && std::mem::discriminant(&request.family) != std::mem::discriminant(&family)
+            {
+                return Err(Error::InvalidInput);
+            }
+            if request.target.address.is_some() && request.mapping_generation.is_none() {
+                let mut request = request;
+                if let Some(family) = enforced {
+                    request.family = family;
+                }
+                return self
+                    .connect_family(
+                        router,
+                        resolver,
+                        request,
+                        snapshot,
+                        (hop, facts),
+                        &mut false,
+                    )
+                    .await;
+            }
+        }
+        // 主配置的地址族策略由内核裁决；不能由普通 API 的 Auto 实现并发查询两族。
+        if !snapshot.configuration_complete || !matches!(request.family, Family::Auto) {
+            return self
+                .connect_family(
+                    router,
+                    resolver,
+                    request,
+                    snapshot,
+                    (hop, facts),
+                    &mut false,
+                )
+                .await;
+        }
+        let (first, second) = match snapshot.ip_strategy {
+            IpStrategy::PreferIpv4 => (Family::Ipv4, Some(Family::Ipv6)),
+            IpStrategy::PreferIpv6 => (Family::Ipv6, Some(Family::Ipv4)),
+            IpStrategy::OnlyIpv4 => (Family::Ipv4, None),
+            IpStrategy::OnlyIpv6 => (Family::Ipv6, None),
+        };
+        let mut attempt = request.clone();
+        attempt.family = first;
+        let mut empty = false;
+        let result = self
+            .connect_family(
+                router,
+                resolver,
+                attempt,
+                snapshot.clone(),
+                (hop, facts),
+                &mut empty,
+            )
+            .await;
+        let retry = empty
+            || matches!(
+                result,
+                Err(Error::Network
+                    | Error::NetworkTimeout
+                    | Error::NetworkConnectRefused
+                    | Error::DnsTimeout)
+            );
+        // NXDOMAIN、DNSSEC、资源/状态失败以及所有候选被拦截均不可触发另一族放行。
+        if result.is_err()
+            && retry
+            && let Some(second) = second
+        {
+            let mut request = request;
+            request.family = second;
+            return self
+                .connect_family(
+                    router,
+                    resolver,
+                    request,
+                    snapshot,
+                    (hop, facts),
+                    &mut false,
+                )
+                .await;
+        }
+        result
+    }
+    async fn connect_family(
+        &self,
+        router: &Router,
+        resolver: Option<&Resolver>,
+        request: RoutedTarget,
+        snapshot: std::sync::Arc<super::NetworkSnapshot>,
+        context: (Option<SocketAddr>, FlowFacts<'_>),
+        empty_family: &mut bool,
+    ) -> Result<RoutedOpened> {
+        let (hop, facts) = context;
+        let FlowFacts {
+            datagram,
+            source,
+            permission: admitted,
+        } = facts;
+        snapshot.ensure_operation(admitted)?;
         let deadline = duration(request.timeout_ms)?;
         let mut metadata = request.target;
 
@@ -258,6 +375,7 @@ impl Manager {
             .establish_guarded(
                 std::sync::Arc::clone(&snapshot),
                 deadline,
+                admitted,
                 async |permission| {
                     // 系统归属查询也属于本次准入/总超时，不在会话取消与建连截止之外运行。
                     let identity = if router.needs_process() {
@@ -298,6 +416,10 @@ impl Manager {
                             return Err(Error::InvalidState);
                         }
                     };
+                    if addresses.is_empty() {
+                        *empty_family = true;
+                        return Err(Error::DnsResponse);
+                    }
                     let mut plans = Vec::with_capacity(addresses.len());
                     for ip in addresses {
                         let mut target = metadata.clone();
@@ -347,14 +469,19 @@ impl Manager {
                         let node_ips = if let Ok(ip) = node.host.parse::<IpAddr>() {
                             vec![ip]
                         } else {
-                            resolve(
-                                resolver.ok_or(Error::InvalidState)?,
-                                &node.host,
-                                super::Family::Auto,
-                                true,
-                                permission,
-                            )
-                            .await?
+                            if let Some(resolver) = resolver {
+                                resolve(resolver, &node.host, request.family, true, permission)
+                                    .await?
+                            } else if snapshot.system_dns {
+                                super::resolution::resolve_system(
+                                    &node.host,
+                                    request.family,
+                                    snapshot.owner()?,
+                                )
+                                .await?
+                            } else {
+                                return Err(Error::InvalidState);
+                            }
                         };
                         if node_ips.iter().any(|ip| {
                             ip.is_unspecified() || resolver.is_some_and(|r| r.is_fake_ip(*ip))

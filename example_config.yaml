@@ -3,7 +3,7 @@
 # 日志记录等级，
 # macOS保存到[用户目录/.fluxa/log/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
 # iOS、iPadOS保存到[Library/Application Support/Fluxa/Logs/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
-# tvOS保存到[ibrary/Caches/Fluxa/Logssilent（日志等级）/（年-月-日）/（整点小时）.jsonl]
+# tvOS保存到[ibrary/Caches/Fluxa/Logs/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
 # 按照1小时为间隔，每小时的日志为独立文件
 # 目录结构示例
 # .fluxa/
@@ -47,10 +47,14 @@ lan-share:
 mode: rule
 
 # GeoIP配置
+# 下载并校验成功后保存为下述目录中的 geoip.mmdb；规则集保存为 <name>.yaml。
 # MaxMind GeoLite2 Country MMDB
 # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb
 # 中国增强版 GeoIP
 # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country-without-asn.mmdb
+# macOS保存到[用户目录/.fluxa/rules/]
+# iOS、iPadOS保存到[Library/Application Support/Fluxa/rules/]
+# tvOS保存到[Library/Caches/Fluxa/rules/]
 geoip:
   enabled: false # false：禁用GeoIP；true：启用GeoIP，每次软件重新启动时或者到了更新时间会下载mmdb
   #url: "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb" # 如需配置GeoIP，建议使用这个mmdb数据库
@@ -96,7 +100,10 @@ plugin-providers:
 # 远程规则集
 # 正文格式为 rules: ["domain,example.com", "protocol,quic,example.com"]，类型小写，不携带策略。
 # YAML 结构错误拒绝整个更新；自带策略或不合法的行单独忽略。
-# 订阅的规则集会下载下来，保存到[用户目录/.fluxa/rules]
+# 订阅的规则集会下载下来，保存到约定位置
+# macOS保存到[用户目录/.fluxa/rules/]
+# iOS、iPadOS保存到[Library/Application Support/Fluxa/rules/]
+# tvOS保存到[Library/Caches/Fluxa/rules/]
 # 订阅的规则集会在每天指定时间自动更新，自动更新与手动更新会覆盖旧规则集文件，未配置update-time字段则不自动更新，仅在第一次导入时下载
 # 规则集更新或者本地规则变动，会进行合并裁剪，写入到内存，如果本地规则变动，但是订阅规则还未到更新时间
 # 订阅规则不会更新，而是直接使用rules文件夹下被激活的规则集文件
@@ -145,16 +152,19 @@ rules:
 # dns示例配置
 dns:
   enable: true # false：禁用配置的dns，采用系统默认dns，默认false
-  # 此地址用于解析doh、dot域名，不用于业务域名解析，未配置此项时,使用系统dns解析doh与dot
+  # 此地址仅解析 DoH/DoT 上游域名及这些 DNS 使用的节点域名；不解析业务域名。未配置时仅上述引导允许系统 DNS。
   # 每次启动时，bootstrap会解析server列表内全部doh和dot，并将结果缓存到内存之中
-  # 缓存的结果会遵循TTL，如果服务商未配置TTL，默认TTL为3600秒，缓存过期重新执行bootstrap查询
+  # 显式引导结果遵循 TTL（0 不缓存）；系统引导无法取得 TTL 时使用 3600 秒，过期重新查询
   bootstrap:
     - 1.1.1.1
-  # 按列表顺序解析；timeout 为每个上游的独立期限。只有显式列出 system 才使用系统 DNS，未列出时绝不自动回退。
+  # server列表按照顺序解析，timeout为每个dns的独立期限
+  # 只有显式设置system才使用系统dns，不会在server配置的dns都超时之后，自动回退到系统dns
+  # 在server配置的所有dns都超时的情况下，按照错误流程处理
   server:
-    - https://doh.pub/dns-query,direct # doh地址及网络模式，默认direct，可以设置为节点名称
-    - 1.1.1.1
-    - 2400:3200::1
+    # doh地址及网络模式，默认direct，可以设置为节点名称，dns出站策略不受rules规则限制
+    # 例如doh设置（https://doh.pub/dns-query），即使rules配置（doh.pub）走代理，dns出站也是走直连
+    - https://doh.pub/dns-query,direct
+    - 2400:3200::1,PROXY
     - system # 系统dns
   timeout: 3 # dns查询超时，默认单位“秒”，可选范围 1–30 秒，超过范围会被自动修正为默认值 3 秒。
   dnssec: false # 设为 true 启用 DNSSEC 验证；验证失败不静默放行。

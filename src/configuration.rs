@@ -1,6 +1,6 @@
 //! 主配置的内核校验入口：先预算、再严格解析、最后校验交叉引用。
 //! 成功只表示配置合法，不表示资源已启动、节点可用或 VPN 已接管。
-mod models;
+pub(crate) mod models;
 mod rules;
 use crate::{
     budget::{ByteBudget, ByteLease},
@@ -359,12 +359,35 @@ fn validate_dns(dns: &mut Dns, nodes: &HashSet<&str>) -> Result<()> {
         if value == "system" {
             continue;
         }
-        if value.parse::<IpAddr>().is_ok() {
-            numeric_dns(value)?;
+        let (endpoint, route) = value.split_once(',').unwrap_or((value, "direct"));
+        if route != "direct" && !nodes.contains(route) {
+            return Err(Error::InvalidInput);
+        }
+        if endpoint.parse::<IpAddr>().is_ok() || endpoint.parse::<std::net::SocketAddr>().is_ok() {
+            numeric_dns(endpoint)?;
             continue;
         }
-        let (endpoint, route) = value.split_once(',').unwrap_or((value, "direct"));
-        https_url(endpoint)?;
+        if endpoint.starts_with("tls://") {
+            let url = url::Url::parse(endpoint).map_err(|_| Error::InvalidInput)?;
+            crate::network::normalize_host(
+                url.host_str()
+                    .ok_or(Error::InvalidInput)?
+                    .trim_matches(['[', ']']),
+            )?;
+            if url.port() == Some(0) {
+                return Err(Error::InvalidInput);
+            }
+            if !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+                || !matches!(url.path(), "" | "/")
+            {
+                return Err(Error::InvalidInput);
+            }
+        } else {
+            https_url(endpoint)?;
+        }
         if route != "direct" && !nodes.contains(route) {
             return Err(Error::InvalidInput);
         }
@@ -381,7 +404,16 @@ fn validate_dns(dns: &mut Dns, nodes: &HashSet<&str>) -> Result<()> {
     Ok(())
 }
 fn numeric_dns(value: &str) -> Result<()> {
-    let address: IpAddr = value.parse().map_err(|_| Error::InvalidInput)?;
+    if value
+        .parse::<std::net::SocketAddr>()
+        .is_ok_and(|a| a.port() == 0)
+    {
+        return Err(Error::InvalidInput);
+    }
+    let address: IpAddr = value
+        .parse()
+        .or_else(|_| value.parse::<std::net::SocketAddr>().map(|a| a.ip()))
+        .map_err(|_| Error::InvalidInput)?;
     if address.is_unspecified()
         || address.is_multicast()
         || address == IpAddr::V4(std::net::Ipv4Addr::BROADCAST)
@@ -467,12 +499,16 @@ fn mitm_scope(config: &Mitm, host: &str) -> bool {
 #[derive(Serialize)]
 pub struct ConfigurationStatus {
     pub revision: u64,
+    /// 主配置启用状态；下载失败由调用 Err/控制状态 error_info 表达，不能冒充 Disabled。
+    pub geoip_status: crate::geoip::Status,
     pub configuration: Option<Summary>,
 }
 
 // 候选只在内核调用栈内存活；不向宿主暴露提交令牌、快照或活动资源控制权。
 pub(crate) struct Prepared {
     pub document: std::sync::Arc<Document>,
+    pub resolver: Option<std::sync::Arc<crate::dns::Resolver>>,
+    pub geoip: Option<std::sync::Arc<crate::geoip::Service>>,
     pub router: std::sync::Arc<crate::routing::Router>,
     pub outbounds: std::sync::Arc<
         std::collections::HashMap<String, std::sync::Arc<crate::protocol::config::Node>>,
@@ -487,10 +523,24 @@ impl Document {
     /// 完整准备当前可执行的本地配置；未接入活动能力整体拒绝，不部分应用。
     /// 不下载、不绑定、不修改当前状态；失败时输入租约和候选索引自动释放。
     pub(crate) fn prepare(self) -> Result<Prepared> {
-        if self.raw.rule_providers.iter().any(|p| p.enable) {
+        if self.needs_runtime() || self.raw.rule_providers.iter().any(|p| p.enable) {
             return Err(Error::Unsupported);
         }
         std::sync::Arc::new(self).prepare_shared(Vec::new())
+    }
+    pub(crate) fn needs_runtime(&self) -> bool {
+        self.raw.dns.enable
+            || self.raw.geoip.enabled
+            || !matches!(self.raw.ip_strategy, IpStrategy::PreferIpv4)
+    }
+    pub(crate) fn dns_settings(&self) -> &models::Dns {
+        &self.raw.dns
+    }
+    pub(crate) fn geoip_time(&self) -> Option<&str> {
+        self.raw.geoip.update_time.as_deref()
+    }
+    pub(crate) fn ip_strategy(&self) -> models::IpStrategy {
+        self.raw.ip_strategy
     }
     pub(crate) fn provider_settings(&self) -> &[models::RuleProvider] {
         &self.raw.rule_providers
@@ -503,22 +553,22 @@ impl Document {
         self: std::sync::Arc<Self>,
         sources: Vec<crate::routing::runtime::Source>,
     ) -> Result<Prepared> {
-        self.prepare_inner(sources, false)
+        self.prepare_inner(sources, false, None)
     }
-    pub(crate) fn prepare_download(self: std::sync::Arc<Self>) -> Result<Prepared> {
-        self.prepare_inner(Vec::new(), true)
+    pub(crate) fn prepare_download(
+        self: std::sync::Arc<Self>,
+        database: Option<std::sync::Arc<crate::geoip::Database>>,
+    ) -> Result<Prepared> {
+        self.prepare_inner(Vec::new(), true, database)
     }
     pub(crate) fn provider_preflight(&self) -> Result<()> {
         let raw = &self.raw;
-        if raw.dns.enable
-            || raw.geoip.enabled
-            || raw.tun.enable
+        if raw.tun.enable
             || raw.mitm.enabled
             || raw.system_proxy.port != 0
             || raw.lan_share.port != 0
             || !raw.rewrites.is_empty()
             || !matches!(raw.log_level, LogFilter::Silent)
-            || !matches!(raw.ip_strategy, IpStrategy::PreferIpv4)
         {
             return Err(Error::Unsupported);
         }
@@ -528,21 +578,28 @@ impl Document {
         {
             return Err(Error::ResourceLimit);
         }
-        // 系统解析仅供此阶段内核下载上下文；业务域名与域名节点尚未接入，不能假装支持。
-        // 此阶段只允许数字节点地址；域名业务请求仍由已有出站入口明确返回缺少解析器。
-        if raw
-            .proxies
-            .iter()
-            .any(|node| node.server.parse::<IpAddr>().is_err())
-        {
-            return Err(Error::Unsupported);
-        }
         Ok(())
+    }
+    pub(crate) fn prepare_ready(
+        self: std::sync::Arc<Self>,
+        sources: Vec<crate::routing::runtime::Source>,
+        resolver: Option<std::sync::Arc<crate::dns::Resolver>>,
+        geoip: Option<std::sync::Arc<crate::geoip::Service>>,
+    ) -> Result<Prepared> {
+        let database = geoip
+            .as_ref()
+            .map(|s| s.database_for_url(self.geoip_url().ok_or(Error::GeoipInitializationFailed)?))
+            .transpose()?;
+        let mut prepared = self.prepare_inner(sources, false, database)?;
+        prepared.resolver = resolver;
+        prepared.geoip = geoip;
+        Ok(prepared)
     }
     fn prepare_inner(
         self: std::sync::Arc<Self>,
         sources: Vec<crate::routing::runtime::Source>,
         download: bool,
+        database: Option<std::sync::Arc<crate::geoip::Database>>,
     ) -> Result<Prepared> {
         let raw = &self.raw;
         self.provider_preflight()?;
@@ -567,10 +624,14 @@ impl Document {
             );
         }
         let version = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
-        let router = std::sync::Arc::new(crate::routing::Router::from_runtime(
-            std::sync::Arc::new(rules::compile_sources(raw, version, None, sources)?.into_flat()?),
-        )?);
+        let router =
+            std::sync::Arc::new(crate::routing::Router::from_runtime(std::sync::Arc::new(
+                rules::compile_sources_inner(raw, version, database, sources, !download)?
+                    .into_flat()?,
+            ))?);
         Ok(Prepared {
+            resolver: None,
+            geoip: None,
             document: self,
             router,
             outbounds: std::sync::Arc::new(outbounds),

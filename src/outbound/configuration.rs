@@ -38,8 +38,10 @@ impl Limits {
 #[derive(Clone, Default)]
 pub struct NetworkSnapshot {
     pub revision: u64,
-    // 仅 DNS 关闭的内核下载上下文显式允许系统解析，不能作为加密 DNS 失败回退。
+    // 主配置关闭 DNS，或受限 DNS 引导未配置 bootstrap 时允许系统解析；不作为启用上游的失败回退。
     pub(crate) system_dns: bool,
+    pub(crate) ip_strategy: crate::configuration::models::IpStrategy,
+    pub(crate) geoip: Option<Arc<crate::geoip::Service>>,
     // 同一快照保留配置预算；分模块变更撤销 complete 标记，但共享节点仍需保留租约。
     pub(crate) configuration: Option<Arc<crate::configuration::Document>>,
     pub(crate) configuration_complete: bool,
@@ -64,7 +66,10 @@ impl Manager {
         prepared: crate::configuration::Prepared,
     ) -> Result<u64> {
         let limits = prepared.document.raw_limits();
+        let authority = crate::lifecycle::session::Authority::new()?;
         self.replace_network_at(Some(revision), |_| NetworkSnapshot {
+            session: Some(authority),
+            system_dns: true,
             configuration: Some(prepared.document),
             configuration_complete: true,
             router: Some(prepared.router),
@@ -78,6 +83,11 @@ impl Manager {
         let snapshot = self.network_snapshot()?;
         Ok(crate::configuration::ConfigurationStatus {
             revision: snapshot.revision,
+            geoip_status: if snapshot.geoip.is_some() {
+                crate::geoip::Status::ready()
+            } else {
+                crate::geoip::Status::disabled()
+            },
             configuration: snapshot
                 .configuration
                 .as_ref()
@@ -213,6 +223,8 @@ impl Manager {
             limits,
             outbounds: Arc::new(outbounds),
             system_dns: false,
+            ip_strategy: Default::default(),
+            geoip: None,
         })
     }
     pub fn configure_limits(&self, limits: Limits) -> Result<u64> {
@@ -325,6 +337,22 @@ impl NetworkSnapshot {
         }
         Ok(())
     }
+    pub(crate) fn ensure_operation(
+        &self,
+        permission: Option<&crate::dns::ResolverOperation>,
+    ) -> Result<()> {
+        if let Some(owner) = &self.session {
+            owner.check(owner.identity())?;
+        }
+        if let Some(resolver) = &self.resolver {
+            if let Some(permission) = permission {
+                resolver.check_operation(permission)?;
+            } else {
+                resolver.ensure_active()?;
+            }
+        }
+        Ok(())
+    }
     /// 正式出站也可能使用 TUN 绑定的解析器，连接归属必须包含该有效租约。
     pub(crate) fn owner(&self) -> Result<Option<Arc<crate::lifecycle::session::Authority>>> {
         let binding = self
@@ -388,11 +416,12 @@ impl NetworkSnapshot {
 mod test_outbound_configuration;
 
 impl Manager {
-    /// 有提供者时的主配置意图：下载/计划/缓存均由内核拥有，首次导入失败保留旧配置。
-    /// 无提供者时可继续使用同步 apply_configuration；活动提供者存在后应统一使用本异步入口。
+    /// 异步主配置意图：DNS、GeoIP、提供者下载/计划/缓存均由内核拥有，失败保留旧配置。
+    /// 仅不需要异步子系统且没有活动控制器时可使用同步 apply_configuration。
     pub async fn apply_configuration_async(self: &Arc<Self>, yaml: &str) -> Result<u64> {
         let document = Arc::new(crate::configuration::Document::from_yaml(yaml)?);
-        if document.provider_settings().is_empty()
+        if !document.needs_runtime()
+            && document.provider_settings().is_empty()
             && self
                 .state
                 .lock()
@@ -431,7 +460,10 @@ impl Manager {
             }
             state.providers.clone()
         };
-        if existing.is_none() && document.provider_settings().is_empty() {
+        if !document.needs_runtime()
+            && existing.is_none()
+            && document.provider_settings().is_empty()
+        {
             let revision = self.network_snapshot()?.revision;
             return self.commit_configuration(revision, document.prepare_shared(Vec::new())?);
         }
@@ -455,7 +487,7 @@ impl Manager {
         // 控制面 future 在此擦除嵌套类型，避免公开 async 调用方承受整个下载/解析/提交栈的布局深度。
         let operation: std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<u64>> + Send + '_>,
-        > = Box::pin(runtime.apply(document, None));
+        > = Box::pin(runtime.apply(document, None, false));
         operation.await
     }
     pub(crate) fn provider_runtime(&self) -> Result<Option<Arc<crate::providers::Runtime>>> {
@@ -489,17 +521,72 @@ impl Manager {
         > = Box::pin(runtime.refresh(name));
         operation.await
     }
+
+    /// 手动更新当前主配置 GeoIP；下载/校验/规则编译成功才发布，失败返回原错误并保留旧方案。
+    pub async fn refresh_geoip(&self) -> Result<u64> {
+        let _serial = self.provider_control.lock().await;
+        self.provider_runtime()?
+            .ok_or(Error::InvalidState)?
+            .refresh_geoip()
+            .await
+    }
+    /// 查询当前主配置数据库；无匹配是明确非错误状态，不访问默认地址。
+    pub fn lookup_geoip(&self, address: &str, language: &str) -> Result<crate::geoip::Lookup> {
+        let snapshot = self.network_snapshot()?;
+        snapshot.ensure_active()?;
+        if !snapshot.configuration_complete {
+            return Err(Error::InvalidState);
+        }
+        match &snapshot.geoip {
+            Some(service) => service.lookup(address, language),
+            None => Ok(crate::geoip::Lookup {
+                status: crate::geoip::Status::disabled(),
+                location: None,
+            }),
+        }
+    }
+    /// DNS 传输专用受限网络：固定策略，不将 DNS 上游请求再次送进业务 DNS/规则，避免自举循环。
+    pub(crate) fn configure_dns_transport(
+        &self,
+        node: Option<(String, Arc<crate::protocol::config::Node>)>,
+        resolver: Option<Arc<Resolver>>,
+        owner: Arc<crate::lifecycle::session::Authority>,
+    ) -> Result<u64> {
+        let mut outbounds = std::collections::HashMap::new();
+        let (fallback, outbound) = if let Some((name, node)) = node {
+            outbounds.insert(name.clone(), node);
+            (crate::routing::Policy::Proxy, Some(name))
+        } else {
+            (crate::routing::Policy::Direct, None)
+        };
+        let router = Arc::new(crate::routing::Router::compile(crate::routing::Config {
+            fallback,
+            outbound,
+            ..Default::default()
+        })?);
+        self.replace_network(|_| NetworkSnapshot {
+            system_dns: resolver.is_none(),
+            resolver,
+            session: Some(owner),
+            router: Some(router),
+            outbounds: Arc::new(outbounds),
+            ..Default::default()
+        })
+    }
     pub(crate) fn configure_provider_download(
         &self,
         prepared: &crate::configuration::Prepared,
         authority: Arc<crate::lifecycle::session::Authority>,
     ) -> Result<u64> {
         self.replace_network(|_| NetworkSnapshot {
+            resolver: prepared.resolver.clone(),
+            ip_strategy: prepared.document.ip_strategy(),
+            configuration_complete: true,
             configuration: Some(prepared.document.clone()),
             router: Some(prepared.router.clone()),
             outbounds: prepared.outbounds.clone(),
             limits: prepared.document.raw_limits(),
-            system_dns: true,
+            system_dns: !prepared.document.dns_settings().enable,
             session: Some(authority),
             ..NetworkSnapshot::default()
         })
@@ -508,6 +595,7 @@ impl Manager {
         &self,
         revision: u64,
         prepared: crate::configuration::Prepared,
+        authority: Arc<crate::lifecycle::session::Authority>,
         commit: impl FnOnce() -> Result<()>,
     ) -> Result<u64> {
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
@@ -522,18 +610,29 @@ impl Manager {
         let limits = prepared.document.raw_limits();
         let replacement = Arc::new(NetworkSnapshot {
             revision: next,
+            session: Some(authority),
+            resolver: prepared.resolver,
+            geoip: prepared.geoip,
+            ip_strategy: prepared.document.ip_strategy(),
+            system_dns: !prepared.document.dns_settings().enable,
             configuration: Some(prepared.document),
             configuration_complete: true,
             router: Some(router),
             outbounds: prepared.outbounds,
             limits,
-            ..NetworkSnapshot::default()
         });
-        // 旧活动解析器迁移尚未纳入本阶段，禁止在文件提交后执行可失败退休。
-        if state.network.resolver.is_some() {
-            return Err(Error::InvalidState);
+        // 文件事务成功后退休旧 DNS；runtime 已在候选准备时验证存在。
+        // 退休不关闭已建立连接，新请求只读取下一快照。
+        if let Some(old) = &state.network.resolver
+            && !replacement
+                .resolver
+                .as_ref()
+                .is_some_and(|new| Arc::ptr_eq(old, new))
+        {
+            old.retire_after(commit)?;
+        } else {
+            commit()?;
         }
-        commit()?;
         state.network = replacement;
         Ok(next)
     }

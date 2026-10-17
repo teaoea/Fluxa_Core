@@ -2,6 +2,7 @@
 //! Hickory 负责标准报文/密码学验证；不读取系统 DNS 或 hosts，不隐式降级。
 mod config;
 pub mod fake_ip;
+mod main;
 pub mod observation;
 mod runtime;
 pub mod service;
@@ -93,6 +94,7 @@ pub struct Resolver {
     anchors: Option<Arc<hickory_resolver::proto::dnssec::TrustAnchors>>,
     _metadata: ByteLease,
     config: Config,
+    main: Option<Arc<main::Plan>>,
     fake_ip: Option<fake_ip::Table>,
     cache: Mutex<BTreeMap<(String, String), Cached>>,
     observation: std::sync::Arc<Mutex<Option<observation::Observation>>>,
@@ -132,8 +134,7 @@ impl Resolver {
                 service: None,
             };
             let (servers, mut options) = single.build()?;
-            options.timeout =
-                Duration::from_millis((config.timeout_ms / config.servers.len() as u64).max(50));
+            options.timeout = Duration::from_millis(config.timeout_ms);
             let mut builder = UpstreamResolver::builder_with_config(servers, runtime.clone())
                 .with_options(options);
             if let Some(mut tls) = tls.clone() {
@@ -166,6 +167,7 @@ impl Resolver {
             observation: observation::shared(&config)?,
             fake_ip,
             config,
+            main: None,
             cache: Mutex::new(BTreeMap::new()),
         })
     }
@@ -212,21 +214,43 @@ impl Resolver {
     /// 内核主动 close 并等待监听/驱动释放；已建立的业务连接不归解析器所有。
     pub(crate) fn retire(self: &Arc<Self>) -> Result<()> {
         let executor = crate::lifecycle::runtime()?;
+        // 无外部提交的退休保持幂等；已经关闭的旧解析器不能阻止新实例替换。
+        // 带缓存提交的 retire_after 仍严格验证旧准入，失败不执行文件提交。
         if self.admission.revoke()? {
-            let own = self.clone();
-            executor.spawn(async move {
-                let result = async {
-                    own.admission.wait_idle().await?;
-                    own.close().await
-                }
-                .await;
-                let _ = crate::error::diagnostics::observe(
-                    result,
-                    crate::error::diagnostics::DiagnosticSite::Cleanup,
-                );
-            });
+            self.schedule_retirement(executor);
         }
         Ok(())
+    }
+    /// 缓存原子提交失败不退休旧 DNS；成功后关闭准入并由内核等待在途查询，清理与旧 Arc 无关。
+    pub(crate) fn retire_after(
+        self: &Arc<Self>,
+        commit: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        let executor = crate::lifecycle::runtime()?;
+        if self.admission.revoke_after(commit)? {
+            self.schedule_retirement(executor);
+        }
+        Ok(())
+    }
+    fn schedule_retirement(self: &Arc<Self>, executor: &tokio::runtime::Runtime) {
+        let own = self.clone();
+        executor.spawn(async move {
+            let result = async {
+                own.admission.wait_idle().await?;
+                own.close().await
+            }
+            .await;
+            let _ = crate::error::diagnostics::observe(
+                result,
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            );
+        });
+    }
+    pub(crate) fn check_operation(&self, operation: &ResolverOperation) -> Result<()> {
+        if !self.owns_operation(operation) {
+            return Err(Error::InvalidState);
+        }
+        self.ensure_running()
     }
     pub(crate) fn owns_operation(&self, operation: &ResolverOperation) -> bool {
         operation.identity == self.identity()
@@ -263,7 +287,14 @@ impl Resolver {
     }
     /// 新会话由内核从已验证元数据创建新代次，前端不能恢复旧对象权限。
     pub(crate) fn replacement(&self) -> Result<Self> {
-        Self::build(self.config.clone(), self.tls.clone(), self.anchors.clone())
+        let mut replacement =
+            Self::build(self.config.clone(), self.tls.clone(), self.anchors.clone())?;
+        replacement.main = self
+            .main
+            .as_ref()
+            .map(|p| p.replacement(replacement.authority.clone()).map(Arc::new))
+            .transpose()?;
+        Ok(replacement)
     }
     /// 撤销立即发生，清理任务由内核托管；调用方取消等待不会取消实际清理。
     pub async fn close(self: &Arc<Self>) -> Result<()> {
@@ -299,6 +330,11 @@ impl Resolver {
         let services = std::mem::take(&mut *self.services.lock().map_err(|_| Error::Internal)?);
         for service in services {
             service.stop().await?;
+        }
+        // DNS 专用节点连接本身持有 authority 操作令牌，必须先停止连接，
+        // 再等待令牌归零；反过来会等待尚未收到关闭命令的空闲连接。
+        if let Some(plan) = &self.main {
+            plan.close().await?;
         }
         self.authority.wait_idle().await?;
         // 事务令牌先释放驱动计数再释放准入计数，两个计数都归零后才能报告完成。
@@ -452,6 +488,11 @@ impl Resolver {
         let inner = &resources.inner;
         let (name, kind) = validated_query(query)?;
         let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
+        if let Some(plan) = &self.main
+            && let Some(lookup) = plan.hosts(&name, kind)?
+        {
+            return answer_from_hosts(name, kind, lookup);
+        }
         if synthetic && let Some(answer) = self.synthetic_answer(&name, kind)? {
             return Ok(answer);
         }
@@ -477,17 +518,28 @@ impl Resolver {
         } else {
             format!("{name}.")
         };
-        let attempt = Duration::from_millis((self.config.timeout_ms / inner.len() as u64).max(50));
+        let count = self.main.as_ref().map_or(inner.len(), |p| p.len());
+        let attempt = Duration::from_millis(self.config.timeout_ms);
         let lookup = resources
             .runtime
             .guard(async {
-                tokio::time::timeout(Duration::from_millis(self.config.timeout_ms), async {
+                tokio::time::timeout(attempt * count as u32 + Duration::from_millis(50), async {
                     let mut last = Err(NetError::Timeout);
-                    for (index, resolver) in inner.iter().enumerate() {
+                    for index in 0..count {
                         let attempt_started = Instant::now();
-                        last = tokio::time::timeout(attempt, resolver.lookup(fqdn.clone(), kind))
-                            .await
-                            .unwrap_or(Err(NetError::Timeout));
+                        last = tokio::time::timeout(attempt, async {
+                            if let Some(plan) = &self.main {
+                                plan.lookup(index, &fqdn, kind, &resources.runtime).await
+                            } else {
+                                Ok(inner
+                                    .get(index)
+                                    .ok_or(Error::Internal)?
+                                    .lookup(fqdn.clone(), kind)
+                                    .await)
+                            }
+                        })
+                        .await
+                        .unwrap_or(Ok(Err(NetError::Timeout)))?;
                         if index == 0 {
                             // 同步写入一条小统计，不创建后台任务；失败保留失败状态，不伪造零延迟成功。
                             self.observe(
@@ -723,6 +775,7 @@ impl Drop for Resolver {
             permit,
         }) = self.resources.get_mut().take()
         {
+            let main = self.main.take();
             let owner = self.authority.clone();
             let admission = self.admission.clone();
             match crate::lifecycle::runtime() {
@@ -734,8 +787,21 @@ impl Drop for Resolver {
                                 result = Err(error);
                             }
                         }
+                        if let Some(main) = main
+                            && let Err(error) = main.close().await
+                        {
+                            result = Err(error);
+                        }
                         drop(inner);
                         if let Err(error) = runtime.stop().await {
+                            result = Err(error);
+                        }
+                        // OS 引导的阻塞调用不能强行终止；其操作令牌在真实退出前仍有效。
+                        // 先排空再归还活动名额，不能在 Drop 兜底中提前宣告完成。
+                        if let Err(error) = owner.wait_idle().await {
+                            result = Err(error);
+                        }
+                        if let Err(error) = admission.wait_idle().await {
                             result = Err(error);
                         }
                         drop(permit);
@@ -758,3 +824,33 @@ impl Drop for Resolver {
 #[cfg(test)]
 #[path = "../../tests/test_dns_mod.rs"]
 mod test_dns_mod;
+
+fn answer_from_hosts(
+    name: String,
+    kind: RecordType,
+    lookup: hickory_resolver::lookup::Lookup,
+) -> Result<Answer> {
+    let wire = wire::encode(lookup.message())?;
+    let records = lookup
+        .answers()
+        .iter()
+        .map(|r| Record {
+            name: r.name.to_ascii(),
+            record_type: r.record_type().to_string(),
+            ttl: 60,
+            data: r.data.to_string(),
+        })
+        .collect::<Vec<_>>();
+    Ok(Answer {
+        name,
+        query_type: kind.to_string(),
+        addresses: records.iter().map(|r| r.data.clone()).collect(),
+        records,
+        ttl: 60,
+        rcode: 0,
+        validation: "hosts".into(),
+        from_cache: false,
+        duration_ms: 0,
+        wire,
+    })
+}

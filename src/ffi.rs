@@ -877,7 +877,22 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         } => probe_latency(&engine, &host, port, timeout_ms),
         Command::PublicIp { ipv6 } => public_ip(&engine, ipv6),
         Command::GeoipLookup { address, language } => {
-            let service = Arc::clone(&*engine.geoip.lock().map_err(|_| Error::Internal)?);
+            let snapshot = engine.outbound.network_snapshot()?;
+            let service = if snapshot.configuration_complete {
+                snapshot.ensure_active()?;
+                if let Some(service) = &snapshot.geoip {
+                    service.clone()
+                } else {
+                    return Ok(Reply {
+                        success: true,
+                        warn: Some(crate::geoip::Warning::disabled()),
+                        geoip_status: Some(crate::geoip::Status::disabled()),
+                        ..Reply::default()
+                    });
+                }
+            } else {
+                Arc::clone(&*engine.geoip.lock().map_err(|_| Error::Internal)?)
+            };
             if service.is_disabled() {
                 return Ok(Reply {
                     success: true,
@@ -925,6 +940,9 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::GeoipClose {} => {
+            if engine.outbound.network_snapshot()?.configuration_complete {
+                return Err(Error::InvalidState);
+            }
             engine.geoip.lock().map_err(|_| Error::Internal)?.close()?;
             Ok(Reply {
                 success: true,
@@ -932,6 +950,9 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::GeoipConfigure { geoip_url } => {
+            if engine.outbound.network_snapshot()?.configuration_complete {
+                return Err(Error::InvalidState);
+            }
             let service = Arc::new(crate::geoip::Service::new(crate::geoip::Config {
                 geoip_url,
             })?);
@@ -945,6 +966,24 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::GeoipOpen {} | Command::GeoipRefresh {} => {
+            if engine.outbound.network_snapshot()?.configuration_complete {
+                let manager = engine.outbound.clone();
+                if manager.network_snapshot()?.geoip.is_none() {
+                    return Ok(Reply {
+                        success: true,
+                        warn: Some(crate::geoip::Warning::disabled()),
+                        geoip_status: Some(crate::geoip::Status::disabled()),
+                        ..Reply::default()
+                    });
+                }
+                let revision = run_network(async move { manager.refresh_geoip().await })?;
+                return Ok(Reply {
+                    success: true,
+                    network_revision: Some(revision),
+                    geoip_status: Some(crate::geoip::Status::ready()),
+                    ..Reply::default()
+                });
+            }
             let service = Arc::clone(&*engine.geoip.lock().map_err(|_| Error::Internal)?);
             // 先检查来源，不为无配置路径初始化证书或联网。
             if service.is_disabled() {
@@ -1286,6 +1325,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             Ok(Reply {
                 success: true,
                 network_revision: Some(revision),
+                configuration_status: Some(engine.outbound.configuration_status()?),
                 provider_status: Some(engine.outbound.provider_status()?),
                 ..Reply::default()
             })
@@ -1326,6 +1366,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             })
         }
         Command::DnsClose => {
+            // 整体主配置只能整体变更；禁止先关闭 DNS 再在提交时失败，破坏旧配置。
+            if engine.outbound.network_snapshot()?.configuration_complete {
+                return Err(Error::InvalidState);
+            }
             engine.close_dns_service()?;
             if let Some(resolver) = engine.outbound.network_snapshot()?.resolver.clone() {
                 run_network(async move { resolver.close().await })?;

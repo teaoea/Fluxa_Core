@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、真实系统边界
 //! 测试对象：src/platform/providers.rs
 //! 测试内容：
+//! - asset_parent_is_platform_scoped：按当前目标选择约定的应用数据父目录，不使用外部配置路径。
 //! - exchange_swaps_whole_directories_without_missing_target：真实同级目录交换。
 //! - local_calendar_uses_valid_civil_dates_and_bounded_time：设备日历与无效时间边界。
 //!
@@ -39,4 +40,16 @@ fn local_calendar_uses_valid_civil_dates_and_bounded_time() {
     assert!(day.previous < day.date);
     assert!(day.seconds < 86400);
     assert!(local_day(u64::MAX).is_err());
+}
+
+#[test]
+fn asset_parent_is_platform_scoped() {
+    let expected = if cfg!(target_os = "tvos") {
+        vec!["Library", "Caches", "Fluxa"]
+    } else if cfg!(target_os = "ios") {
+        vec!["Library", "Application Support", "Fluxa"]
+    } else {
+        vec![".fluxa"]
+    };
+    assert_eq!(super::asset_parent_components(), expected.as_slice());
 }

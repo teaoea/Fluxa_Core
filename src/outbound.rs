@@ -281,7 +281,7 @@ impl Manager {
         future: impl AsyncFnOnce(Option<&crate::dns::ResolverOperation>) -> Result<Dialed>,
     ) -> Result<Opened> {
         let configuration = snapshot.clone();
-        self.establish_guarded(snapshot, deadline, async |permission| {
+        self.establish_guarded(snapshot, deadline, None, async |permission| {
             let dialed = future(permission).await?;
             let target = crate::routing::Target {
                 domain: None,
@@ -306,22 +306,28 @@ impl Manager {
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
+        admitted: Option<&crate::dns::ResolverOperation>,
         future: impl AsyncFnOnce(
             Option<&crate::dns::ResolverOperation>,
         ) -> Result<(Dialed, crate::routing::TrafficProtection)>,
     ) -> Result<Opened> {
         crate::lifecycle::runtime()?;
-        snapshot.ensure_active()?;
+        snapshot.ensure_operation(admitted)?;
         let owner = snapshot.owner()?;
         let _session_operation = owner
             .as_ref()
             .map(|owner| owner.enter(owner.identity()))
             .transpose()?;
-        let dns_operation = snapshot
-            .resolver
-            .as_ref()
-            .map(|resolver| resolver.operation())
-            .transpose()?;
+        let acquired = if admitted.is_none() {
+            snapshot
+                .resolver
+                .as_ref()
+                .map(|r| r.operation())
+                .transpose()?
+        } else {
+            None
+        };
+        let dns_operation = admitted.or(acquired.as_ref());
         let revoked = async {
             if let Some(owner) = &owner {
                 owner.canceled().await;
@@ -348,7 +354,7 @@ impl Manager {
             _ = generation.changed() => return Err(Error::Cancelled),
             _ = revoked => return Err(Error::InvalidState),
             _ = dns_revoked => return Err(Error::InvalidState),
-            result = timeout(deadline, future(dns_operation.as_ref())) => result.map_err(|_| Error::NetworkTimeout)??,
+            result = timeout(deadline, future(dns_operation)) => result.map_err(|_| Error::NetworkTimeout)??,
         };
         resources::reap(&self.state)?;
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
@@ -368,7 +374,7 @@ impl Manager {
             .as_ref()
             .map(|owner| owner.enter(owner.identity()))
             .transpose()?;
-        let id = snapshot.commit(dns_operation.as_ref(), || {
+        let id = snapshot.commit(dns_operation, || {
             protection.check(false)?;
             state
                 .registry
@@ -616,7 +622,28 @@ impl Manager {
             Some(runtime) => runtime.close().await,
             None => Ok(()),
         };
-        stopped.and(closed)
+        let resolver = self.network_snapshot()?.resolver.clone();
+        let dns = match resolver {
+            Some(resolver) => resolver.close().await,
+            None => Ok(()),
+        };
+        let standalone = if let Some(owner) = &self.network_snapshot()?.session {
+            if self
+                .state
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .providers
+                .is_none()
+                && owner.revoke()?
+            {
+                owner.wait_idle().await?;
+                owner.complete(Ok(()))?;
+            }
+            Ok(())
+        } else {
+            Ok(())
+        };
+        stopped.and(closed).and(dns).and(standalone)
     }
     async fn clear(&self, stop: bool) -> Result<()> {
         let connections = {
@@ -716,3 +743,37 @@ pub use stream::ManagedStream;
 #[cfg(test)]
 #[path = "../tests/test_outbound.rs"]
 mod test_outbound;
+
+/// 系统解析仅由 DNS 显式 system 或专用引导调用，不是业务失败回退。
+pub(crate) async fn resolve_explicit_system(
+    name: &str,
+    family: Family,
+    owner: Arc<crate::lifecycle::session::Authority>,
+) -> crate::error::Result<Vec<std::net::IpAddr>> {
+    resolution::resolve_system(name, family, Some(owner)).await
+}
+pub(crate) async fn resolve_bootstrap_system(
+    name: &str,
+    owner: Arc<crate::lifecycle::session::Authority>,
+) -> crate::error::Result<Vec<std::net::IpAddr>> {
+    resolve_explicit_system(name, Family::Auto, owner).await
+}
+
+impl Manager {
+    /// DNS UDP 驱动丢弃时同步撤销该连接；资源实际归还仍由 Connection 清理完成决定。
+    pub(crate) fn release_dns_datagram(&self, id: u64) {
+        match self.state.lock() {
+            Ok(state) => {
+                // 保留登记直到真实清理完成，使 Manager::stop 能等待此连接，
+                // 不能在异步关闭前移除登记而丢失资源完成状态。
+                if let Some(connection) = state.registry.get(id).cloned() {
+                    connection.close();
+                }
+            }
+            Err(_) => crate::error::diagnostics::record(
+                Error::Internal,
+                crate::error::diagnostics::DiagnosticSite::Cleanup,
+            ),
+        }
+    }
+}

@@ -138,7 +138,17 @@ pub(super) fn compile_sources(
     raw: &super::models::Raw,
     version: u64,
     geoip: Option<std::sync::Arc<crate::geoip::Database>>,
+    sources: Vec<crate::routing::runtime::Source>,
+) -> Result<crate::routing::runtime::Snapshot> {
+    compile_sources_inner(raw, version, geoip, sources, true)
+}
+/// 初次数据库下载的控制上下文没有国家库；仅该显式自举阶段跳过国家条件。
+pub(super) fn compile_sources_inner(
+    raw: &super::models::Raw,
+    version: u64,
+    geoip: Option<std::sync::Arc<crate::geoip::Database>>,
     mut sources: Vec<crate::routing::runtime::Source>,
+    require_geoip: bool,
 ) -> Result<crate::routing::runtime::Snapshot> {
     use crate::routing::{
         Config, Match, Mode, Rule, Transport,
@@ -171,7 +181,7 @@ pub(super) fn compile_sources(
             "process-name" if cfg!(any(target_os = "ios", target_os = "tvos")) => continue,
             "process-name" if !cfg!(target_os = "macos") => return Err(Error::Unsupported),
             "process-name" => (Match::ProcessName, p[1].to_owned()),
-            "geoip" if !raw.geoip.enabled => continue,
+            "geoip" if !raw.geoip.enabled || (!require_geoip && geoip.is_none()) => continue,
             // GeoIP Ready 及数据库查询由后续编排阶段提供；不得把启用但未准备的规则静默丢弃。
             "geoip" if geoip.is_none() => return Err(Error::GeoipInitializationFailed),
             "geoip" => (Match::GeoIp, p[1].to_owned()),

@@ -69,7 +69,8 @@
         "retirement_drains_admitted_query_without_cancelling_it",
         "replacement_reclaims_services_and_quota_with_old_snapshots_alive",
         "failed_or_same_resolver_update_keeps_admission_active",
-        "explicit_close_cancels_query_during_retirement"
+        "explicit_close_cancels_query_during_retirement",
+        "drop_waits_for_real_operation_before_releasing_quota"
       ]
     },
     {
@@ -140,6 +141,10 @@
       ],
       "module": "test_ffi",
       "declared_cases": [
+        "main_dns_and_geoip_status_use_same_configuration",
+        "main_configuration_validation_is_read_only_and_structured",
+        "main_configuration_apply_is_atomic_and_status_is_read_only",
+        "provider_commands_use_real_tls_and_keep_process_rules_ignored",
         "invalid_internal_error_encoding_does_not_become_no_error",
         "error_protocol_is_thread_local_and_success_clears_stale_error",
         "error_query_remains_available_when_response_registry_is_full",
@@ -150,10 +155,7 @@
         "output_buffers_obey_budget_and_handle_type",
         "admission_failure_keeps_tcp_bytes_and_returns_reservations",
         "admission_failure_keeps_tun_return_packet",
-        "nested_runtime_does_not_detach_failed_http_calls",
-        "main_configuration_validation_is_read_only_and_structured",
-        "main_configuration_apply_is_atomic_and_status_is_read_only",
-        "provider_commands_use_real_tls_and_keep_process_rules_ignored"
+        "nested_runtime_does_not_detach_failed_http_calls"
       ]
     },
     {
@@ -204,7 +206,8 @@
       "module": "test_lifecycle_session",
       "declared_cases": [
         "retained_objects_do_not_restore_revoked_rights_and_completion_waits_for_operations",
-        "invalid_identity_and_failed_cleanup_are_not_success"
+        "invalid_identity_and_failed_cleanup_are_not_success",
+        "failed_commit_preserves_admission"
       ]
     },
     {
@@ -1257,7 +1260,8 @@
         "disabled_manual_and_policy_edits_reuse_body_without_rewriting",
         "multi_provider_failure_never_partially_publishes",
         "automatic_due_is_once_per_slot_and_errors_are_rate_limited",
-        "scheduler_outlives_request_runtime"
+        "scheduler_outlives_request_runtime",
+        "geoip_daily_slot_is_kernel_owned_and_idempotent"
       ]
     },
     {
@@ -1270,7 +1274,8 @@
       "module": "test_providers_cache",
       "declared_cases": [
         "cache_batch_is_atomic_and_old_references_do_not_own_lock",
-        "corruption_version_and_symlink_are_rejected"
+        "corruption_version_and_symlink_are_rejected",
+        "geoip_binary_and_rules_share_atomic_batch"
       ]
     },
     {
@@ -1296,7 +1301,8 @@
       "module": "test_platform_providers",
       "declared_cases": [
         "exchange_swaps_whole_directories_without_missing_target",
-        "local_calendar_uses_valid_civil_dates_and_bounded_time"
+        "local_calendar_uses_valid_civil_dates_and_bounded_time",
+        "asset_parent_is_platform_scoped"
       ]
     },
     {
@@ -1312,6 +1318,41 @@
       "declared_cases": [
         "remote_conditions_cannot_supply_policy_or_debug_authority",
         "invalid_provider_configuration_never_creates_runtime"
+      ]
+    },
+    {
+      "id": "test_dns_main",
+      "file": "tests/test_dns_main.rs",
+      "kind": "unit",
+      "sources": [
+        "src/dns/main.rs"
+      ],
+      "module": "test_dns_main",
+      "declared_cases": [
+        "hosts_precedes_fake_and_disabled_isolated",
+        "bootstrap_ttl_rebuild_and_system_dnssec_fail_closed",
+        "initialization_failure_never_publishes_partial_endpoints",
+        "close_stops_idle_dns_transport_before_waiting"
+      ]
+    },
+    {
+      "id": "test_dns_geoip_contract",
+      "file": "tests/test_dns_geoip_contract.rs",
+      "kind": "integration",
+      "sources": [
+        "src/dns/main.rs",
+        "src/providers.rs",
+        "src/outbound/configuration.rs",
+        "src/outbound/execution.rs"
+      ],
+      "target": "test_dns_geoip_contract",
+      "declared_cases": [
+        "explicit_doh_ignores_formal_route_and_retires_old_resolver",
+        "geoip_ready_failure_atomicity_and_disabled_rules",
+        "preferred_family_order_ip_reject_and_nxdomain",
+        "ordered_upstreams_get_independent_deadlines",
+        "named_numeric_dns_failure_never_uses_direct",
+        "admitted_family_fallback_survives_configuration_replacement"
       ]
     }
   ]

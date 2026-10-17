@@ -72,7 +72,8 @@ pub async fn fixture() -> Fixture {
     let doh = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let doh_port = doh.local_addr().unwrap().port();
     let key = KeyPair::generate().unwrap();
-    let cert = CertificateParams::new(vec!["localhost".into()])
+    // connect.example.test 用于实际引导查询；localhost 可能被解析库按保留名直接合成。
+    let cert = CertificateParams::new(vec!["localhost".into(), "connect.example.test".into()])
         .unwrap()
         .self_signed(&key)
         .unwrap();

@@ -182,9 +182,8 @@ impl Config {
             servers.push(NameServerConfig::new(address.ip(), true, connections));
         }
         let mut options = ResolverOpts::default();
-        // 每个上游共享总期限，给后续配置的上游保留重试时间。
-        options.timeout =
-            Duration::from_millis((self.timeout_ms / self.servers.len() as u64).max(50));
+        // 每个上游独享配置期限；调用层按顺序尝试，不按上游数分摊。
+        options.timeout = Duration::from_millis(self.timeout_ms);
         options.attempts = 1;
         options.validate = self.dnssec;
         options.cache_size = 0;

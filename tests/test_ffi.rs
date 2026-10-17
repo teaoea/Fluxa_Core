@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - main_dns_and_geoip_status_use_same_configuration：真实 ABI hosts、Disabled 状态和拒绝部分关闭保持同一快照。
 //! - provider_commands_use_real_tls_and_keep_process_rules_ignored：真实 ABI 刷新由内核下载，远程进程条目不注入。
 //! - main_configuration_apply_is_atomic_and_status_is_read_only：公开命令原子提交、错误不改版本且查询不启动 VPN。
 //! - main_configuration_validation_is_read_only_and_structured：主配置 C ABI 校验不改网络版本，失败返回整数错误。
@@ -26,6 +27,39 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[test]
+    fn main_dns_and_geoip_status_use_same_configuration() {
+        let _gate = TEST_GATE.blocking_lock();
+        let owner = TestHandle(fluxa_engine_create());
+        let handle = owner.0;
+        let call = |value: serde_json::Value| {
+            let bytes = serde_json::to_vec(&value).unwrap();
+            // SAFETY: 请求缓冲区在同步 ABI 调用期间有效；返回句柄由 TestHandle 唯一释放。
+            let output =
+                TestHandle(unsafe { fluxa_engine_command_v2(handle, bytes.as_ptr(), bytes.len()) });
+            serde_json::from_slice::<serde_json::Value>(&buffer(output.0).unwrap().bytes).unwrap()
+        };
+        let result = call(
+            serde_json::json!({"operation":"configuration_apply","yaml":"dns: {enable: true, server: ['127.0.0.1:9'],hosts: {pinned.test: 192.0.2.77}}\nrules: ['final,reject']"}),
+        );
+        assert_eq!(result["success"], true, "{result}");
+        assert_eq!(result["configuration_status"]["geoip_status"]["code"], 2410);
+        let query =
+            serde_json::json!({"operation":"dns_query","name":"pinned.test","query_type":"A"});
+        assert_eq!(
+            call(query.clone())["dns_answer"]["addresses"][0],
+            "192.0.2.77"
+        );
+        let close = call(serde_json::json!({"operation":"dns_close"}));
+        assert_eq!(close["success"], false);
+        assert_eq!(close["error_info"]["code"], 9001);
+        assert_eq!(call(query)["dns_answer"]["addresses"][0], "192.0.2.77");
+        let disabled = call(
+            serde_json::json!({"operation":"geoip_lookup","address":"8.8.8.8","language":"en"}),
+        );
+        assert_eq!(disabled["success"], true);
+        assert_eq!(disabled["geoip_status"]["code"], 2410);
+    }
     #[tokio::test]
     async fn main_configuration_validation_is_read_only_and_structured() {
         let _gate = TEST_GATE.lock().await;

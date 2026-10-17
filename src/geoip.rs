@@ -127,6 +127,10 @@ impl Service {
             database: Mutex::new(None),
         })
     }
+    /// 仅内核事务比较来源身份，不能用来自其他 URL 的旧库掩盖初始化失败。
+    pub(crate) fn source_url(&self) -> Option<&str> {
+        self.config.geoip_url.as_deref()
+    }
     pub fn is_disabled(&self) -> bool {
         self.config.geoip_url.is_none()
     }
@@ -225,8 +229,16 @@ fn resource_error(error: Error) -> Error {
     );
     Error::GeoipResourceLimit
 }
+#[derive(Clone)]
+struct SharedBytes(Arc<Vec<u8>>);
+impl AsRef<[u8]> for SharedBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
 pub struct Database {
-    reader: Reader<Vec<u8>>,
+    reader: Reader<SharedBytes>,
+    source: SharedBytes,
     _lease: ByteLease,
 }
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -296,12 +308,19 @@ impl Database {
             return Err(Error::GeoipIntegrityFailed);
         }
         drop(layout);
-        let reader = Reader::from_source(bytes).map_err(|_| Error::GeoipInvalidDatabase)?;
+        let source = SharedBytes(Arc::new(bytes));
+        let reader =
+            Reader::from_source(source.clone()).map_err(|_| Error::GeoipInvalidDatabase)?;
         verify_records(&reader)?;
         Ok(Self {
             reader,
+            source,
             _lease: lease,
         })
+    }
+    /// 原子缓存写入只借用已校验正文，不复制整库；数据库预算覆盖真实共享缓冲区。
+    pub(crate) fn bytes(&self) -> &[u8] {
+        self.source.as_ref()
     }
     /// 规则查询只借用两字节国家代码；无记录返回 None，数据库错误不可变成未命中。
     pub(crate) fn country_code(&self, ip: IpAddr) -> Result<Option<&str>> {
@@ -501,7 +520,7 @@ impl<'de> Deserialize<'de> for VerifiedValue {
     }
 }
 /// 上游迭代器保留有界 IP 路径，记录解码不建立 Vec/HashSet/JSON 树；每个引用均验证。
-fn verify_records(reader: &Reader<Vec<u8>>) -> Result<()> {
+fn verify_records<S: AsRef<[u8]>>(reader: &Reader<S>) -> Result<()> {
     let maximum = usize::try_from(reader.metadata().node_count)
         .map_err(|_| Error::GeoipResourceLimit)?
         .checked_mul(3)

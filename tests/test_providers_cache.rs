@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、磁盘原子性与恢复
 //! 测试对象：src/providers/cache.rs
 //! 测试内容：
+//! - geoip_binary_and_rules_share_atomic_batch：MMDB 同目录原子保存、重启核验、规则更新不删除，损坏返回 2406。
 //! - cache_batch_is_atomic_and_old_references_do_not_own_lock：整批目录交换、哈希校验与显式释放租约。
 //! - corruption_version_and_symlink_are_rejected：损坏、未知版本、符号链接与无来源缓存拒绝；恢复尝试记录合并有界。
 //!
@@ -106,4 +107,51 @@ fn corruption_version_and_symlink_are_rejected() {
         assert!(Cache::open(&home).is_err());
         fs::remove_dir_all(home).unwrap();
     }
+}
+
+#[test]
+fn geoip_binary_and_rules_share_atomic_batch() {
+    let home = home();
+    let input = home.join("input.mmdb");
+    let bytes = crate::test_fixture_https::geoip_data::fixture();
+    fs::write(&input, &bytes).unwrap();
+    let database = Arc::new(crate::geoip::Database::open(&input).unwrap());
+    let (mut cache, mut data) = Cache::open(&home).unwrap();
+    data.geoip = Some(GeoipFile {
+        metadata: Metadata {
+            url_hash: hash(b"https://geoip.test/file.mmdb"),
+            digest: hash(&bytes),
+            fetched_at: 1,
+            last_slot: None,
+        },
+        database: Some(database),
+        path: cache.directory.join(GEOIP_FILE),
+    });
+    let mut batch = cache.stage(data).unwrap();
+    batch.commit().unwrap();
+    batch.sync_parent().unwrap();
+    drop(batch);
+    assert_eq!(fs::read(cache.directory.join(GEOIP_FILE)).unwrap(), bytes);
+    cache.close().unwrap();
+    let (mut cache, data) = Cache::open(&home).unwrap();
+    assert!(
+        data.geoip.as_ref().unwrap().database.is_none(),
+        "恢复仅核验文件，不在禁用状态初始化 MMDB"
+    );
+    let mut batch = cache.stage(data.clone()).unwrap();
+    batch.commit().unwrap();
+    batch.sync_parent().unwrap();
+    drop(batch);
+    cache.verify(&data).unwrap();
+    fs::write(cache.directory.join(GEOIP_FILE), b"corrupt").unwrap();
+    assert!(matches!(
+        cache.verify(&data),
+        Err(Error::GeoipIntegrityFailed)
+    ));
+    cache.close().unwrap();
+    assert!(matches!(
+        Cache::open(&home),
+        Err(Error::GeoipIntegrityFailed)
+    ));
+    fs::remove_dir_all(home).unwrap();
 }

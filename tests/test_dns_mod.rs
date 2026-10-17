@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/dns/mod.rs
 //! 测试内容：
+//! - drop_waits_for_real_operation_before_releasing_quota：未发布实例析构等待实际操作退出再归还名额。
 //! - observation_lock_failure_is_internal_not_dns_timeout：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //!
 //! - retirement_drains_admitted_query_without_cancelling_it：验证退休准入、确定性清理及配置原子性，不以引用计数判断活动资源。
@@ -250,4 +251,41 @@ mod retirement_contract {
         drop(release);
         server.await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn drop_waits_for_real_operation_before_releasing_quota() {
+    use super::*;
+    let resolver = Arc::new(
+        Resolver::new(Config {
+            servers: vec![Server::Udp {
+                address: "127.0.0.1:9".into(),
+            }],
+            timeout_ms: 1000,
+            dnssec: false,
+            fake_ip: None,
+            service: None,
+        })
+        .unwrap(),
+    );
+    let owner = resolver.authority.clone();
+    let operation = owner.enter(owner.identity()).unwrap();
+    let available = CLIENTS.available_permits();
+    drop(resolver);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), owner.wait_closed())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        owner.phase().unwrap(),
+        crate::lifecycle::session::Phase::Closing
+    );
+    assert_eq!(CLIENTS.available_permits(), available);
+    drop(operation);
+    tokio::time::timeout(Duration::from_secs(2), owner.wait_closed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(CLIENTS.available_permits(), available + 1);
 }

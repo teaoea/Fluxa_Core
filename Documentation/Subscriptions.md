@@ -22,11 +22,11 @@ rules: ['final,direct']
 
 ## 下载、缓存及事务
 
-内核只访问显式 HTTPS URL，沿用系统/显式企业 TLS 根，不关闭证书验证。下载使用候选本地路由与节点策略；没有配置业务 DNS 的当前执行范围允许系统解析下载源域名，不是已启用 DNS 的失败回退。活动业务 DNS 的新主配置编排仍属后续阶段，当前明确拒绝。节点仍要求数字地址。
+内核只访问显式 HTTPS URL，沿用系统/显式企业 TLS 根，不关闭证书验证。下载使用候选本地路由与节点策略；没有配置业务 DNS 的当前执行范围允许系统解析下载源域名，不是已启用 DNS 的失败回退。活动业务 DNS、域名节点与 GeoIP 已接入异步主配置编排，见 [DNS/GeoIP 编排](DNSGeoIP编排.md)。
 
 正文单项最多 8 MiB、URL 最多 4096 字节、最多五次 HTTPS 重定向，拒绝 HTTP 降级、重定向环和非 200 最终响应；整次下载上限 60 秒。正文常驻共享预算 128 MiB；解析租约保留至编译完成；编译仍受已有规则、来源和索引预算约束，不能把数量上限解释为所有内容形态都可接受。
 
-缓存固定保存为 `~/.fluxa/rules/<name>.yaml`，不是 App 包内资源。`.state.json` 登记来源 URL 哈希、正文 SHA-256、成功时间及本地日期槽；`.fluxa/.provider-attempts.json` 独立保存有限尝试记录。内容哈希用于一致性校验，不代替 HTTPS 来源认证。目录不允许符号链接或组/其他用户写入；本设计不声称防御已控制相同用户账户的攻击者。
+macOS 缓存保存为 `~/.fluxa/rules/<name>.yaml`；iOS/iPadOS 为应用沙箱 `Library/Application Support/Fluxa/rules/<name>.yaml`；tvOS 为应用沙箱 `Library/Caches/Fluxa/rules/<name>.yaml`，不是 App 包内资源。`.state.json` 登记来源 URL 哈希、正文 SHA-256、成功时间及本地日期槽；`.fluxa/.provider-attempts.json` 独立保存有限尝试记录。内容哈希用于一致性校验，不代替 HTTPS 来源认证。目录不允许符号链接或组/其他用户写入；本设计不声称防御已控制相同用户账户的攻击者。
 
 首次启用且没有同 URL 的有效缓存时下载；未配置 update-time 的提供者之后只手动更新，重启复用有效缓存。停用提供者不自动下载，手动更新不会自动启用。只改本地规则或提供者策略会重新编译已验证正文，不重新下载、不重写远程文件，忽略条数按当前策略重新统计。
 
@@ -74,3 +74,5 @@ Rust 使用 `Arc<Manager>::apply_configuration_async`；自定义受信根使用
 缓存实现补充：尝试记录在清单和独立日志中均以最多 128 个 {key: URL哈希, time: Unix秒} 结构记录序列保存，不使用超过严格 YAML 64 字段门禁的映射。恢复拒绝重复哈希和非法时间，旧清单与新日志合并保留最新 128 条。回归发现并修复了旧映射表示写出后无法重新加载的问题，失败证据保留于 /private/tmp/fluxa-provider-accepted-20261017/test_providers_cache.attempt-1.log，修复专项证据位于 /private/tmp/fluxa-provider-cache-retry-20261017；最终以完整回归最新报告为准。
 
 并发补充：providers::status 在取得 State 前先结束 Authority 检查，保持与提交路径相同的锁顺序，避免状态查询和原子发布反向持锁；test_providers 的真实刷新并发状态查询保留最终策略断言。常驻调度使用 lifecycle::runtime 的内核运行时，scheduler_outlives_request_runtime 验证外部请求运行时销毁不等于关闭内核；关闭仍由 stop 的撤销和等待完成协议裁决。缓存恢复与生命周期修复后的专项原始记录见 /private/tmp/fluxa-provider-lifecycle-verified-20261017；最终证据仍以完整回归最新记录为准。
+
+GeoIP geoip.mmdb 与提供者 YAML 共用整目录交换事务。状态清单写入版本 2，读取版本 1/2；新增可选 GeoIP 来源哈希、正文摘要及本地日期槽。启动只流式验证已有二进制摘要，不以磁盘文件冒充 Ready；启用时重新下载并验证，未启用不初始化。禁用后保留的库在规则更新时用有界缓冲复制。

@@ -17,6 +17,7 @@ const STATE_LIMIT: usize = 256 * 1024;
 const MAX_ENTRIES: usize = 64;
 const MAX_ATTEMPTS: usize = 128;
 const STATE_FILE: &str = ".state.json";
+pub(super) const GEOIP_FILE: &str = "geoip.mmdb";
 static MEMORY: ByteBudget = ByteBudget::new(BODY_MEMORY);
 pub(super) struct Text {
     pub text: String,
@@ -50,11 +51,20 @@ pub(super) struct Metadata {
 pub(super) struct Data {
     pub entries: BTreeMap<String, (Metadata, Arc<Text>)>,
     pub attempts: BTreeMap<String, u64>,
+    pub geoip: Option<GeoipFile>,
+}
+#[derive(Clone)]
+pub(super) struct GeoipFile {
+    pub metadata: Metadata,
+    pub database: Option<Arc<crate::geoip::Database>>,
+    pub path: PathBuf,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
     version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    geoip: Option<Metadata>,
     entries: BTreeMap<String, Metadata>,
     #[serde(
         serialize_with = "serialize_attempts",
@@ -176,8 +186,11 @@ impl Cache {
         }
         // 用户目录必须可信；只创建自己管理的两级目录，不递归穿越外部符号链接。
         let home = fs::canonicalize(home)?;
-        let parent = home.join(".fluxa");
-        directory(&parent)?;
+        let mut parent = home;
+        for component in crate::platform::providers::asset_parent_components() {
+            parent = parent.join(component);
+            directory(&parent)?;
+        }
         let path = parent.join(".rule-providers.lock");
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -228,7 +241,7 @@ impl Cache {
         let mut data = match read(&path.join(STATE_FILE), STATE_LIMIT) {
             Ok(value) => {
                 let manifest: Manifest = crate::routing::runtime::yaml::decode(&value)?;
-                if manifest.version != 1 {
+                if !matches!(manifest.version, 1 | 2) {
                     return Err(Error::Unsupported);
                 }
                 if manifest.entries.len() > MAX_ENTRIES || manifest.attempts.len() > MAX_ATTEMPTS {
@@ -237,6 +250,7 @@ impl Cache {
                 let mut data = Data {
                     entries: BTreeMap::new(),
                     attempts: manifest.attempts,
+                    geoip: None,
                 };
                 if data
                     .attempts
@@ -244,6 +258,25 @@ impl Cache {
                     .any(|(key, time)| !digest_valid(key) || *time > 253402300799)
                 {
                     return Err(Error::InvalidInput);
+                }
+                if let Some(metadata) = manifest.geoip {
+                    if manifest.version != 2
+                        || !digest_valid(&metadata.url_hash)
+                        || !digest_valid(&metadata.digest)
+                        || metadata.fetched_at > 253402300799
+                        || metadata
+                            .last_slot
+                            .is_some_and(|d| !(19700101..=99991231).contains(&d))
+                    {
+                        return Err(Error::GeoipIntegrityFailed);
+                    }
+                    let file = path.join(GEOIP_FILE);
+                    copy_geoip(&file, None, &metadata)?;
+                    data.geoip = Some(GeoipFile {
+                        metadata,
+                        database: None,
+                        path: file,
+                    });
                 }
                 for (name, meta) in manifest.entries {
                     crate::configuration::provider_file_name(&name)?;
@@ -348,8 +381,20 @@ impl Cache {
                 text.text.as_bytes(),
             )?;
         }
+        if let Some(geoip) = &batch.data.geoip {
+            let destination = batch.path.join(GEOIP_FILE);
+            if let Some(database) = &geoip.database {
+                if hash(database.bytes()) != geoip.metadata.digest {
+                    return Err(Error::GeoipIntegrityFailed);
+                }
+                write(&destination, database.bytes())?;
+            } else {
+                copy_geoip(&geoip.path, Some(&destination), &geoip.metadata)?;
+            }
+        }
         let manifest = Manifest {
-            version: 1,
+            version: 2,
+            geoip: batch.data.geoip.as_ref().map(|g| g.metadata.clone()),
             entries: batch
                 .data
                 .entries
@@ -415,15 +460,21 @@ impl Cache {
         }
         let path = self.directory.join(STATE_FILE);
         if !path.try_exists()? {
-            return if data.entries.is_empty() {
+            return if data.entries.is_empty() && data.geoip.is_none() {
                 Ok(())
             } else {
                 Err(Error::InvalidState)
             };
         }
         let manifest: Manifest = crate::routing::runtime::yaml::decode(&read(&path, STATE_LIMIT)?)?;
-        if manifest.version != 1 || manifest.entries.len() != data.entries.len() {
+        if !matches!(manifest.version, 1 | 2) || manifest.entries.len() != data.entries.len() {
             return Err(Error::InvalidInput);
+        }
+        if manifest.geoip != data.geoip.as_ref().map(|g| g.metadata.clone()) {
+            return Err(Error::GeoipIntegrityFailed);
+        }
+        if let Some(geoip) = &data.geoip {
+            copy_geoip(&self.directory.join(GEOIP_FILE), None, &geoip.metadata)?;
         }
         for (name, (meta, _)) in &data.entries {
             if manifest.entries.get(name) != Some(meta) {
@@ -474,6 +525,73 @@ impl Cache {
         }
         Ok(())
     }
+}
+/// 二进制缓存核验/复制使用固定有界缓冲区；不因禁用 GeoIP 而初始化数据库，也不分配整库副本。
+fn copy_geoip(source: &Path, destination: Option<&Path>, metadata: &Metadata) -> Result<()> {
+    let _memory = MEMORY.reserve(16384)?;
+    let meta = fs::symlink_metadata(source)?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(Error::GeoipIntegrityFailed);
+    }
+    if meta.len() == 0 {
+        return Err(Error::GeoipIntegrityFailed);
+    }
+    if meta.len() > crate::http::MAX_DATABASE_BODY as u64 {
+        return Err(Error::GeoipResourceLimit);
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = options.open(source)?;
+    if !file.metadata()?.is_file() {
+        return Err(Error::GeoipIntegrityFailed);
+    }
+    let mut output = destination
+        .map(|path| {
+            let mut o = OpenOptions::new();
+            o.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                o.mode(0o600);
+            }
+            o.open(path)
+        })
+        .transpose()?;
+    let mut digest = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buffer = [0; 16384];
+    let mut total = 0usize;
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        total = total
+            .checked_add(count)
+            .filter(|n| *n <= crate::http::MAX_DATABASE_BODY)
+            .ok_or(Error::GeoipResourceLimit)?;
+        digest.update(&buffer[..count]);
+        if let Some(output) = &mut output {
+            output.write_all(&buffer[..count])?;
+        }
+    }
+    let actual: String = digest
+        .finish()
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if total as u64 != meta.len() || actual != metadata.digest {
+        return Err(Error::GeoipIntegrityFailed);
+    }
+    if let Some(output) = output {
+        output.sync_all()?;
+    }
+    Ok(())
 }
 fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut options = OpenOptions::new();

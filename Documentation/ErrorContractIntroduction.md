@@ -68,3 +68,7 @@ GeoIP 使用用户明确指定的 2401–2409 错误，前两位 24 为 GEOIP �
 `src/providers/document.rs parse` 复用严格 YAML 2001/2002/2003 与有界解析 8001/8002，结构失败拒绝整批，合法结构内的自带策略/非法条目按规则规范单行忽略；这不是将 YAML 错误变为成功。`src/providers/cache.rs open/verify/stage` 的来源/完整性失败为 1001、格式版本不支持 1021、真实文件锁冲突 9001、系统 I/O 沿用 6001 等既有映射；不覆盖旧文件或新建不可信快照。`src/providers.rs` 的关闭/取消、版本竞争、来源预算分别复用 9001/9002、9001、8001/8002。下载超时经 `src/subscription.rs fetch` 返回 6002；后台错误只读保存 ErrorInfo，不公开 URL/正文。目录已交换后的 fsync 失败显示已提交版本与 directory_synced=false，不伪称回滚。所有 code 的既有含义、参数 Schema 和冻结基线保持不变。
 
 同步 C ABI 的配置提交/刷新调用 `src/ffi.rs run_network`，处于 Tokio 线程时在启动任务前返回 9001；Rust 异步调用方使用 Manager 的 async API，或通过不带 Tokio 上下文的独立系统线程调用 C ABI。不能在已发生副作用后才用运行时嵌套 panic 表达拒绝。
+
+## 主配置 DNS/GeoIP 编排复用映射（2026-10-17）
+
+src/dns/main.rs 的端点、自举和专用出站复用既有 DNS 5001/5002/5003、网络 6001/6002 等分类；资源事件保留 8001/8002，关闭/代次失败 9001/9002，不转换 DIRECT。操作系统 DNS 不提供 DNSSEC 证明，强制验证时返回 5003。src/providers.rs 的 GeoIP 下载沿用 2403/2404，MMDB 格式/完整性/预算/初始化/查询沿用 2405–2409；缓存二进制摘要错误 2406、大小超限 2407、文件 I/O 保留原系统类别。全部参数仍为既有受约束 Schema，不新增编号。Disabled/Ready/no-match 分别为 2410/2411/2412 状态，不混为执行 Err。具体后果见 [编排契约](DNSGeoIP编排.md)。
