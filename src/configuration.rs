@@ -504,6 +504,11 @@ pub struct ConfigurationStatus {
     pub configuration: Option<Summary>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PreparationPurpose {
+    Configuration,
+    VpnCandidate,
+}
 // 候选只在内核调用栈内存活；不向宿主暴露提交令牌、快照或活动资源控制权。
 pub(crate) struct Prepared {
     pub document: std::sync::Arc<Document>,
@@ -553,17 +558,21 @@ impl Document {
         self: std::sync::Arc<Self>,
         sources: Vec<crate::routing::runtime::Source>,
     ) -> Result<Prepared> {
-        self.prepare_inner(sources, false, None)
+        self.prepare_inner(sources, false, None, PreparationPurpose::Configuration)
     }
     pub(crate) fn prepare_download(
         self: std::sync::Arc<Self>,
         database: Option<std::sync::Arc<crate::geoip::Database>>,
+        purpose: PreparationPurpose,
     ) -> Result<Prepared> {
-        self.prepare_inner(Vec::new(), true, database)
+        self.prepare_inner(Vec::new(), true, database, purpose)
     }
     pub(crate) fn provider_preflight(&self) -> Result<()> {
+        self.preparation_preflight(PreparationPurpose::Configuration)
+    }
+    pub(crate) fn preparation_preflight(&self, purpose: PreparationPurpose) -> Result<()> {
         let raw = &self.raw;
-        if raw.tun.enable
+        if (raw.tun.enable && purpose == PreparationPurpose::Configuration)
             || raw.mitm.enabled
             || raw.system_proxy.port != 0
             || raw.lan_share.port != 0
@@ -585,12 +594,13 @@ impl Document {
         sources: Vec<crate::routing::runtime::Source>,
         resolver: Option<std::sync::Arc<crate::dns::Resolver>>,
         geoip: Option<std::sync::Arc<crate::geoip::Service>>,
+        purpose: PreparationPurpose,
     ) -> Result<Prepared> {
         let database = geoip
             .as_ref()
             .map(|s| s.database_for_url(self.geoip_url().ok_or(Error::GeoipInitializationFailed)?))
             .transpose()?;
-        let mut prepared = self.prepare_inner(sources, false, database)?;
+        let mut prepared = self.prepare_inner(sources, false, database, purpose)?;
         prepared.resolver = resolver;
         prepared.geoip = geoip;
         Ok(prepared)
@@ -600,9 +610,10 @@ impl Document {
         sources: Vec<crate::routing::runtime::Source>,
         download: bool,
         database: Option<std::sync::Arc<crate::geoip::Database>>,
+        purpose: PreparationPurpose,
     ) -> Result<Prepared> {
         let raw = &self.raw;
-        self.provider_preflight()?;
+        self.preparation_preflight(purpose)?;
         if !download
             && raw
                 .rule_providers

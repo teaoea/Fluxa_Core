@@ -104,6 +104,19 @@
     "status": "有效"
   },
   {
+    "code": 9003,
+    "name": "VPN 候选准备超时",
+    "category": "LIFECYCLE",
+    "modules": "vpn",
+    "detail": "隔离候选的配置、下载和编译总期限耗尽；不表示接管失败或已启动。",
+    "trigger": "vpn::Preparation 的总期限达到上限。",
+    "effect": "取消本次候选并关闭准备资源，保留现有有效配置；不接管网络。",
+    "params": "{}（不接受任何参数键）",
+    "parameters": [],
+    "source": "src/vpn.rs Preparation::begin_with_deadline",
+    "status": "有效"
+  },
+  {
     "code": 9002,
     "name": "操作已取消",
     "category": "LIFECYCLE",

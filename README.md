@@ -11,3 +11,7 @@
 主配置规则提供者使用小写 `rules` 正文，Rust 负责设备本地更新时间、缓存和事务；接口、示例及尚未接入的范围见 [规则提供者生命周期](Documentation/Subscriptions.md)。
 
 主配置 DNS 与 GeoIP 已接入内核异步事务：逐上游独立期限、专用 DNS 出站、地址族选择、Ready 数据库编译及同目录原子缓存。接口、示例和真实验证边界见 [DNS/GeoIP 编排](Documentation/DNSGeoIP编排.md)。系统代理、局域网共享及文件日志执行仍暂存 TODO。
+
+## VPN 隔离候选准备（开发接口）
+
+2.6.0-dev 提供有界、可取消的候选资产准备，复用配置、DNS/GeoIP 与提供者规则编译，不发布到当前管理器、不改写正式缓存。候选就绪不等于必要链路可用、前置检查通过、用户授权或系统 VPN 启动。参见 [候选准备说明](Documentation/VPN候选准备.md) 和 examples/vpn_candidate.rs。

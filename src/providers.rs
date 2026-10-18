@@ -57,7 +57,7 @@ struct State {
 }
 pub(crate) struct Runtime {
     owner: Weak<Manager>,
-    home: PathBuf,
+    home: Option<PathBuf>,
     tls: HttpsClient,
     authority: Arc<Authority>,
     // 流量权限与控制提交锁分离，避免连接提交 State→Authority 与更新 Authority→State 倒序。
@@ -99,6 +99,17 @@ fn slot(time: Option<&str>, now: u64) -> Result<Option<i32>> {
 }
 impl Runtime {
     pub(crate) fn new(owner: &Arc<Manager>, tls: HttpsClient, home: PathBuf) -> Result<Arc<Self>> {
+        Self::with_storage(owner, tls, Some(home))
+    }
+    /// 候选复用同一资产编排，但没有磁盘目录和自动刷新任务。
+    pub(crate) fn candidate(owner: &Arc<Manager>, tls: HttpsClient) -> Result<Arc<Self>> {
+        Self::with_storage(owner, tls, None)
+    }
+    fn with_storage(
+        owner: &Arc<Manager>,
+        tls: HttpsClient,
+        home: Option<PathBuf>,
+    ) -> Result<Arc<Self>> {
         crate::lifecycle::runtime()?;
         let lease = CONTROLLERS.reserve(1)?;
         let tls = tls.with_network(Arc::new(Manager::default()));
@@ -125,7 +136,17 @@ impl Runtime {
             _lease: Mutex::new(Some(lease)),
         }))
     }
+    fn purpose(&self) -> crate::configuration::PreparationPurpose {
+        if self.home.is_some() {
+            crate::configuration::PreparationPurpose::Configuration
+        } else {
+            crate::configuration::PreparationPurpose::VpnCandidate
+        }
+    }
     pub(crate) fn launch(self: &Arc<Self>) -> Result<()> {
+        if self.home.is_none() {
+            return Err(Error::InvalidState);
+        }
         let mut task = self.worker.lock().map_err(|_| Error::Internal)?;
         if task.is_some() {
             return Ok(());
@@ -162,6 +183,9 @@ impl Runtime {
         }
     }
     async fn initialize(self: &Arc<Self>) -> Result<()> {
+        if self.home.is_none() {
+            return Ok(());
+        }
         if self
             .state
             .lock()
@@ -175,7 +199,7 @@ impl Runtime {
         let operation = self.authority.enter(self.authority.identity())?;
         tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            let (cache, data) = cache::Cache::open(&me.home)?;
+            let (cache, data) = cache::Cache::open(me.home.as_deref().ok_or(Error::InvalidState)?)?;
             me.authority.with_active(me.authority.identity(), || {
                 let mut state = me.state.lock().map_err(|_| Error::Internal)?;
                 state.cache = Some(cache);
@@ -301,11 +325,13 @@ impl Runtime {
                     attempts.remove(&old);
                 }
                 attempts.insert(key, at);
-                state
-                    .cache
-                    .as_ref()
-                    .ok_or(Error::InvalidState)?
-                    .attempts(&attempts)?;
+                if me.home.is_some() {
+                    state
+                        .cache
+                        .as_ref()
+                        .ok_or(Error::InvalidState)?
+                        .attempts(&attempts)?;
+                }
                 state.data.attempts = attempts;
                 Ok(())
             })
@@ -340,11 +366,13 @@ impl Runtime {
         } else {
             None
         };
+        let purpose = self.purpose();
+        configuration.preparation_preflight(purpose)?;
         let doc = configuration.clone();
         let operation = self.authority.enter(self.authority.identity())?;
         let mut transport = tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            doc.prepare_download(previous_database)
+            doc.prepare_download(previous_database, purpose)
         })
         .await
         .map_err(|_| Error::Internal)??;
@@ -393,7 +421,7 @@ impl Runtime {
                 // 库一旦 Ready，后续提供者下载必须使用已绑定国家规则，不能继续沿用冷启动自举索引。
                 let mut ready = configuration
                     .clone()
-                    .prepare_download(Some(service.database()?))?;
+                    .prepare_download(Some(service.database()?), purpose)?;
                 ready.resolver = resolver.clone();
                 network.configure_provider_download(&ready, self.authority.clone())?;
             }
@@ -402,7 +430,9 @@ impl Runtime {
             let geoip_downloaded = geoip
                 .as_ref()
                 .is_some_and(|new| old.as_ref().is_none_or(|old| !Arc::ptr_eq(old, new)));
-            if let Some(service) = &geoip {
+            if let Some(service) = &geoip
+                && self.home.is_some()
+            {
                 let database = service.database()?;
                 let path = self
                     .state
@@ -472,7 +502,7 @@ impl Runtime {
             let _operation = operation;
             let _leases = leases;
             me.authority.check(me.authority.identity())?;
-            document.prepare_ready(sources, resolver, geoip)
+            document.prepare_ready(sources, resolver, geoip, purpose)
         })
         .await
         .map_err(|_| Error::Internal)??;
@@ -490,7 +520,7 @@ impl Runtime {
                         .is_none_or(|(old, _)| old != meta)
                 })
         };
-        let mut batch = if changed {
+        let mut batch = if changed && self.home.is_some() {
             Some(self.stage(data.clone()).await?)
         } else {
             None
@@ -789,3 +819,17 @@ pub fn validate_rules(
 #[cfg(test)]
 #[path = "../tests/test_providers.rs"]
 mod test_providers;
+
+#[cfg(test)]
+impl Runtime {
+    pub(crate) fn is_candidate_storage(&self) -> Result<bool> {
+        Ok(self.home.is_none()
+            && self
+                .state
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .cache
+                .is_none()
+            && self.worker.lock().map_err(|_| Error::Internal)?.is_none())
+    }
+}

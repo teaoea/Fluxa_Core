@@ -637,3 +637,26 @@ impl Manager {
         Ok(next)
     }
 }
+
+impl Manager {
+    /// 只在新建且未对外发布的候选管理器调用；没有文件落盘、常驻计划或系统接管。
+    pub(crate) async fn prepare_vpn_candidate(
+        self: &Arc<Self>,
+        document: Arc<crate::configuration::Document>,
+        client: crate::https::HttpsClient,
+    ) -> Result<u64> {
+        document.preparation_preflight(crate::configuration::PreparationPurpose::VpnCandidate)?;
+        let runtime = crate::providers::Runtime::candidate(self, client)?;
+        {
+            let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+            if state.stopped || state.providers.is_some() || state.network.configuration_complete {
+                return Err(Error::InvalidState);
+            }
+            state.providers = Some(runtime.clone());
+        }
+        let operation: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<u64>> + Send + '_>,
+        > = Box::pin(runtime.apply(document, None, false));
+        operation.await
+    }
+}

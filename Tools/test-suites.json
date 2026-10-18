@@ -1389,6 +1389,28 @@
         "test_failed_upload_never_publishes_draft",
         "test_framework_preserves_current_license_files"
       ]
+    },
+    {
+      "id": "test_vpn",
+      "file": "tests/test_vpn.rs",
+      "kind": "unit",
+      "sources": [
+        "src/vpn.rs",
+        "src/providers.rs",
+        "src/configuration.rs",
+        "src/outbound/configuration.rs"
+      ],
+      "module": "test_vpn",
+      "declared_cases": [
+        "local_candidate_is_not_activation_and_does_not_replace_live_rules",
+        "invalid_input_and_unsupported_modes_fail_without_partial_candidate",
+        "remote_sources_are_memory_only_and_keep_policy",
+        "failure_of_second_source_never_publishes_partial_candidate",
+        "close_cancels_download_and_releases_slot_with_old_reference_alive",
+        "slots_are_bounded_before_background_work",
+        "geoip_failure_is_error_not_disabled_success",
+        "total_deadline_has_its_own_error_and_releases_resources"
+      ]
     }
   ]
 }

@@ -150,6 +150,8 @@ define_codes! {
     Network => (6001, "连接或读写失败", "IO", "现有类别覆盖网络连接、读写以及持久化文件 I/O；它不专指远端拒绝，不应被解读为规则 REJECT。", "io::Error 转换或网络及文件操作的 map_err 分支。", "当前 I/O 操作失败；事务文件未成功提交时不发布新快照。", "src/error.rs From<io::Error>；src/routing/store.rs；src/outbound/stream.rs"),
     /// TCP、TLS 外层连接或数据读写的既定操作期限耗尽；DNS 专用超时使用另一代码。
     NetworkTimeout => (6002, "网络操作超时", "IO", "TCP、TLS 外层连接或数据读写的既定操作期限耗尽；DNS 专用超时使用另一代码。", "网络 timeout 分支。", "终止或拒绝本次操作，保留既定取消与清理流程。", "src/outbound/execution.rs；src/outbound/stream.rs；src/https.rs"),
+    /// VPN 隔离资产准备的总期限耗尽，不等同单次网络或 DNS 超时。
+    VpnPreparationTimeout => (9003, "VPN 候选准备超时", "LIFECYCLE", "隔离候选的配置、下载和编译总期限耗尽；不表示接管失败或已启动。", "vpn::Preparation 的总期限达到上限。", "取消本次候选并关闭准备资源，保留现有有效配置；不接管网络。", "src/vpn.rs Preparation::begin_with_deadline"),
     /// 取消令牌、关闭或提交前取消阻止操作继续；不表示成功完成。
     Cancelled => (9002, "操作已取消", "LIFECYCLE", "取消令牌、关闭或提交前取消阻止操作继续；不表示成功完成。", "出站取消分支、规则任务取消检查或 TUN 关闭取消。", "返回取消；已提交结果的回滚规则仍按原事务约定。", "src/outbound/stream.rs；src/routing/store.rs；src/tun/udp.rs"),
     /// TLS 握手、TLS 记录或上游证书校验未满足协议要求。
@@ -311,6 +313,7 @@ impl ErrorCode {
             | Self::ResourceLimit
             | Self::Network
             | Self::NetworkTimeout
+            | Self::VpnPreparationTimeout
             | Self::Cancelled
             | Self::Tls
             | Self::Certificate
@@ -363,6 +366,7 @@ impl ErrorCode {
             | Self::ResourceLimit
             | Self::Network
             | Self::NetworkTimeout
+            | Self::VpnPreparationTimeout
             | Self::Cancelled
             | Self::Tls
             | Self::Certificate
@@ -408,6 +412,7 @@ impl ErrorCode {
             }
             Self::Network => "error、http、https、outbound、protocol、routing::store、dns::service",
             Self::NetworkTimeout => "https、outbound、mitm、tun::udp",
+            Self::VpnPreparationTimeout => "vpn",
             Self::Cancelled => "outbound、routing::store、routing::background、tun::udp",
             Self::Tls => "https、protocol、mitm",
             Self::Certificate => "mitm::authority、protocol::reality",
@@ -635,6 +640,7 @@ impl<'de> Deserialize<'de> for ErrorInfo {
             | ErrorCode::ResourceLimit
             | ErrorCode::Network
             | ErrorCode::NetworkTimeout
+            | ErrorCode::VpnPreparationTimeout
             | ErrorCode::Cancelled
             | ErrorCode::Tls
             | ErrorCode::Certificate
@@ -722,6 +728,7 @@ impl ErrorInfo {
             | ErrorCode::ResourceLimit
             | ErrorCode::Network
             | ErrorCode::NetworkTimeout
+            | ErrorCode::VpnPreparationTimeout
             | ErrorCode::Cancelled
             | ErrorCode::Tls
             | ErrorCode::Certificate
@@ -803,6 +810,8 @@ pub enum Error {
     ResourceLimit,
     Network,
     NetworkTimeout,
+    /// 隔离 VPN 候选准备耗尽总期限，不能当作已接管。
+    VpnPreparationTimeout,
     Cancelled,
     Tls,
     Certificate,
@@ -856,6 +865,7 @@ impl Error {
             Self::ResourceLimit => ErrorCode::ResourceLimit,
             Self::Network => ErrorCode::Network,
             Self::NetworkTimeout => ErrorCode::NetworkTimeout,
+            Self::VpnPreparationTimeout => ErrorCode::VpnPreparationTimeout,
             Self::Cancelled => ErrorCode::Cancelled,
             Self::Tls => ErrorCode::Tls,
             Self::Certificate => ErrorCode::Certificate,
@@ -910,6 +920,7 @@ impl Error {
             | Self::ResourceLimit
             | Self::Network
             | Self::NetworkTimeout
+            | Self::VpnPreparationTimeout
             | Self::Cancelled
             | Self::Tls
             | Self::Certificate
@@ -955,6 +966,7 @@ impl fmt::Display for Error {
             Self::InvalidInput => "请求或配置不合法",
             Self::ResourceLimit => "超过资源上限",
             Self::NetworkTimeout => "网络操作超时",
+            Self::VpnPreparationTimeout => "VPN 候选准备超时",
             Self::Cancelled => "网络操作已取消",
             Self::Network => "网络连接或读写失败",
             Self::Tls => "TLS 握手或上游证书校验失败",

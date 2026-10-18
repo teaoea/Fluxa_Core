@@ -73,6 +73,8 @@ struct Engine {
     client: Mutex<Option<HttpsClient>>,
     geoip: Mutex<Arc<crate::geoip::Service>>,
     busy: AtomicBool,
+    vpn_preparation: Mutex<Option<Arc<crate::vpn::Preparation>>>,
+    vpn_closed: AtomicBool,
     outbound: Arc<crate::outbound::Manager>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
@@ -83,6 +85,26 @@ struct Engine {
     runtime_rules: Mutex<Option<crate::routing::background::Service>>,
 }
 impl Engine {
+    fn close_vpn_preparation(&self) -> Result<(), Error> {
+        let candidate = self
+            .vpn_preparation
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .clone();
+        if let Some(candidate) = candidate {
+            let current = candidate.clone();
+            run_network(async move { current.close().await })?;
+            let mut slot = self.vpn_preparation.lock().map_err(|_| Error::Internal)?;
+            if slot
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, &candidate))
+            {
+                slot.take();
+            }
+        }
+        Ok(())
+    }
+
     /// 关闭过程中保留登记项；并发关闭等待同一内核结果，新开启不能越过 Closing。
     fn close_tun(&self) -> Result<(), Error> {
         let current = self.tun_udp.lock().map_err(|_| Error::Internal)?.clone();
@@ -317,6 +339,12 @@ enum Command {
         yaml: String,
     },
     ConfigurationStatus,
+    /// 只准备隔离资产，不允许网络接管；成功通过状态查询读取。
+    VpnPreparationBegin {
+        yaml: String,
+    },
+    VpnPreparationStatus,
+    VpnPreparationClose,
     ProviderStatus,
     ProviderRefresh {
         name: Option<String>,
@@ -526,6 +554,8 @@ struct Reply {
     configuration: Option<crate::configuration::Summary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     configuration_status: Option<crate::configuration::ConfigurationStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vpn_preparation: Option<crate::vpn::Status>,
     provider_status: Option<crate::providers::Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
     warn: Option<crate::geoip::Warning>,
@@ -779,6 +809,13 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
     if bytes.len() <= 256 {
         match serde_json::from_slice::<Command>(bytes) {
+            Ok(Command::VpnPreparationClose) => {
+                engine.close_vpn_preparation()?;
+                return Ok(Reply {
+                    success: true,
+                    ..Reply::default()
+                });
+            }
             Ok(Command::TunUdpClose | Command::TunClose) => {
                 engine.close_tun()?;
                 return Ok(Reply {
@@ -1340,6 +1377,37 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ..Reply::default()
             })
         }
+        Command::VpnPreparationBegin { yaml } => {
+            let mut slot = engine.vpn_preparation.lock().map_err(|_| Error::Internal)?;
+            if slot.is_some() || engine.vpn_closed.load(Ordering::Acquire) {
+                return Err(Error::InvalidState);
+            }
+            let yaml = Zeroizing::new(yaml);
+            let candidate = Arc::new(crate::vpn::Preparation::begin(&yaml)?);
+            let status = candidate.status()?;
+            *slot = Some(candidate);
+            Ok(Reply {
+                success: true,
+                vpn_preparation: Some(status),
+                ..Reply::default()
+            })
+        }
+        Command::VpnPreparationStatus => {
+            let slot = engine.vpn_preparation.lock().map_err(|_| Error::Internal)?;
+            let status = slot.as_ref().ok_or(Error::InvalidState)?.status()?;
+            Ok(Reply {
+                success: true,
+                vpn_preparation: Some(status),
+                ..Reply::default()
+            })
+        }
+        Command::VpnPreparationClose => {
+            engine.close_vpn_preparation()?;
+            Ok(Reply {
+                success: true,
+                ..Reply::default()
+            })
+        }
         Command::ConfigurationStatus => Ok(Reply {
             success: true,
             configuration_status: Some(engine.outbound.configuration_status()?),
@@ -1678,8 +1746,11 @@ pub extern "C" fn fluxa_engine_capabilities() -> u64 {
     const DOMAIN_TRANSPORT_CAPABILITY: u64 = 1 << 27;
     // 位 28：自研 TCP/UDP 包会话；不代表系统 VPN 已接管。
     const TUN_TCP_CAPABILITY: u64 = 1 << 28;
+    // 位 29：隔离候选资产准备，不表示前置检查通过或系统 VPN 可用。
+    const VPN_CANDIDATE_CAPABILITY: u64 = 1 << 29;
     33554431
         | TUN_TCP_CAPABILITY
+        | VPN_CANDIDATE_CAPABILITY
         | STRUCTURED_ERROR_CAPABILITY
         | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {
@@ -1737,6 +1808,10 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
                     if let Err(error) = closed {
                         return error_status(error);
                     }
+                }
+                engine.vpn_closed.store(true, Ordering::Release);
+                if let Err(error) = engine.close_vpn_preparation() {
+                    return error_status(error);
                 }
                 if let Err(error) = engine.close_tun() {
                     return error_status(error);

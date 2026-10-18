@@ -449,13 +449,13 @@ mod tests {
         assert_eq!(fluxa_engine_destroy(handle), OK);
         assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
         assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        // 原位 0–25 保留；macOS 独立安全 IPC 明确新增位 26，仍精确检查掩码。
+        // 保留既有能力，位 29 只表示候选资产准备；仍精确检查完整掩码。
         assert_eq!(
             fluxa_engine_capabilities(),
             if cfg!(target_os = "macos") {
-                536870911
+                1073741823
             } else {
-                469762047
+                1006632959
             }
         );
     }
