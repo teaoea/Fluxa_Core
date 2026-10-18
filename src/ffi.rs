@@ -804,6 +804,77 @@ fn execute_request(engine: &Engine, input: RequestInput, https_only: bool) -> Re
     })?;
     Ok(Reply::from(response))
 }
+// 大型控制面 future 只在独立栈帧/内核运行时构造，避免让每个命令都占用宿主小栈。
+#[inline(never)]
+fn apply_configuration(engine: &Engine, yaml: String) -> Result<Reply, Error> {
+    // 旧服务各有独立生命周期；尚未实现统一迁移前拒绝混合接管，不能留下运行中的旧服务。
+    if engine
+        .dns_service
+        .lock()
+        .map_err(|_| Error::Internal)?
+        .is_some()
+        || engine
+            .tun_udp
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .is_some()
+        || engine.proxy.lock().map_err(|_| Error::Internal)?.is_some()
+        || engine
+            .runtime_rules
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .is_some()
+        || !engine
+            .geoip
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .is_disabled()
+    {
+        return Err(Error::InvalidState);
+    }
+    let manager = engine.outbound.clone();
+    let revision =
+        run_network(async move { Box::pin(manager.apply_configuration_async(&yaml)).await })?;
+    Ok(Reply {
+        success: true,
+        network_revision: Some(revision),
+        configuration_status: Some(engine.outbound.configuration_status()?),
+        provider_status: Some(engine.outbound.provider_status()?),
+        ..Reply::default()
+    })
+}
+#[inline(never)]
+fn refresh_providers(engine: &Engine, name: Option<String>) -> Result<Reply, Error> {
+    let manager = engine.outbound.clone();
+    let revision = run_network(async move { Box::pin(manager.refresh_providers(name)).await })?;
+    Ok(Reply {
+        success: true,
+        network_revision: Some(revision),
+        provider_status: Some(engine.outbound.provider_status()?),
+        ..Reply::default()
+    })
+}
+/// 分发只借用判别命令，每个分支的临时对象在独立栈帧构造。
+/// 不改命令准入/BusyGuard/取消边界；二进制 TUN 数据面不经过此宏。
+macro_rules! bounded_commands {
+    ($engine:ident, $command:ident, $checked:ident; $($pattern:pat => $body:expr),* $(,)?) => {{
+        // 借用层只选择变体；绑定数据在分支内的真实处理函数中使用。
+        #[allow(unused_variables)]
+        match &$command {
+            $($pattern => {
+                #[inline(never)]
+                #[allow(unused_variables)]
+                fn execute($engine: &Arc<Engine>, $command: Command, $checked: bool) -> Result<Reply, Error> {
+                    match $command {
+                        $pattern => $body,
+                        _ => Err(Error::Internal),
+                    }
+                }
+                execute(&$engine, $command, $checked)
+            }),*
+        }
+    }};
+}
 fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let engine = engine(handle)?;
     // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
@@ -884,7 +955,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         Some(BusyGuard(&engine.busy))
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
-    match command {
+    bounded_commands!(engine, command, checked_route;
         Command::SubscriptionRules {
             yaml,
             policy,
@@ -898,7 +969,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 subscription_rules: if validate_only { None } else { Some(rules) },
                 ..Reply::default()
             })
-        }
+        },
         Command::SubscriptionFetch { url } => Ok(Reply::from(
             runtime()?.block_on(crate::subscription::fetch(&engine.client()?, &url))?,
         )),
@@ -906,8 +977,8 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             host,
             port,
             timeout_ms,
-        } => probe_latency(&engine, &host, port, timeout_ms),
-        Command::PublicIp { ipv6 } => public_ip(&engine, ipv6),
+        } => probe_latency(engine, &host, port, timeout_ms),
+        Command::PublicIp { ipv6 } => public_ip(engine, ipv6),
         Command::GeoipLookup { address, language } => {
             let snapshot = engine.outbound.network_snapshot()?;
             let service = if snapshot.configuration_complete {
@@ -970,7 +1041,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 geoip: location,
                 ..Reply::default()
             })
-        }
+        },
         Command::GeoipClose {} => {
             if engine.outbound.network_snapshot()?.configuration_complete {
                 return Err(Error::InvalidState);
@@ -980,7 +1051,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::GeoipConfigure { geoip_url } => {
             if engine.outbound.network_snapshot()?.configuration_complete {
                 return Err(Error::InvalidState);
@@ -996,7 +1067,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 warn,
                 ..Reply::default()
             })
-        }
+        },
         Command::GeoipOpen {} | Command::GeoipRefresh {} => {
             if engine.outbound.network_snapshot()?.configuration_complete {
                 let manager = engine.outbound.clone();
@@ -1033,7 +1104,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 geoip_status: Some(crate::geoip::Status::ready()),
                 ..Reply::default()
             })
-        }
+        },
         Command::SubscriptionSchedule(check) => Ok(Reply {
             success: true,
             subscription_schedule: Some(check.evaluate()?),
@@ -1082,7 +1153,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 network_revision: Some(revision),
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundLimits(limits) => {
             let revision = engine.outbound.configure_limits(limits)?;
             Ok(Reply {
@@ -1090,7 +1161,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 network_revision: Some(revision),
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundStatus => Ok(Reply {
             success: true,
             outbound_status: Some(engine.outbound.status()?),
@@ -1100,7 +1171,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             let outbound = engine.outbound.clone();
             let opened = run_network(async move { outbound.connect_configured(target).await })?;
             Ok(Reply::from(opened))
-        }
+        },
         Command::OutboundFakeIp {
             domain,
             ipv6,
@@ -1116,21 +1187,21 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 resolver.allocate_fake_ip(query)?,
                 resolver.fake_ip_generation(),
             ))
-        }
+        },
         Command::OutboundConnectFakeIp(target) => {
             target.policy.check_support()?;
             let outbound = engine.outbound.clone();
             let opened =
                 run_network(async move { outbound.connect_configured_fake_ip(target).await })?;
             Ok(Reply::from(opened))
-        }
+        },
         Command::OutboundConnect(target) => {
             target.policy.check_support()?;
             let outbound = engine.outbound.clone();
             let opened =
                 run_network(async move { outbound.connect_configured_domain(target).await })?;
             Ok(Reply::from(opened))
-        }
+        },
         Command::OutboundOpen {
             address,
             transport,
@@ -1149,7 +1220,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 outbound_id: Some(id),
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundWrite {
             id,
             body,
@@ -1165,7 +1236,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 outbound_written: Some(written),
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundRead {
             id,
             maximum,
@@ -1178,28 +1249,28 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 outbound_eof: Some(read.eof),
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundShutdownWrite { id, timeout_ms } => {
             runtime()?.block_on(engine.outbound.shutdown_write(id, timeout_ms))?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundClose { id } => {
             runtime()?.block_on(engine.outbound.close(id))?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::OutboundCloseAll => {
             runtime()?.block_on(engine.outbound.close_all())?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesOpen { directory } => {
             if directory.len() > 4096 {
                 return Err(Error::InvalidInput);
@@ -1231,7 +1302,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 runtime_rules: summary,
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesBegin { settings, sources } => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             let job = guard
@@ -1243,7 +1314,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 runtime_rules_job: Some(job),
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesBeginFile { path } => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             let job = guard
@@ -1255,7 +1326,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 runtime_rules_job: Some(job),
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesJob { id } => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             let job = guard.as_ref().ok_or(Error::InvalidState)?.job(id)?;
@@ -1264,7 +1335,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 runtime_rules_job: Some(job),
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesCancel { id } => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             guard.as_ref().ok_or(Error::InvalidState)?.cancel(id)?;
@@ -1272,7 +1343,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesStatus => {
             let guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             let snapshot = guard
@@ -1285,7 +1356,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 runtime_rules: Some(RuntimeRulesSummary::new(&snapshot, None)),
                 ..Reply::default()
             })
-        }
+        },
         Command::RuntimeRulesClose => {
             let mut guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             // 先阻止后台提交，再清空活动路由，避免关闭后被迟到的任务重新装回。
@@ -1297,7 +1368,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::RouteConfigure(config) => {
             let router = crate::routing::Router::compile(config)?;
             engine.outbound.configure_routing(Some(Arc::new(router)))?;
@@ -1305,7 +1376,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::RouteEvaluate(target) | Command::RouteCheck(target) => {
             let router = engine.router()?;
             let decision = router.evaluate(target)?;
@@ -1317,66 +1388,21 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 route_decision: Some(decision),
                 ..Reply::default()
             })
-        }
+        },
         Command::RouteClose => {
             engine.outbound.configure_routing(None)?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
-        Command::ConfigurationApply { yaml } => {
-            // 旧服务各有独立生命周期；尚未实现统一迁移前拒绝混合接管，不能留下运行中的旧服务。
-            if engine
-                .dns_service
-                .lock()
-                .map_err(|_| Error::Internal)?
-                .is_some()
-                || engine
-                    .tun_udp
-                    .lock()
-                    .map_err(|_| Error::Internal)?
-                    .is_some()
-                || engine.proxy.lock().map_err(|_| Error::Internal)?.is_some()
-                || engine
-                    .runtime_rules
-                    .lock()
-                    .map_err(|_| Error::Internal)?
-                    .is_some()
-                || !engine
-                    .geoip
-                    .lock()
-                    .map_err(|_| Error::Internal)?
-                    .is_disabled()
-            {
-                return Err(Error::InvalidState);
-            }
-            let manager = engine.outbound.clone();
-            let revision =
-                run_network(async move { manager.apply_configuration_async(&yaml).await })?;
-            Ok(Reply {
-                success: true,
-                network_revision: Some(revision),
-                configuration_status: Some(engine.outbound.configuration_status()?),
-                provider_status: Some(engine.outbound.provider_status()?),
-                ..Reply::default()
-            })
-        }
+        },
+        Command::ConfigurationApply { yaml } => apply_configuration(engine, yaml),
         Command::ProviderStatus => Ok(Reply {
             success: true,
             provider_status: Some(engine.outbound.provider_status()?),
             ..Reply::default()
         }),
-        Command::ProviderRefresh { name } => {
-            let manager = engine.outbound.clone();
-            let revision = run_network(async move { manager.refresh_providers(name).await })?;
-            Ok(Reply {
-                success: true,
-                network_revision: Some(revision),
-                provider_status: Some(engine.outbound.provider_status()?),
-                ..Reply::default()
-            })
-        }
+        Command::ProviderRefresh { name } => refresh_providers(engine, name),
         Command::VpnPreparationBegin { yaml } => {
             let mut slot = engine.vpn_preparation.lock().map_err(|_| Error::Internal)?;
             if slot.is_some() || engine.vpn_closed.load(Ordering::Acquire) {
@@ -1391,7 +1417,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 vpn_preparation: Some(status),
                 ..Reply::default()
             })
-        }
+        },
         Command::VpnPreparationStatus => {
             let slot = engine.vpn_preparation.lock().map_err(|_| Error::Internal)?;
             let status = slot.as_ref().ok_or(Error::InvalidState)?.status()?;
@@ -1400,14 +1426,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 vpn_preparation: Some(status),
                 ..Reply::default()
             })
-        }
+        },
         Command::VpnPreparationClose => {
             engine.close_vpn_preparation()?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::ConfigurationStatus => Ok(Reply {
             success: true,
             configuration_status: Some(engine.outbound.configuration_status()?),
@@ -1420,14 +1446,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 configuration: Some(document.summary()),
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsValidate(config) => {
             config.validate()?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsClose => {
             // 整体主配置只能整体变更；禁止先关闭 DNS 再在提交时失败，破坏旧配置。
             if engine.outbound.network_snapshot()?.configuration_complete {
@@ -1442,7 +1468,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsServiceStart => {
             if engine
                 .dns_service
@@ -1460,7 +1486,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 dns_service_status: Some(status),
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsServiceStop => {
             let status = engine.close_dns_service()?;
             Ok(Reply {
@@ -1468,7 +1494,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 dns_service_status: Some(status),
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsServiceStatus => {
             let status = engine
                 .dns_service
@@ -1482,7 +1508,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 dns_service_status: Some(status),
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsConfigure(config) => {
             if engine
                 .dns_service
@@ -1501,7 +1527,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 dns_generation: generation,
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsLastQuery => Ok(Reply {
             success: true,
             dns_observation: engine.dns()?.last_query()?,
@@ -1510,7 +1536,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         Command::DnsQuery(query) => {
             let resolver = engine.dns()?;
             Reply::dns(&resolver, query)
-        }
+        },
         Command::DnsFakeIpReverse { address } => Ok(Reply {
             success: true,
             fake_ip_name: engine.dns()?.reverse_fake_ip(&address)?,
@@ -1522,7 +1548,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::DnsClearCache => {
             if let Some(resolver) = engine.outbound.network_snapshot()?.resolver.as_ref() {
                 resolver.clear()?;
@@ -1531,7 +1557,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::TunStart => Err(Error::Unsupported),
         Command::TunUdpOpen(options) => {
             let mut session = engine.tun_udp.lock().map_err(|_| Error::Internal)?;
@@ -1546,7 +1572,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::TunOpen(options) => {
             let mut session = engine.tun_udp.lock().map_err(|_| Error::Internal)?;
             if session.is_some() {
@@ -1559,14 +1585,14 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::TunUdpClose | Command::TunClose => {
             engine.close_tun()?;
             Ok(Reply {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::PacketOpen { mtu } => {
             let mut session = engine.packet_session.lock().map_err(|_| Error::Internal)?;
             if session.is_some() {
@@ -1577,7 +1603,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::PacketInspect { packet } => {
             if packet.len() > crate::tun::MAX_MTU.div_ceil(3) * 4 {
                 return Err(Error::ResourceLimit);
@@ -1593,7 +1619,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 packet_info: Some(info),
                 ..Reply::default()
             })
-        }
+        },
         Command::PacketClose => {
             if let Some(mut session) = engine
                 .packet_session
@@ -1607,7 +1633,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::Script { source, input } => {
             let result = crate::script::execute(&source, &input)?;
             Ok(Reply {
@@ -1617,7 +1643,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ),
                 ..Reply::default()
             })
-        }
+        },
         Command::MitmCertificate | Command::MitmExportIdentity => {
             let authority = engine.authority()?;
             let export_private = matches!(command, Command::MitmExportIdentity);
@@ -1632,7 +1658,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 },
                 ..Reply::default()
             })
-        }
+        },
         Command::MitmRestoreIdentity {
             certificate_pem,
             private_key_pem,
@@ -1650,7 +1676,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::MitmStart {
             port,
             hosts,
@@ -1682,7 +1708,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 port: Some(port),
                 ..Reply::default()
             })
-        }
+        },
         Command::MitmStop => {
             let proxy = engine.proxy.lock().map_err(|_| Error::Internal)?.take();
             if let Some(proxy) = proxy {
@@ -1692,7 +1718,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::MitmPeekCapture => Ok(Reply {
             success: true,
             capture: engine.captures.peek()?,
@@ -1705,7 +1731,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::AddTrustedRoot { certificate_pem } => {
             if engine.proxy.lock().map_err(|_| Error::Internal)?.is_some() {
                 return Err(Error::InvalidState);
@@ -1722,15 +1748,15 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
-        }
+        },
         Command::Https(_) | Command::Request(_) => {
             let https_only = matches!(command, Command::Https(_));
             let (Command::Https(input) | Command::Request(input)) = command else {
                 unreachable!()
             };
-            execute_request(&engine, input, https_only)
-        }
-    }
+            execute_request(engine, input, https_only)
+        },
+    )
 }
 // 安全条件：导出符号具有唯一前缀，固定宽度值类型不共享 Rust 对象地址。
 #[unsafe(no_mangle)]

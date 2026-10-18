@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - candidate_commands_are_safe_on_bounded_host_stack：256 KiB 实际 ABI 命令分发、候选查询与关闭。
 //! - http_request_works_on_bounded_host_stack：256 KiB 宿主栈可构造请求并获得真实校验错误，不溢出或触网。
 //! - main_dns_and_geoip_status_use_same_configuration：真实 ABI hosts、Disabled 状态和拒绝部分关闭保持同一快照。
 //! - provider_commands_use_real_tls_and_keep_process_rules_ignored：真实 ABI 刷新由内核下载，远程进程条目不注入。
@@ -28,6 +29,24 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[test]
+    fn candidate_commands_are_safe_on_bounded_host_stack() {
+        let _gate = TEST_GATE.blocking_lock();
+        std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
+            let owner = TestHandle(fluxa_engine_create());
+            let call = |value: serde_json::Value| {
+                let bytes = serde_json::to_vec(&value).unwrap();
+                // SAFETY: 字节仅同步借用，返回句柄由测试守卫唯一释放。
+                let result = TestHandle(unsafe { fluxa_engine_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+                assert_ne!(result.0, 0);
+                serde_json::from_slice::<serde_json::Value>(&buffer(result.0).unwrap().bytes).unwrap()
+            };
+            assert_eq!(call(serde_json::json!({"operation":"vpn_preparation_begin","yaml":"rules: ['final,direct']"}))["success"],true);
+            let status=call(serde_json::json!({"operation":"vpn_preparation_status"}));
+            assert_eq!(status["vpn_preparation"]["activation_permitted"],false);
+            assert_eq!(call(serde_json::json!({"operation":"vpn_preparation_close"}))["success"],true);
+        }).unwrap().join().unwrap();
+    }
     #[test]
     fn http_request_works_on_bounded_host_stack() {
         let _gate = TEST_GATE.blocking_lock();
