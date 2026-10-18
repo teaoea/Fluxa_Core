@@ -33,13 +33,14 @@ if gh release view "$tag" --repo "$FLUXA_DEV_REPOSITORY" --json isDraft,isPrerel
 import json,sys
 assert json.load(open(sys.argv[1]))['isPrerelease'] is True
 PYCODE
-    gh release download "$tag" --repo "$FLUXA_DEV_REPOSITORY" --pattern provenance.json --pattern FluxaEngine.xcframework.zip --dir "$work"
+    gh release download "$tag" --repo "$FLUXA_DEV_REPOSITORY" --pattern provenance.json --pattern FluxaEngine.xcframework.zip --pattern fluxa-test-fixture-macos-arm64.zip --dir "$work"
     python3 - "$work" "$FLUXA_DEV_SOURCE" "$tag" "$version" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 root=Path(sys.argv[1]); p=json.loads((root/'provenance.json').read_text())
 assert p['source_commit']==sys.argv[2] and p['tag']==sys.argv[3] and p['version']==sys.argv[4] and p['unstable'] is True
 assert hashlib.sha256((root/'FluxaEngine.xcframework.zip').read_bytes()).hexdigest()==p['framework_sha256']
+assert hashlib.sha256((root/'fluxa-test-fixture-macos-arm64.zip').read_bytes()).hexdigest()==p['fixture_sha256']
 PY
     echo '已有不稳定测试附件来源及下载校验通过，保留原附件'
     exit 0
@@ -61,11 +62,19 @@ record={'version':sys.argv[2],'tag':sys.argv[3],'source_commit':os.environ['FLUX
 (root/'fixture-checksum.txt').write_text(record['fixture_sha256']+'\n')
 (root/'notes.md').write_text('不稳定测试版本，仅供开发验证；不代表系统 VPN 已完成或正式发布。\n\n源码：'+record['source_commit']+'\n基础版本：'+record['version']+'\n平台：macOS ARM64，最低部署 14.0（最低系统运行未验收）。\n框架 SHA-256：'+record['framework_sha256']+'\n检查：'+record['verification_run']+'\n\n不发布 crates.io，不移动正式 latest，不提供 iOS/tvOS/Intel 切片。\n')
 PY
+# 草稿可能尚未创建实际 Git 标签；先明确创建并核验引用，不让公开动作承担隐式打标签。
+if ! gh api "repos/$FLUXA_DEV_REPOSITORY/git/ref/tags/$tag" > "$work/tag.json" 2>/dev/null; then
+  gh api --method POST "repos/$FLUXA_DEV_REPOSITORY/git/refs" \
+    -f "ref=refs/tags/$tag" -f "sha=$FLUXA_DEV_SOURCE" > /dev/null
+fi
+verify_tag required
 # 草稿期间附件不作为可用版本交付；全部上传成功后再公开为 Pre-release。
-gh release create "$tag" "$work/FluxaEngine.xcframework.zip" "$work/fluxa-test-fixture-macos-arm64.zip" "$work/checksum.txt" "$work/fixture-checksum.txt" "$work/provenance.json" --repo "$FLUXA_DEV_REPOSITORY" --target "$FLUXA_DEV_SOURCE" --draft --prerelease --latest=false --title "libfluxa_core $version · ${FLUXA_DEV_SOURCE:0:7}（不稳定测试）" --notes-file "$work/notes.md"
+gh release create "$tag" "$work/FluxaEngine.xcframework.zip" "$work/fluxa-test-fixture-macos-arm64.zip" "$work/checksum.txt" "$work/fixture-checksum.txt" "$work/provenance.json" --repo "$FLUXA_DEV_REPOSITORY" --verify-tag --target "$FLUXA_DEV_SOURCE" --draft --prerelease --latest=false --title "libfluxa_core $version · ${FLUXA_DEV_SOURCE:0:7}（不稳定测试）" --notes-file "$work/notes.md"
 verify_tag required
 mkdir "$work/download"
-gh release download "$tag" --repo "$FLUXA_DEV_REPOSITORY" --pattern FluxaEngine.xcframework.zip --dir "$work/download"
+gh release download "$tag" --repo "$FLUXA_DEV_REPOSITORY" --pattern FluxaEngine.xcframework.zip --pattern fluxa-test-fixture-macos-arm64.zip --dir "$work/download"
 [[ "$(shasum -a 256 "$work/download/FluxaEngine.xcframework.zip" | awk '{print $1}')" == "$(cat "$work/checksum.txt")" ]] || { echo '发布下载校验失败'; exit 1; }
+
+[[ "$(shasum -a 256 "$work/download/fluxa-test-fixture-macos-arm64.zip" | awk '{print $1}')" == "$(cat "$work/fixture-checksum.txt")" ]] || { echo '测试服务下载校验失败'; exit 1; }
 
 gh release edit "$tag" --repo "$FLUXA_DEV_REPOSITORY" --draft=false --prerelease --latest=false

@@ -435,8 +435,12 @@ async fn admitted_family_fallback_survives_configuration_replacement() {
         .await
         .unwrap()
         .unwrap();
+    // 新配置仍使用回环 DNS；省略 DNS 会按主配置契约启用系统解析，测试便依赖外部环境。
+    // 保留 final/reject 及拒绝断言，真实候选解析完成后必须按新快照拒绝。
     manager
-        .apply_configuration_async("rules: ['final,reject']")
+        .apply_configuration_async(&format!(
+            "dns: {{enable: true,server: ['127.0.0.1:{dns}']}}\nrules: ['final,reject']"
+        ))
         .await
         .unwrap();
     assert!(matches!(

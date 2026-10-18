@@ -1,6 +1,6 @@
 # 测试报告：test_dns_main
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-4d1b10b7d1f04a59", "::test_dns_main::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.3755598340000006, "status": "PASS", "discovered": ["dns::main::test_dns_main::bootstrap_ttl_rebuild_and_system_dnssec_fail_closed", "dns::main::test_dns_main::close_stops_idle_dns_transport_before_waiting", "dns::main::test_dns_main::hosts_precedes_fake_and_disabled_isolated", "dns::main::test_dns_main::initialization_failure_never_publishes_partial_endpoints"], "results": {"dns::main::test_dns_main::bootstrap_ttl_rebuild_and_system_dnssec_fail_closed": "PASS", "dns::main::test_dns_main::close_stops_idle_dns_transport_before_waiting": "PASS", "dns::main::test_dns_main::hosts_precedes_fake_and_disabled_isolated": "PASS", "dns::main::test_dns_main::initialization_failure_never_publishes_partial_endpoints": "PASS"}, "fingerprint": "0ab210900f6c1a572f9d17ed7b2b300142a30c1517e24f0c54af051832960502", "time": "2026-10-17T21:24:40.615935+08:00", "attempt": 1, "suite": "test_dns_main", "file": "tests/test_dns_main.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "4cd3dfe7adfa6bec4c12cf8ba3abc4db7b75e575", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-4d1b10b7d1f04a59", "::test_dns_main::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.3743491660000018, "status": "PASS", "discovered": ["dns::main::test_dns_main::bootstrap_ttl_rebuild_and_system_dnssec_fail_closed", "dns::main::test_dns_main::close_stops_idle_dns_transport_before_waiting", "dns::main::test_dns_main::hosts_precedes_fake_and_disabled_isolated", "dns::main::test_dns_main::initialization_failure_never_publishes_partial_endpoints"], "results": {"dns::main::test_dns_main::bootstrap_ttl_rebuild_and_system_dnssec_fail_closed": "PASS", "dns::main::test_dns_main::close_stops_idle_dns_transport_before_waiting": "PASS", "dns::main::test_dns_main::hosts_precedes_fake_and_disabled_isolated": "PASS", "dns::main::test_dns_main::initialization_failure_never_publishes_partial_endpoints": "PASS"}, "fingerprint": "5d233b7c28b170b92dabcb432d2e529720e6996268ba902e3d218eccea829d8b", "time": "2026-10-18T08:14:09.983512+08:00", "attempt": 1, "suite": "test_dns_main", "file": "tests/test_dns_main.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "58426e230f4dfeff8af828a319f33d0dcf268122", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-4d1b10b7d1f04a59 ::test_dns_main:: --test-threads=1`
-- 执行时间：2026-10-17T21:24:40.615935+08:00
-- 实际耗时：0.3755598340000006 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "4cd3dfe7adfa6bec4c12cf8ba3abc4db7b75e575", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`0ab210900f6c1a572f9d17ed7b2b300142a30c1517e24f0c54af051832960502`
+- 执行时间：2026-10-18T08:14:09.983512+08:00
+- 实际耗时：0.3743491660000018 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "58426e230f4dfeff8af828a319f33d0dcf268122", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`5d233b7c28b170b92dabcb432d2e529720e6996268ba902e3d218eccea829d8b`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -49,7 +49,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-pmtu-accepted-rust/test_dns_main.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-pmtu-release-final-rust/test_dns_main.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

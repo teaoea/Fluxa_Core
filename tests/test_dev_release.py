@@ -28,19 +28,25 @@ elif mode=='gh':
   if os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
   print(json.dumps({'isDraft':os.environ.get('MOCK_EXISTING')=='draft','isPrerelease':True}))
  if args[:1]==['api']:
-  if not (home/'created').exists() and os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
+  if '--method' in args and args[args.index('--method')+1]=='POST':
+   (home/'tagged').touch()
+  elif not (home/'tagged').exists() and os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
   print(json.dumps({'object':{'type':'commit','sha':os.environ['FLUXA_DEV_SOURCE']}}))
  elif args[:2]==['release','create']:
+  if '--verify-tag' not in args or not (home/'tagged').exists() and os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
   if os.environ.get('MOCK_FAIL_UPLOAD')=='1':sys.exit(1)
   (home/'created').touch()
   for arg in args:
    if arg.endswith('/FluxaEngine.xcframework.zip'):shutil.copyfile(arg,home/'archive')
+   if arg.endswith('/fluxa-test-fixture-macos-arm64.zip'):shutil.copyfile(arg,home/'fixture_archive')
  elif args[:2]==['release','download']:
   out=Path(args[args.index('--dir')+1]);out.mkdir(exist_ok=True)
   archive=(home/'archive').read_bytes() if (home/'archive').exists() else b'fixed-test-archive'
   (out/'FluxaEngine.xcframework.zip').write_bytes(archive)
+  fixture=(home/'fixture_archive').read_bytes() if (home/'fixture_archive').exists() else b'fixed-test-fixture'
+  (out/'fluxa-test-fixture-macos-arm64.zip').write_bytes(fixture)
   if 'provenance.json' in args:
-   p={'source_commit':os.environ['FLUXA_DEV_SOURCE'],'tag':args[2],'version':'2.5.0-dev','unstable':True,'framework_sha256':'0'*64 if os.environ.get('MOCK_BAD_HASH')=='1' else hashlib.sha256(archive).hexdigest()}
+   p={'source_commit':os.environ['FLUXA_DEV_SOURCE'],'tag':args[2],'version':'2.5.0-dev','unstable':True,'fixture_sha256':hashlib.sha256(fixture).hexdigest(),'framework_sha256':'0'*64 if os.environ.get('MOCK_BAD_HASH')=='1' else hashlib.sha256(archive).hexdigest()}
    (out/'provenance.json').write_text(json.dumps(p))
 '''
 
@@ -71,7 +77,7 @@ class DevReleaseTests(unittest.TestCase):
     def test_existing_checksum_failure_does_not_overwrite(self):
         self.env.update(MOCK_EXISTING='published',MOCK_BAD_HASH='1');r=self.run_release();self.assertNotEqual(r.returncode,0);self.assertFalse(any(x[1:3]==['release','create'] for x in self.calls()))
     def test_new_release_stays_prerelease_and_not_latest(self):
-        r=self.run_release();self.assertEqual(r.returncode,0,r.stdout);calls=self.calls();create=next(x for x in calls if x[1:3]==['release','create']);edit=next(x for x in calls if x[1:3]==['release','edit']);self.assertIn('--draft',create);self.assertIn('--prerelease',create);self.assertIn('--latest=false',create);self.assertIn('--prerelease',edit);self.assertIn('--latest=false',edit);self.assertIn('--draft=false',edit);self.assertLess(calls.index(create),calls.index(edit));self.assertFalse(any('publish' in x for x in calls))
+        r=self.run_release();self.assertEqual(r.returncode,0,r.stdout);calls=self.calls();create=next(x for x in calls if x[1:3]==['release','create']);edit=next(x for x in calls if x[1:3]==['release','edit']);self.assertIn('--verify-tag',create);tagged=next(x for x in calls if x[1:2]==['api'] and 'POST' in x);self.assertLess(calls.index(tagged),calls.index(create));self.assertIn('--draft',create);self.assertIn('--prerelease',create);self.assertIn('--latest=false',create);self.assertIn('--prerelease',edit);self.assertIn('--latest=false',edit);self.assertIn('--draft=false',edit);self.assertLess(calls.index(create),calls.index(edit));self.assertFalse(any('publish' in x for x in calls))
     def test_failed_upload_never_publishes_draft(self):
         self.env['MOCK_FAIL_UPLOAD']='1';r=self.run_release();self.assertNotEqual(r.returncode,0);self.assertFalse(any(x[1:3]==['release','edit'] for x in self.calls()))
 
