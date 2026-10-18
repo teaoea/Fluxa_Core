@@ -11,7 +11,7 @@ readme = "README.md"
 publish = ["crates-io"]
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/main-config-supported.yaml", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/example_config.yaml", "/rules.yaml", "/LICESE.md", "/Documentation/**", "/AGENTS/**", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/main-config-supported.yaml", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/example_config.yaml", "/rules.yaml", "/LICENSE", "/LICENSE.md", "/Documentation/**", "/AGENTS/**", "/Notices/**"]
 
 [lib]
 name = "libfluxa_core"

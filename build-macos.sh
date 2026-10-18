@@ -3,13 +3,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 [[ "$(uname -s)" == Darwin ]] || { echo '此打包器仅用于 macOS'; exit 1; }
+# 在编译前验证真实许可输入，避免构建完成才发现过期路径。
+[[ -f LICENSE && -f LICENSE.md && -d Notices ]] || { echo '缺少许可证或第三方声明'; exit 1; }
 build_directory="$(mktemp -d /tmp/fluxa-macos-native.XXXXXX)"
 trap 'rm -rf "$build_directory"' EXIT
 MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --locked --offline --release --target-dir "$build_directory"
 framework="$build_directory/libfluxa_core.framework"
 mkdir -p "$framework/Headers" "$framework/Modules" "$framework/Resources/Notices"
 cp -R Notices/. "$framework/Resources/Notices/"
-cp LICESE.md "$framework/Resources/Notices/"
+cp LICENSE LICENSE.md "$framework/Resources/Notices/"
 # Cargo 的中间文件转为 framework 内无扩展名的静态二进制，不生成动态库。
 mv "$build_directory/release/liblibfluxa_core.a" "$framework/libfluxa_core"
 cp include/fluxa_engine.h include/fluxa_debug_ipc.h "$framework/Headers/"

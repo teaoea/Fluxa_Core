@@ -1378,7 +1378,7 @@
       "file": "tests/test_dev_release.py",
       "kind": "python_unit",
       "sources": [
-        "Tools/dev-release.sh；.github/workflows/tests.yml：dev 不稳定附件控制流"
+        "Tools/dev-release.sh；build-macos.sh；.github/workflows/tests.yml：dev 不稳定附件控制流"
       ],
       "declared_cases": [
         "test_dirty_source_never_publishes",
@@ -1386,7 +1386,8 @@
         "test_existing_release_is_verified_without_overwrite",
         "test_existing_checksum_failure_does_not_overwrite",
         "test_new_release_stays_prerelease_and_not_latest",
-        "test_failed_upload_never_publishes_draft"
+        "test_failed_upload_never_publishes_draft",
+        "test_framework_preserves_current_license_files"
       ]
     }
   ]

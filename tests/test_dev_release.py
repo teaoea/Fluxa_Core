@@ -1,7 +1,7 @@
 # 测试文件：tests/test_dev_release.py
 # 测试类型：集成测试、发布控制流离线回归
-# 测试对象：Tools/dev-release.sh；.github/workflows/tests.yml
-# 测试内容：test_dirty_source_never_publishes；test_wrong_source_never_publishes；test_existing_release_is_verified_without_overwrite；test_existing_checksum_failure_does_not_overwrite；test_new_release_stays_prerelease_and_not_latest；test_failed_upload_never_publishes_draft。
+# 测试对象：Tools/dev-release.sh；build-macos.sh；.github/workflows/tests.yml
+# 测试内容：test_dirty_source_never_publishes；test_wrong_source_never_publishes；test_existing_release_is_verified_without_overwrite；test_existing_checksum_failure_does_not_overwrite；test_new_release_stays_prerelease_and_not_latest；test_failed_upload_never_publishes_draft；test_framework_preserves_current_license_files。
 # 测试依据：dev 每提交测试附件、确定源码、不可覆盖、非正式发布和失败不伪成功约定。
 # 前置条件：Git、Bash、Python；所有 gh/cargo/ditto 均为本地桩，不访问真实发布服务。
 import hashlib
@@ -68,6 +68,28 @@ class DevReleaseTests(unittest.TestCase):
         return subprocess.run(['bash','Tools/dev-release.sh'],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
     def calls(self):
         return [json.loads(x) for x in (self.home/'calls').read_text().splitlines()]
+    def test_framework_preserves_current_license_files(self):
+        # 运行真实打包脚本，仅替换耗时的工具；文件复制不打桩，能检出许可文件改名遗漏。
+        shutil.copyfile(ROOT/'build-macos.sh',self.repo/'build-macos.sh')
+        for name in ['LICENSE','LICENSE.md']:
+            shutil.copyfile(ROOT/name,self.repo/name)
+        (self.repo/'Notices').mkdir();(self.repo/'Notices/third-party').write_text('第三方声明')
+        (self.repo/'include').mkdir()
+        for name in ['fluxa_engine.h','fluxa_debug_ipc.h','module.modulemap']:
+            shutil.copyfile(ROOT/'include'/name,self.repo/'include'/name)
+        scripts={
+            'cargo': "#!/bin/sh\nset -eu\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --target-dir ]; then shift; directory=$1; fi; shift; done\nmkdir -p \"$directory/release\"\nprintf archive > \"$directory/release/liblibfluxa_core.a\"\n",
+            'plutil': '#!/bin/sh\nexit 0\n',
+            'xcodebuild': "#!/bin/sh\nset -eu\ncp -R \"$3\" \"$5\"\n"
+        }
+        for name,script in scripts.items():
+            target=self.home/'bin'/name;target.write_text(script);target.chmod(0o755)
+        result=subprocess.run(['bash','build-macos.sh'],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+        self.assertEqual(result.returncode,0,result.stdout)
+        notices=self.repo/'Vendor/FluxaEngine.xcframework/Resources/Notices'
+        for name in ['LICENSE','LICENSE.md']:
+            self.assertEqual((notices/name).read_bytes(),(ROOT/name).read_bytes())
+        self.assertEqual((notices/'third-party').read_text(),'第三方声明')
     def test_dirty_source_never_publishes(self):
         (self.repo/'untracked').write_text('dirty');self.assertNotEqual(self.run_release().returncode,0);self.assertFalse(any(x[0]=='gh' for x in self.calls()))
     def test_wrong_source_never_publishes(self):

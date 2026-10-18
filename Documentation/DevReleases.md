@@ -28,3 +28,7 @@ python3 Tools/test_reports.py --external test_dev_release -- python3 tests/test_
 
 该测试使用本地 gh/cargo/打包桩，只证明拒绝条件、附件不可覆盖及草稿公开顺序。
 真实云端构建、上传、标签与公开下载必须另行核验，不能以离线桩通过冒充已经发布。
+
+## 打包许可回归
+
+构建器从当前根目录的 `LICENSE` 与 `LICENSE.md` 复制自有许可和依赖声明，并保留 `Notices/`。缺少文件在编译前拒绝；不再使用已移除的 `LICESE.md`。`test_framework_preserves_current_license_files` 运行真实打包脚本的复制流程并逐字节校验许可，不以发布器桩替代文件打包检查。CI `39082177460` 的真实构建因旧许可路径失败，未产生可用附件；修复后的实际构建与后续 CI 单独验收。
