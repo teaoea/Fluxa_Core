@@ -1,6 +1,6 @@
 # 测试报告：test_dns
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_dns-64e9940e73748912", "--test-threads=1"], "exit_code": 0, "duration_seconds": 3.3824229580000065, "status": "PASS", "discovered": ["dnssec_signed_root_valid_tampered_expired_and_untrusted", "encrypted_certificate_and_name_failure_never_downgrade", "explicit_upstream_failover_query_type_and_resource_validation", "fake_ip_concurrent_reuse_is_unique_and_reversible", "fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec", "fake_ip_range_alignment_capacity_and_exhaustion", "fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse", "invalid_config_names_and_mixed_security_are_rejected", "positive_negative_cache_ttl_zero_expiry_clear_and_isolation", "timeout_wrong_transaction_and_failure_recovery", "udp_tcp_dot_doh_cname_aaaa_and_records"], "results": {"dnssec_signed_root_valid_tampered_expired_and_untrusted": "PASS", "encrypted_certificate_and_name_failure_never_downgrade": "PASS", "explicit_upstream_failover_query_type_and_resource_validation": "PASS", "fake_ip_concurrent_reuse_is_unique_and_reversible": "PASS", "fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec": "PASS", "fake_ip_range_alignment_capacity_and_exhaustion": "PASS", "fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse": "PASS", "invalid_config_names_and_mixed_security_are_rejected": "PASS", "positive_negative_cache_ttl_zero_expiry_clear_and_isolation": "PASS", "timeout_wrong_transaction_and_failure_recovery": "PASS", "udp_tcp_dot_doh_cname_aaaa_and_records": "PASS"}, "fingerprint": "c264632751cbd621ac8e99a7fc936c7dc8e38a212ff22a17f1e08e826b8abf4a", "time": "2026-10-17T20:52:25.224146+08:00", "attempt": 1, "suite": "test_dns", "file": "tests/test_dns.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "16f52121212da73a2ea69047e4c6231b67ab5241", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/test_dns-0bb45b63418298be", "--test-threads=1"], "exit_code": 0, "duration_seconds": 3.3788479580000086, "status": "PASS", "discovered": ["dnssec_signed_root_valid_tampered_expired_and_untrusted", "encrypted_certificate_and_name_failure_never_downgrade", "explicit_upstream_failover_query_type_and_resource_validation", "fake_ip_concurrent_reuse_is_unique_and_reversible", "fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec", "fake_ip_range_alignment_capacity_and_exhaustion", "fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse", "invalid_config_names_and_mixed_security_are_rejected", "positive_negative_cache_ttl_zero_expiry_clear_and_isolation", "timeout_wrong_transaction_and_failure_recovery", "udp_tcp_dot_doh_cname_aaaa_and_records"], "results": {"dnssec_signed_root_valid_tampered_expired_and_untrusted": "PASS", "encrypted_certificate_and_name_failure_never_downgrade": "PASS", "explicit_upstream_failover_query_type_and_resource_validation": "PASS", "fake_ip_concurrent_reuse_is_unique_and_reversible": "PASS", "fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec": "PASS", "fake_ip_range_alignment_capacity_and_exhaustion": "PASS", "fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse": "PASS", "invalid_config_names_and_mixed_security_are_rejected": "PASS", "positive_negative_cache_ttl_zero_expiry_clear_and_isolation": "PASS", "timeout_wrong_transaction_and_failure_recovery": "PASS", "udp_tcp_dot_doh_cname_aaaa_and_records": "PASS"}, "fingerprint": "0ab210900f6c1a572f9d17ed7b2b300142a30c1517e24f0c54af051832960502", "time": "2026-10-17T21:24:40.615935+08:00", "attempt": 1, "suite": "test_dns", "file": "tests/test_dns.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "4cd3dfe7adfa6bec4c12cf8ba3abc4db7b75e575", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/dns/mod.rs
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_dns-64e9940e73748912 --test-threads=1`
-- 执行时间：2026-10-17T20:52:25.224146+08:00
-- 实际耗时：3.3824229580000065 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "16f52121212da73a2ea69047e4c6231b67ab5241", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`c264632751cbd621ac8e99a7fc936c7dc8e38a212ff22a17f1e08e826b8abf4a`
+- 实际命令：`/private/tmp/fluxa-tcp-latest/target/debug/deps/test_dns-0bb45b63418298be --test-threads=1`
+- 执行时间：2026-10-17T21:24:40.615935+08:00
+- 实际耗时：3.3788479580000086 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "4cd3dfe7adfa6bec4c12cf8ba3abc4db7b75e575", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`0ab210900f6c1a572f9d17ed7b2b300142a30c1517e24f0c54af051832960502`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -56,7 +56,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-dns-geoip-frozen-20261017/test_dns.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-pmtu-accepted-rust/test_dns.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

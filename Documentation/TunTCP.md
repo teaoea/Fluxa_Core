@@ -25,7 +25,7 @@ Swift 封装及测试仅位于 Fluxa 的 `Packages/FluxaKernelBridge/`。`Native
 
 入站有界 IP 分片重组及 IPv6 扩展头处理见 [IP 重组说明](IPReassembly.md)。
 
-未实现：紧急数据、TCP Fast Open 数据型 SYN、时间戳、ECN 协商及 PMTU/ICMP 处理。出站 UDP IP 分片、SACK 与窗口扩大已有独立说明。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
+未实现：紧急数据、TCP Fast Open 数据型 SYN、时间戳、ECN 协商及原始 ICMP Echo 出站。出站 UDP IP 分片、SACK 与窗口扩大已有独立说明。未知选项校验其长度但不声明协商；不将此有界实现称为完整 RFC 合规 TCP 栈。TIME-WAIT 默认 30 秒，可在下述范围配置；不据此承诺跨进程旧报文隔离。
 
 ## 资源预算与关闭契约
 
@@ -71,3 +71,5 @@ UDP 返回超过 MTU 时的有界源分片、队列语义与测试入口见 [出
 SACK 协商、接收端乱序区间与发送端选择恢复见 [SACK 说明](TCPSACK.md)。部分覆盖保守重传，不宣称完整 RFC 6675 恢复。
 
 窗口扩大已与当前 SACK/分片路径整合，协商、资源及验收边界见 [TCPWindowScale.md](TCPWindowScale.md)。
+
+ICMP 错误输入与 PMTU 调整见 [ICMPPMTU.md](ICMPPMTU.md)，不等同原始 Ping 代理。

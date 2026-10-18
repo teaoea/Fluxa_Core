@@ -9,7 +9,7 @@ use crate::{
     error::{Error, Result},
     outbound::{Family, Manager, NetworkSnapshot, RoutedTarget},
     routing::{Target, Transport},
-    tun::{Packet, udp},
+    tun::{Packet, icmp, udp},
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::Deserialize;
@@ -60,8 +60,12 @@ struct Key {
     source: SocketAddr,
     destination: SocketAddr,
 }
+enum Input {
+    Packet(Packet),
+    Control(icmp::Notice),
+}
 struct Flow {
-    sender: mpsc::Sender<Packet>,
+    sender: mpsc::Sender<Input>,
     task: tokio::task::AbortHandle,
     generation: Option<u64>,
 }
@@ -115,7 +119,7 @@ impl Session {
                 mpsc::error::TrySendError::Full(_) => Error::ResourceLimit,
                 mpsc::error::TrySendError::Closed(_) => Error::InvalidState,
             })?;
-            slot.send(Packet::copy(bytes)?);
+            slot.send(Input::Packet(Packet::copy(bytes)?));
             return Ok(());
         }
         if !segment.flags.has(Flags::SYN)
@@ -162,6 +166,32 @@ impl Session {
             },
         );
         Ok(())
+    }
+    pub(in crate::tun) fn control(
+        &self,
+        notice: icmp::Notice,
+        generation: Option<u64>,
+    ) -> Result<()> {
+        let authority = self.owner.authority();
+        let _operation = authority.enter(authority.identity())?;
+        let state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.closed {
+            return Err(Error::InvalidState);
+        }
+        let key = Key {
+            source: notice.quote.destination,
+            destination: notice.quote.source,
+        };
+        let flow = state.flows.get(&key).ok_or(Error::InvalidState)?;
+        if generation.is_some() && generation != flow.generation {
+            return Err(Error::InvalidState);
+        }
+        flow.sender
+            .try_send(Input::Control(notice))
+            .map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => Error::ResourceLimit,
+                mpsc::error::TrySendError::Closed(_) => Error::InvalidState,
+            })
     }
     pub fn receive(&self) -> Result<Option<Packet>> {
         let authority = self.owner.authority();
@@ -231,7 +261,7 @@ impl Drop for Connection {
 async fn send(context: &mut Context, packet: Result<Packet>) -> Result<()> {
     tokio::select! { biased; _ = context.cancel.changed() => Err(Error::Cancelled), result = tokio::time::timeout(Duration::from_millis(context.options.idle_timeout_ms), context.sender.send(packet)) => result.map_err(|_| Error::NetworkTimeout)?.map_err(|_| Error::Cancelled) }
 }
-async fn run_flow(mut context: Context, first: Packet, mut input: mpsc::Receiver<Packet>) {
+async fn run_flow(mut context: Context, first: Packet, mut input: mpsc::Receiver<Input>) {
     let result = async {
         let syn = wire::decode(&first.bytes, context.owner.options().mtu)?;
         let mut random = [0; 4];
@@ -264,7 +294,7 @@ async fn run_flow(mut context: Context, first: Packet, mut input: mpsc::Receiver
 async fn relay(
     context: &mut Context,
     tcp: &mut TcpState,
-    input: &mut mpsc::Receiver<Packet>,
+    input: &mut mpsc::Receiver<Input>,
 ) -> Result<()> {
     let snapshot = context.snapshot.take().ok_or(Error::InvalidState)?;
     let mut connection = if context.dns.is_some() {
@@ -395,8 +425,11 @@ async fn relay(
             biased;
             _ = context.cancel.changed() => return Err(Error::Cancelled),
             packet = input.recv() => {
-                let packet = packet.ok_or(Error::Cancelled)?; let segment = wire::decode(&packet.bytes, context.owner.options().mtu)?;
-                tcp.process(&segment, Instant::now())?;
+                match packet.ok_or(Error::Cancelled)? {
+                    Input::Packet(packet)=> { let segment=wire::decode(&packet.bytes,context.owner.options().mtu)?; tcp.process(&segment,Instant::now())?; },
+                    // 无效控制报文不能终止流；返回包队列明确报告校验失败，原流继续工作。
+                    Input::Control(notice)=> { if let Err(error)=tcp.control(notice) { send(context,Err(error)).await?; } continue; },
+                }
                 // 未完成握手的任意入包不能刷新空闲期限，防止半开流永久占额。
                 if tcp.phase() != Phase::SynReceived { activity = Instant::now(); }
             },

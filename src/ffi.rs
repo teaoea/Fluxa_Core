@@ -760,22 +760,17 @@ fn execute_request(engine: &Engine, input: RequestInput, https_only: bool) -> Re
         return Err(Error::ResourceLimit);
     }
     let client = engine.client()?;
-    let executor = runtime()?;
-    let response = executor.block_on(async move {
-        executor
-            .spawn(async move {
-                client
-                    .execute_request(
-                        &input.method,
-                        &input.url,
-                        &input.headers,
-                        &body,
-                        input.proxy_port,
-                    )
-                    .await
-            })
-            .await
-            .map_err(|_| Error::Internal)?
+    let response = run_network(async move {
+        // 仅把请求所有权移入小型任务；大型网络 future 在 Rust 工作线程构造并固定到堆上。
+        // 直接把它作为外层 async 的内联字段，会在宿主小栈的 spawn/block_on 中反复移动。
+        Box::pin(client.execute_request(
+            &input.method,
+            &input.url,
+            &input.headers,
+            &body,
+            input.proxy_port,
+        ))
+        .await
     })?;
     Ok(Reply::from(response))
 }

@@ -3,7 +3,7 @@ pub use super::packet::{Packet, encode_udp as encode};
 use super::{
     MAX_MTU, MIN_MTU,
     fragment::{self, Datagram},
-    parse,
+    icmp, parse,
 };
 use crate::lifecycle::session::Authority;
 use crate::{
@@ -95,12 +95,14 @@ struct Key {
     generation: Option<u64>,
 }
 struct Flow {
+    path: Arc<Mutex<icmp::Path>>,
     id: u64,
     task: tokio::task::AbortHandle,
 }
 struct State {
     closed: bool,
     flows: HashMap<Key, Flow>,
+    dns_paths: HashMap<Key, Arc<Mutex<icmp::Path>>>,
     lease: Option<ByteLease>,
 }
 struct ConnectionLease {
@@ -197,6 +199,7 @@ impl SessionInner {
             state: Mutex::new(State {
                 closed: false,
                 flows: HashMap::new(),
+                dns_paths: HashMap::new(),
                 lease: Some(lease),
             }),
             submit_lock: tokio::sync::Mutex::new(()),
@@ -295,12 +298,27 @@ impl SessionInner {
             if self.state.lock().map_err(|_| Error::Internal)?.closed {
                 return Err(Error::Cancelled);
             }
-            slot.send(fragment::encode(
-                key.destination,
-                key.source,
-                &response,
-                self.options.mtu,
-            ));
+            let path = {
+                let mut state = self.state.lock().map_err(|_| Error::Internal)?;
+                state.dns_paths.retain(|_, path| {
+                    path.lock()
+                        .is_ok_and(|p| !p.expired(std::time::Instant::now()))
+                });
+                if !state.dns_paths.contains_key(&key)
+                    && state.dns_paths.len() >= self.options.maximum_flows
+                {
+                    return Err(Error::ResourceLimit);
+                }
+                if let std::collections::hash_map::Entry::Vacant(entry) = state.dns_paths.entry(key)
+                {
+                    entry.insert(Arc::new(Mutex::new(icmp::Path::new(
+                        self.options.mtu,
+                        key.source.is_ipv4(),
+                    )?)));
+                }
+                state.dns_paths.get(&key).ok_or(Error::Internal)?.clone()
+            };
+            slot.send(encode_path(key, &response, &path));
             return Ok(());
         }
         let mapping_generation = if existing.is_none() {
@@ -317,6 +335,10 @@ impl SessionInner {
                 return Err(Error::ResourceLimit);
             }
             let lease = FLOWS.reserve(1)?;
+            let path = Arc::new(Mutex::new(icmp::Path::new(
+                self.options.mtu,
+                key.source.is_ipv4(),
+            )?));
             let request = RoutedTarget {
                 target: Target {
                     domain: None,
@@ -344,13 +366,14 @@ impl SessionInner {
             }
             let id = connection.id;
             let task = self.spawn_task(receive_loop(
+                path.clone(),
                 connection,
                 key,
                 self.options.clone(),
                 self.sender.clone(),
                 self.cancel.subscribe(),
             ))?;
-            state.flows.insert(key, Flow { id, task });
+            state.flows.insert(key, Flow { id, task, path });
             id
         };
         let result = tokio::select! {
@@ -472,11 +495,39 @@ impl SessionInner {
         while receiver.channel.try_recv().is_ok() {}
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         state.flows.clear();
+        state.dns_paths.clear();
         state.lease.take();
         Ok(())
     }
 }
 impl Session {
+    pub(super) fn control(&self, notice: icmp::Notice, generation: Option<u64>) -> Result<()> {
+        let _operation = self
+            .inner
+            .authority
+            .enter(self.inner.authority.identity())?;
+        let state = self.inner.state.lock().map_err(|_| Error::Internal)?;
+        if state.closed {
+            return Err(Error::InvalidState);
+        }
+        let key = Key {
+            source: notice.quote.destination,
+            destination: notice.quote.source,
+            generation,
+        };
+        let path = if let Some(flow) = state.flows.get(&key) {
+            if flow.task.is_finished() {
+                return Err(Error::InvalidState);
+            }
+            &flow.path
+        } else {
+            self.check_dns_owner()?;
+            state.dns_paths.get(&key).ok_or(Error::InvalidState)?
+        };
+        path.lock()
+            .map_err(|_| Error::Internal)?
+            .apply(notice, std::time::Instant::now())
+    }
     pub(crate) fn manager(&self) -> Arc<Manager> {
         self.inner.manager.clone()
     }
@@ -578,7 +629,20 @@ impl Drop for Session {
     }
 }
 
+fn encode_path(key: Key, body: &[u8], path: &Mutex<icmp::Path>) -> Result<Datagram> {
+    let mut path = path.lock().map_err(|_| Error::Internal)?;
+    let mut out = if path.mtu >= MIN_MTU {
+        fragment::encode(key.destination, key.source, body, path.mtu)?
+    } else {
+        fragment::encode_path(key.destination, key.source, body, path.mtu)?
+    };
+    for packet in &mut out.0 {
+        path.stamp(packet, std::time::Instant::now());
+    }
+    Ok(out)
+}
 async fn receive_loop(
+    path: Arc<Mutex<icmp::Path>>,
     connection: ConnectionLease,
     key: Key,
     options: Options,
@@ -593,7 +657,7 @@ async fn receive_loop(
             result = connection.manager.read(connection.id, MAX_MTU - header, options.idle_timeout_ms) => result,
         };
         let packet = match result {
-            Ok(read) => fragment::encode(key.destination, key.source, &read.bytes, options.mtu),
+            Ok(read) => encode_path(key, &read.bytes, &path),
             Err(Error::NetworkTimeout | Error::Cancelled) => return,
             Err(error) => Err(error),
         };

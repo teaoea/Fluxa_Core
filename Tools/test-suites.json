@@ -141,6 +141,7 @@
       ],
       "module": "test_ffi",
       "declared_cases": [
+        "http_request_works_on_bounded_host_stack",
         "main_dns_and_geoip_status_use_same_configuration",
         "main_configuration_validation_is_read_only_and_structured",
         "main_configuration_apply_is_atomic_and_status_is_read_only",
@@ -608,7 +609,8 @@
         "completed_workers_are_reaped_without_aborting_active_tasks",
         "registered_task_limit_includes_pending_cancellation_and_recovers",
         "udp_flow_churn_reaps_before_registering_new_worker",
-        "completed_worker_panic_is_observed_once"
+        "completed_worker_panic_is_observed_once",
+        "pmtu_udp_feedback_fragments_next_datagram_and_close_revokes_control"
       ]
     },
     {
@@ -1024,7 +1026,8 @@
         "sack_reneging_rto_and_unsent_ranges_are_safe",
         "sack_negotiated_duplicate_ack_fallback_and_mtu_budget",
         "scaled_windows_only_apply_after_syn_and_both_sides_negotiate",
-        "scaled_rounding_never_accepts_bytes_outside_advertised_window"
+        "scaled_rounding_never_accepts_bytes_outside_advertised_window",
+        "pmtu_resegments_outstanding_data_without_losing_tail_or_retry_budget"
       ]
     },
     {
@@ -1353,6 +1356,37 @@
         "ordered_upstreams_get_independent_deadlines",
         "named_numeric_dns_failure_never_uses_direct",
         "admitted_family_fallback_survives_configuration_replacement"
+      ]
+    },
+    {
+      "id": "test_tun_icmp",
+      "file": "tests/test_tun_icmp.rs",
+      "kind": "unit",
+      "sources": [
+        "src/tun/icmp.rs"
+      ],
+      "module": "test_tun_icmp",
+      "declared_cases": [
+        "path_requires_recent_exact_quote_and_only_decreases",
+        "independent_icmp_errors_validate_checksum_quote_direction_and_bounds",
+        "path_lifetime_and_ipv6_fragment_quote_are_bounded",
+        "old_udp_quote_cannot_adjust_new_flow_with_same_endpoints_and_body"
+      ]
+    },
+    {
+      "id": "test_dev_release",
+      "file": "tests/test_dev_release.py",
+      "kind": "python_unit",
+      "sources": [
+        "Tools/dev-release.sh；.github/workflows/tests.yml：dev 不稳定附件控制流"
+      ],
+      "declared_cases": [
+        "test_dirty_source_never_publishes",
+        "test_wrong_source_never_publishes",
+        "test_existing_release_is_verified_without_overwrite",
+        "test_existing_checksum_failure_does_not_overwrite",
+        "test_new_release_stays_prerelease_and_not_latest",
+        "test_failed_upload_never_publishes_draft"
       ]
     }
   ]

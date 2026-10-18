@@ -36,6 +36,7 @@ enum SentKind {
     Fin,
 }
 struct Sent {
+    wire_size: usize,
     sequence: u32,
     kind: SentKind,
     sent_at: Option<Instant>,
@@ -135,6 +136,7 @@ impl State {
         );
         let mut outstanding = VecDeque::with_capacity(MAXIMUM_FLIGHT_SEGMENTS);
         outstanding.push_back(Sent {
+            wire_size: 0,
             sequence: initial,
             kind: SentKind::Syn,
             sent_at: None,
@@ -338,6 +340,13 @@ impl State {
                             data += count;
                             sent.sequence = acknowledgement;
                             sent.kind = SentKind::Data(size - count);
+                            if size > self.maximum_segment {
+                                // PMTU 变小后原记录按累计进度逐段重传；保留 Karn 歧义而重置重试预算。
+                                sent.sent_at = None;
+                                sent.retries = 1;
+                                sent.sacked = false;
+                                sent.repaired = false;
+                            }
                         }
                     }
                     break;
@@ -484,6 +493,41 @@ impl State {
             + (self.round_trip_variation * 4).max(Duration::from_millis(1)))
         .clamp(INITIAL_RETRANSMIT, MAXIMUM_RETRANSMIT);
     }
+    pub(super) fn control(&mut self, notice: crate::tun::icmp::Notice) -> Result<()> {
+        let quote = notice.quote;
+        let seq = u32::from_be_bytes(
+            quote.tag[4..8]
+                .try_into()
+                .map_err(|_| Error::InvalidInput)?,
+        );
+        if quote.source != self.source
+            || quote.destination != self.destination
+            || quote.protocol != 6
+            || !self.outstanding.iter().any(|sent| {
+                sent.sequence == seq && sent.sent_at.is_some() && sent.wire_size == quote.size
+            })
+        {
+            return Err(Error::InvalidInput);
+        }
+        if let Some(mtu) = crate::tun::icmp::reduced(self.mtu, notice) {
+            let headers = if self.source.is_ipv4() { 40 } else { 60 };
+            // 极小 IPv4 路径优先保留一个字节正文；SACK 块数按实际选项空间裁剪。
+            let reserve = if self.sack_enabled {
+                36.min(mtu.saturating_sub(headers + 1)) / 4 * 4
+            } else {
+                0
+            };
+            self.maximum_segment = self.maximum_segment.min(mtu - headers - reserve);
+            self.mtu = mtu;
+            for sent in &mut self.outstanding {
+                sent.sacked = false;
+                sent.repaired = false;
+            }
+            self.fast_retransmit = true;
+        }
+        // 不可达/超时为软提示，不允许单个未认证 ICMP 直接中断活动 TCP。
+        Ok(())
+    }
     fn effective_receive_window(&self) -> usize {
         if !self.established {
             return self.receive.window().min(u16::MAX as usize);
@@ -516,7 +560,19 @@ impl State {
                     && self.established
                     && flags & (Flags::SYN | Flags::RST) == 0
                 {
-                    self.receive.sacks()
+                    let mut out = wire::Sacks::default();
+                    let ip = if self.source.is_ipv4() { 20 } else { 40 };
+                    let available = self.mtu.saturating_sub(ip + 20 + payload.len());
+                    for &(left, right) in self
+                        .receive
+                        .sacks()
+                        .blocks()
+                        .iter()
+                        .take(available.saturating_sub(4) / 8)
+                    {
+                        out.push(left, right)?;
+                    }
+                    out
                 } else {
                     wire::Sacks::default()
                 },
@@ -600,13 +656,14 @@ impl State {
             let (flags, mss, payload) = match sent.kind {
                 SentKind::Syn => (
                     Flags::SYN | Flags::ACK,
-                    Some(self.maximum_segment as u16),
+                    Some(self.maximum_segment.max(64) as u16),
                     zeroize::Zeroizing::new(Vec::new()),
                 ),
                 SentKind::Data(size) => (
                     Flags::ACK | Flags::PSH,
                     None,
-                    self.transmit.copy(sequence, size)?,
+                    self.transmit
+                        .copy(sequence, size.min(self.maximum_segment))?,
                 ),
                 SentKind::Fin => (
                     Flags::FIN | Flags::ACK,
@@ -628,6 +685,7 @@ impl State {
             if sent.sent_at.is_some() {
                 sent.retries += 1;
             }
+            sent.wire_size = packet.bytes.len();
             sent.sent_at = Some(now);
             sent.repaired = !timed && self.sack_enabled && matches!(sent.kind, SentKind::Data(_));
             self.fast_retransmit = false;
@@ -669,6 +727,7 @@ impl State {
             let payload = self.transmit.copy(sequence, count)?;
             let packet = self.packet(sequence, Flags::ACK | Flags::PSH, None, &payload)?;
             self.outstanding.push_back(Sent {
+                wire_size: packet.bytes.len(),
                 sequence,
                 kind: SentKind::Data(count),
                 sent_at: Some(now),
@@ -689,6 +748,7 @@ impl State {
             let sequence = self.next;
             let packet = self.packet(sequence, Flags::FIN | Flags::ACK, None, &[])?;
             self.outstanding.push_back(Sent {
+                wire_size: packet.bytes.len(),
                 sequence,
                 kind: SentKind::Fin,
                 sent_at: Some(now),

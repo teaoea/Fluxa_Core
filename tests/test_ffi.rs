@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - http_request_works_on_bounded_host_stack：256 KiB 宿主栈可构造请求并获得真实校验错误，不溢出或触网。
 //! - main_dns_and_geoip_status_use_same_configuration：真实 ABI hosts、Disabled 状态和拒绝部分关闭保持同一快照。
 //! - provider_commands_use_real_tls_and_keep_process_rules_ignored：真实 ABI 刷新由内核下载，远程进程条目不注入。
 //! - main_configuration_apply_is_atomic_and_status_is_read_only：公开命令原子提交、错误不改版本且查询不启动 VPN。
@@ -27,6 +28,28 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[test]
+    fn http_request_works_on_bounded_host_stack() {
+        let _gate = TEST_GATE.blocking_lock();
+        // 小于常见 GCD 工作线程栈；无效方法在真实 HTTPS 请求路径中校验，不需要网络成功。
+        let task = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let input = RequestInput {
+                    method: "\r".into(),
+                    url: "https://127.0.0.1/".into(),
+                    headers: Vec::new(),
+                    body: String::new(),
+                    proxy_port: None,
+                };
+                assert!(matches!(
+                    execute_request(&Engine::default(), input, true),
+                    Err(Error::InvalidInput)
+                ));
+            })
+            .unwrap();
+        task.join().unwrap();
+    }
     #[test]
     fn main_dns_and_geoip_status_use_same_configuration() {
         let _gate = TEST_GATE.blocking_lock();
@@ -640,8 +663,14 @@ mod tests {
             .unwrap();
         let request=serde_json::to_vec(&serde_json::json!({"operation":"request","method":"GET","url":format!("http://{}/",listener.local_addr().unwrap())})).unwrap();
         // SAFETY: JSON 输入在整个同步调用期间存活、只读，不保留任何跨语言借用。
-        let response = unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) };
-        assert_eq!(response, 0);
+        let response =
+            TestHandle(unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) });
+        // 受控拒绝应返回结构化状态错误；不再依赖嵌套 block_on panic 被 ABI 捕获为零句柄。
+        let reply: serde_json::Value =
+            serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
+        assert_eq!(reply["success"], false);
+        assert_eq!(reply["error_info"]["code"], 9001);
+        assert_eq!(response.release(), OK);
         assert!(
             tokio::time::timeout(std::time::Duration::from_millis(50), listener.accept())
                 .await

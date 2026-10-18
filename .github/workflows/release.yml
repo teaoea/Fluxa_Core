@@ -1,9 +1,5 @@
 name: 发布内核二进制
 on:
-  push:
-    branches: [dev]
-    # 测试/报告维护不触发产物发布；只有明确版本变更或手动请求触发。
-    paths: [Release.version]
   workflow_dispatch:
 permissions:
   contents: write
@@ -12,6 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     env:
       FLUXA_TEST_EVIDENCE_DIR: /tmp/fluxa-test-evidence

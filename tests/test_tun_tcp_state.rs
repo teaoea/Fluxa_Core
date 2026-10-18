@@ -5,6 +5,7 @@
 //! 测试内容：sack_reports_out_of_order_and_requires_negotiation；sack_selects_multiple_holes_without_releasing_unacked_bytes；sack_reneging_rto_and_unsent_ranges_are_safe。
 //! 测试内容：sack_negotiated_duplicate_ack_fallback_and_mtu_budget。
 //! 测试内容：syn_retransmission_and_acknowledgement_validation；receive_reordering_duplicate_and_window_update；segmentation_partial_ack_and_retransmit_preserve_payload；zero_window_probe_and_reopen_does_not_consume_data；half_close_keeps_return_data_then_fin_and_time_wait；reset_requires_expected_sequence_and_far_packet_cannot_release_tx；duplicate_ack_triggers_fast_retransmit_without_waiting_for_timer；exponential_retry_budget_exhausts_with_explicit_timeout；active_half_close_accepts_final_return_bytes_and_fin；round_trip_estimate_adapts_and_retransmission_is_not_a_sample；finish_waits_for_bounded_flight_ledger_space；duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline；sack_reports_out_of_order_and_requires_negotiation；sack_selects_multiple_holes_without_releasing_unacked_bytes；sack_reneging_rto_and_unsent_ranges_are_safe；sack_negotiated_duplicate_ack_fallback_and_mtu_budget；scaled_windows_only_apply_after_syn_and_both_sides_negotiate；scaled_rounding_never_accepts_bytes_outside_advertised_window。
+//! 测试内容：syn_retransmission_and_acknowledgement_validation；receive_reordering_duplicate_and_window_update；segmentation_partial_ack_and_retransmit_preserve_payload；zero_window_probe_and_reopen_does_not_consume_data；half_close_keeps_return_data_then_fin_and_time_wait；reset_requires_expected_sequence_and_far_packet_cannot_release_tx；duplicate_ack_triggers_fast_retransmit_without_waiting_for_timer；exponential_retry_budget_exhausts_with_explicit_timeout；active_half_close_accepts_final_return_bytes_and_fin；round_trip_estimate_adapts_and_retransmission_is_not_a_sample；finish_waits_for_bounded_flight_ledger_space；duplicate_syn_consumes_retry_budget_and_handshake_has_absolute_deadline；sack_reports_out_of_order_and_requires_negotiation；sack_selects_multiple_holes_without_releasing_unacked_bytes；sack_reneging_rto_and_unsent_ranges_are_safe；sack_negotiated_duplicate_ack_fallback_and_mtu_budget；scaled_windows_only_apply_after_syn_and_both_sides_negotiate；scaled_rounding_never_accepts_bytes_outside_advertised_window；pmtu_resegments_outstanding_data_without_losing_tail_or_retry_budget。
 //! 测试依据：TCP 序号、窗口和有界资源契约；RFC 9293；RFC 6298。
 //! 前置条件：本地内存及确定性虚拟时钟，无外部服务。
 use super::*;
@@ -537,4 +538,67 @@ fn scaled_rounding_never_accepts_bytes_outside_advertised_window() {
     assert_eq!(&state.input(131072)[131066..], b"abcd");
     let ack = state.emit(now).unwrap().unwrap();
     assert_eq!(wire::decode(&ack.bytes, 1500).unwrap().window, 0);
+}
+
+/// 被引用的序号与实际输出长度必须一致；降低 PMTU 后不能丢失原在途记录的尾部。
+#[test]
+fn pmtu_resegments_outstanding_data_without_losing_tail_or_retry_budget() {
+    for sack in [false, true] {
+        let now = Instant::now();
+        let mut syn = segment(100, 0, Flags::SYN, 65535, &[]);
+        syn.maximum_segment = Some(1460);
+        syn.sack_permitted = sack;
+        let mut state = State::new(&syn, 500, 1500, Duration::from_secs(1), now).unwrap();
+        state.emit(now).unwrap();
+        state
+            .process(&segment(101, 501, Flags::ACK, 65535, &[]), now)
+            .unwrap();
+        if sack {
+            for offset in [5, 10, 15, 20] {
+                state
+                    .process(&segment(101 + offset, 501, Flags::ACK, 65535, b"x"), now)
+                    .unwrap();
+            }
+            state.emit(now).unwrap();
+        }
+        let body = vec![9; 1400];
+        state.output(&body).unwrap();
+        let first = state.emit(now).unwrap().unwrap();
+        let quote = crate::tun::icmp::quote(&first.bytes).unwrap();
+        let notice = crate::tun::icmp::Notice {
+            quote,
+            kind: crate::tun::icmp::Kind::TooBig(68),
+        };
+        let mut invalid = notice;
+        invalid.quote.tag[7] ^= 1;
+        assert!(state.control(invalid).is_err());
+        assert_eq!(state.mtu, 1500);
+        state.control(notice).unwrap();
+        assert_eq!(state.mtu, 68);
+        let mut got = Vec::new();
+        let mut clock = now;
+        while got.len() < body.len() {
+            clock += Duration::from_millis(1);
+            let packet = state.emit(clock).unwrap().unwrap();
+            assert!(packet.bytes.len() <= 68);
+            let decoded = wire::decode(&packet.bytes, 1500).unwrap();
+            if decoded.payload.is_empty() {
+                continue;
+            }
+            if sack {
+                assert!(decoded.sacks.blocks().len() <= 3);
+            }
+            assert_eq!(decoded.sequence, 501 + got.len() as u32);
+            got.extend_from_slice(decoded.payload);
+            state
+                .process(
+                    &segment(101, 501 + got.len() as u32, Flags::ACK, 65535, &[]),
+                    clock,
+                )
+                .unwrap();
+        }
+        assert_eq!(got, body);
+        assert_eq!(state.output_capacity(), 32768);
+        assert!(state.outstanding.is_empty());
+    }
 }

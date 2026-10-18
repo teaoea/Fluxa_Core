@@ -205,14 +205,23 @@ async fn real_ipv4_ipv6_data_and_half_close() {
             .submit(&packet(source, destination, 107, sequence, 17, &[]), None)
             .unwrap();
         let mut body = Vec::new();
+        let body_start = sequence;
         let mut finished = false;
         for _ in 0..30 {
             let response = next(&session).await.unwrap();
             let data = wire::decode(&response.bytes, 1500).unwrap();
             if !data.payload.is_empty() {
-                assert_eq!(data.sequence, sequence);
-                body.extend_from_slice(data.payload);
-                sequence = sequence.wrapping_add(data.payload.len() as u32);
+                if data.sequence != sequence {
+                    // 多个在途 ACK 可触发合法重传；只接受已累计收到范围内、逐字节一致的重复段。
+                    let offset = data.sequence.wrapping_sub(body_start) as usize;
+                    let end = offset.checked_add(data.payload.len()).unwrap();
+                    assert!(end <= body.len());
+                    assert_eq!(&body[offset..end], data.payload);
+                } else {
+                    assert_eq!(data.sequence, sequence);
+                    body.extend_from_slice(data.payload);
+                    sequence = sequence.wrapping_add(data.payload.len() as u32);
+                }
             }
             if data.flags.has(wire::Flags::FIN) {
                 sequence = sequence.wrapping_add(1);

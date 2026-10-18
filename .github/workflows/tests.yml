@@ -6,8 +6,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: fluxa-tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: fluxa-tests-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
   rust:
     runs-on: macos-15
@@ -32,6 +32,8 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
       - name: 验证报告工具的失败保全
         run: python3 Tools/test_reports.py --external test_test_reporting -- python3 tests/test_test_reporting.py
+      - name: 验证不稳定附件发布控制流
+        run: python3 Tools/test_reports.py --external test_dev_release -- python3 tests/test_dev_release.py
       - name: 真实 Rust 测试与逐文件报告
         run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR"
       - name: 核验错误协议
@@ -61,7 +63,7 @@ jobs:
           rustup default 1.98.1
           cargo fetch --locked
       - name: 验证有界 TCP 单元与资源契约
-        run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR" --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session --suite test_tun_ip --suite test_tun_fragment --suite test_tun_udp
+        run: python3 Tools/test_reports.py --run --evidence-dir "$FLUXA_TEST_EVIDENCE_DIR" --suite test_tun_tcp_buffer --suite test_tun_tcp_state --suite test_tun_tcp_wire --suite test_tun_tcp_session --suite test_tun_ip --suite test_tun_fragment --suite test_tun_udp --suite test_tun_icmp
       - name: 构建真实系统互通夹具并保留编译状态
         run: python3 Tools/test_reports.py --external test_tun_tcp_kernel --phase compile -- cargo build --locked --example tun_tcp_kernel
       - name: 独立网络命名空间真实 TCP 互通
@@ -75,8 +77,33 @@ jobs:
           name: fluxa-linux-tcp-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             tests/test_tun_tcp_*.md
+            tests/test_tun_icmp.md
             tests/test_tun_ip.md
             tests/test_tun_fragment*.md
             tests/test_tun_udp.md
             /tmp/fluxa-linux-tcp-evidence/
           if-no-files-found: error
+
+  dev-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs: [rust, tcp-linux]
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: 安装固定构建工具链
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          cargo fetch --locked
+      - name: 构建并发布本提交的不稳定测试附件
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FLUXA_DEV_SOURCE: ${{ github.sha }}
+          FLUXA_DEV_REPOSITORY: ${{ github.repository }}
+          FLUXA_DEV_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash Tools/dev-release.sh

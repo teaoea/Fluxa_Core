@@ -1,7 +1,7 @@
 # 测试文件：tests/test_tun_tcp_kernel.py
 # 测试类型：集成测试、真实 Linux 系统 TCP 互通
 # 测试对象：src/tun/tcp/、src/tun/session.rs 与 examples/tun_tcp_kernel.rs
-# 测试内容：WS=2 与未缩放 SYN 窗口独立检查；IPv4/IPv6；1 MiB；握手丢包、数据丢包、同窗口双缺口、乱序和半关闭。
+# 测试内容：双栈 ICMP PMTU 下调及在途重分段；WS=2 与未缩放 SYN 窗口独立检查；IPv4/IPv6；1 MiB；握手丢包、数据丢包、同窗口双缺口、乱序和半关闭。
 # 测试依据：RFC 9293；Fake-IP 恢复及不改变用户系统网络的隔离约束。
 # 前置条件：隔离 Linux netns、root、/dev/net/tun、iproute2；不是 macOS VPN 测试。
 #!/usr/bin/env python3
@@ -17,6 +17,35 @@ import subprocess
 import sys
 import threading
 import time
+
+
+def checksum(data):
+    if len(data) % 2:
+        data += b"\0"
+    total = sum(struct.unpack("!%dH" % (len(data)//2), data))
+    while total >> 16:
+        total = (total & 65535) + (total >> 16)
+    return (~total) & 65535
+
+
+def too_big(packet, mtu):
+    v6 = packet[0] >> 4 == 6
+    ip = 40 if v6 else 20
+    quoted = packet[:ip+8]
+    control = bytearray(bytes([2 if v6 else 3, 0 if v6 else 4, 0, 0]) + struct.pack("!I", mtu) + quoted)
+    if v6:
+        source = socket.inet_pton(socket.AF_INET6, "2001:db8:19::fe")
+        destination = packet[8:24]
+        pseudo = source + destination + struct.pack("!I", len(control)) + b"\0\0\0\x3a"
+        struct.pack_into("!H", control, 2, checksum(pseudo + control))
+        header = struct.pack("!IHBB", 0x60000000, len(control), 58, 64) + source + destination
+    else:
+        source = socket.inet_aton("198.19.0.254")
+        destination = packet[12:16]
+        struct.pack_into("!H", control, 2, checksum(control))
+        header = bytearray(struct.pack("!BBHHHBBH", 0x45, 0, 20+len(control), 0, 0, 64, 1, 0) + source + destination)
+        struct.pack_into("!H", header, 10, checksum(header))
+    return bytes(header + control)
 
 
 def run(binary):
@@ -101,6 +130,15 @@ def run(binary):
                     raise TimeoutError("TUN 返回包写入超时")
                 select.select([], [tunnel], [], 0.1)
 
+    def submit_packet(packet):
+        framed = memoryview(struct.pack("!H", len(packet)) + packet)
+        while framed:
+            count = child.stdin.write(framed)
+            if not count:
+                raise RuntimeError("Rust 输入管道提前关闭")
+            framed = framed[count:]
+
+    pmtu_events = []
     def transport():
         poll = selectors.DefaultSelector()
         poll.register(tunnel, selectors.EVENT_READ, "tun")
@@ -110,12 +148,7 @@ def run(binary):
                 for key, _ in poll.select(0.05):
                     if key.data == "tun":
                         packet = os.read(tunnel, 9000)
-                        framed = memoryview(struct.pack("!H", len(packet)) + packet)
-                        while framed:
-                            count = child.stdin.write(framed)
-                            if not count:
-                                raise RuntimeError("Rust 输入管道提前关闭")
-                            framed = framed[count:]
+                        submit_packet(packet)
                         continue
                     data = os.read(child.stdout.fileno(), 65536)
                     if not data:
@@ -149,6 +182,13 @@ def run(binary):
                             assert struct.unpack("!H", packet[ip + 14:ip + 16])[0] == 65535
                             assert options.get(4) == bytes([4, 2]), options
                         with lock:
+                            limit = fault.get("pmtu", 0)
+                            if limit and len(packet)>limit:
+                                if not fault["pmtu_sent"]:
+                                    submit_packet(too_big(packet, limit))
+                                    fault["pmtu_sent"] = True
+                                    pmtu_events.append(limit)
+                                continue
                             if fault.get("multiple",False) and len(packet)>ip+header:
                                 seq=struct.unpack("!I",packet[ip+4:ip+8])[0]
                                 if seq not in multi_seen:
@@ -185,11 +225,13 @@ def run(binary):
     bridge = threading.Thread(target=transport, daemon=True)
     bridge.start()
     try:
-        for index, (address, mode) in enumerate([(mappings[0], "normal"), (mappings[1], "normal"), (mappings[0], "loss"), (mappings[0], "reorder"), (mappings[0], "multiple-loss")]):
+        for index, (address, mode) in enumerate([(mappings[0], "normal"), (mappings[1], "normal"), (mappings[0], "loss"), (mappings[0], "reorder"), (mappings[0], "multiple-loss"), (mappings[0], "pmtu"), (mappings[1], "pmtu")]):
             with lock:
                 fault["data"] = mode == "loss"
                 fault["reorder"] = mode == "reorder"
                 fault["multiple"] = mode == "multiple-loss"
+                fault["pmtu"] = (1280 if ":" in address else 296) if mode == "pmtu" else 0
+                fault["pmtu_sent"] = False
             client = socket.socket(socket.AF_INET6 if ":" in address else socket.AF_INET, socket.SOCK_STREAM)
             client.settimeout(20)
             if ":" in address:
@@ -220,6 +262,7 @@ def run(binary):
                 assert received == payload + b"after-half-close", (mode, len(received))
                 assert not errors, (errors, list(diagnostics))
             print(f"真实 Linux TCP：{address}，{mode}，1 MiB 双向与半关闭通过", flush=True)
+        assert pmtu_events == [296,1280], pmtu_events
         assert counts == {"syn_dropped": 1, "data_dropped": 1, "reordered": 1, "multiple_dropped":2}, counts
         print("握手丢包、数据丢包重传、乱序及系统客户端字节完整性通过", flush=True)
     finally:

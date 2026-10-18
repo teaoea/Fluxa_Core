@@ -29,7 +29,10 @@ cat > "$framework/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-plutil -replace CFBundleShortVersionString -string "$version" "$framework/Info.plist"
+# Apple 标准版本字段仅使用数值版本；完整预发布版本和源码另行记录。
+plutil -replace CFBundleShortVersionString -string "${version%%-*}" "$framework/Info.plist"
+plutil -insert FluxaCoreVersion -string "$version" "$framework/Info.plist"
+plutil -insert FluxaSourceCommit -string "$(git rev-parse HEAD)" "$framework/Info.plist"
 xcodebuild -create-xcframework -framework "$framework" -output "$build_directory/FluxaEngine.xcframework"
 mkdir -p Vendor
 # 仅替换本构建器拥有的忽略产物；同时清理旧名称，避免选错库。

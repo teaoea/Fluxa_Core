@@ -16,6 +16,7 @@
 //! - udp_flow_churn_reaps_before_registering_new_worker：验证运行期任务回收、有界登记及活动任务连续性。
 //! - completed_worker_panic_is_observed_once：验证运行期任务回收、有界登记及活动任务连续性。
 //!
+//! 测试内容：pmtu_udp_feedback_fragments_next_datagram_and_close_revokes_control。
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
 //! 前置条件：本地测试需文件/回环套接字权限；平台限定及忽略项以实际登记为准。
@@ -553,6 +554,19 @@ mod task_registration_contract {
             let task = owner.spawn(async {}).unwrap();
             assert!(owner.inner.tasks.lock().unwrap().len() <= 2);
             finished(&task).await;
+            // AbortHandle 的完成标记可能先于 JoinSet 的完成通知可见；
+            // 等待真实回收边界，仍保留上面的登记数量断言和两秒资源释放期限。
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    owner.reap_tasks().unwrap();
+                    if owner.inner.tasks.lock().unwrap().len() == 1 {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
             assert!(!active.is_finished());
         }
         assert!(owner.receive().unwrap().is_none());
@@ -726,5 +740,100 @@ mod task_registration_contract {
         );
         assert!(owner.inner.tasks.lock().unwrap().is_empty());
         owner.close().await.unwrap();
+    }
+}
+
+/// 实际 UDP Socket 回环；ICMP 只调整被引用流的返回路径，不调整到上游的系统 Socket。
+#[tokio::test]
+async fn pmtu_udp_feedback_fragments_next_datagram_and_close_revokes_control() {
+    use crate::{
+        outbound::{Limits, Manager},
+        routing::{Config, Policy, Router},
+        tun::{
+            icmp,
+            udp::{Options, Session},
+        },
+    };
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
+    for ip in ["127.0.0.1", "::1"] {
+        let socket = tokio::net::UdpSocket::bind(std::net::SocketAddr::new(ip.parse().unwrap(), 0))
+            .await
+            .unwrap();
+        let server = socket.local_addr().unwrap();
+        let client: std::net::SocketAddr = if server.is_ipv4() {
+            "192.0.2.1:12345"
+        } else {
+            "[2001:db8::1]:12345"
+        }
+        .parse()
+        .unwrap();
+        let manager = Arc::new(Manager::default());
+        manager
+            .configure_network(
+                None,
+                Some(Arc::new(
+                    Router::compile(Config {
+                        fallback: Policy::Direct,
+                        ..Config::default()
+                    })
+                    .unwrap(),
+                )),
+                Limits::default(),
+            )
+            .unwrap();
+        let session = Session::new(manager, Options::default()).unwrap();
+        let request = crate::tun::packet::encode_udp(client, server, b"hello", 1500).unwrap();
+        session.submit(&request.bytes, None).await.unwrap();
+        let mut b = [0; 32];
+        let (_, peer) = socket.recv_from(&mut b).await.unwrap();
+        socket.send_to(&[7; 1400], peer).await.unwrap();
+        let next = async {
+            loop {
+                if let Some(p) = session.receive().unwrap() {
+                    break p;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        };
+        let first = tokio::time::timeout(Duration::from_secs(2), next)
+            .await
+            .unwrap();
+        let quote = icmp::quote(&first.bytes).unwrap();
+        // 通过与宿主会话相同的 owner 入口验证 UDP 近期引用；解析器另有独立 ICMP 向量。
+        let inner = &session;
+        let notice = icmp::Notice {
+            quote,
+            kind: icmp::Kind::TooBig(if server.is_ipv4() { 576 } else { 1280 }),
+        };
+        inner.control(notice, None).unwrap();
+        session.submit(&request.bytes, None).await.unwrap();
+        socket.recv_from(&mut b).await.unwrap();
+        socket.send_to(&[8; 1400], peer).await.unwrap();
+        let mut reassembly = crate::tun::ip::Reassembly::default();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut fragments = 0;
+        loop {
+            assert!(Instant::now() < deadline);
+            if let Some(packet) = session.receive().unwrap() {
+                fragments += 1;
+                assert!(packet.bytes.len() <= if server.is_ipv4() { 576 } else { 1280 });
+                if let Some(full) = reassembly
+                    .submit(&packet.bytes, 1500, None, Instant::now())
+                    .unwrap()
+                {
+                    let bytes = full.bytes();
+                    assert_eq!(&bytes[if server.is_ipv4() { 28 } else { 48 }..], &[8; 1400]);
+                    break;
+                }
+            } else {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }
+        assert_eq!(fragments, if server.is_ipv4() { 3 } else { 2 });
+        session.close().await.unwrap();
+        assert!(inner.control(notice, None).is_err());
     }
 }

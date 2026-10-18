@@ -1,5 +1,5 @@
 //! 同一宿主会话分派 TCP/UDP；原 UDP 接口保持兼容，所有协议处理仍在 Rust。
-use super::{Packet, ip, tcp, udp};
+use super::{Packet, icmp, ip, tcp, udp};
 use crate::{
     error::{Error, Result},
     outbound::Manager,
@@ -72,6 +72,14 @@ impl Session {
             return Ok(());
         };
         let bytes = input.bytes();
+        if (bytes[0] >> 4 == 4 && bytes[9] == 1) || (bytes[0] >> 4 == 6 && bytes[6] == 58) {
+            let notice = icmp::decode(bytes)?;
+            return match notice.quote.protocol {
+                6 => self.tcp.control(notice, generation),
+                17 => self.udp.control(notice, generation),
+                _ => Err(Error::Unsupported),
+            };
+        }
         let info = super::parse(bytes, super::MAX_MTU)?;
         match info.protocol {
             6 => self.tcp.submit(bytes, generation),

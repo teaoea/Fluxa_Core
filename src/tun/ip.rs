@@ -312,7 +312,7 @@ fn first_header(description: &Description<'_>) -> Result<()> {
     }
     let minimum = match next.header[if next.header_size == 20 { 9 } else { 6 }] {
         6 => 20,
-        17 => 8,
+        17 | 1 | 58 => 8,
         _ => return Err(Error::Unsupported),
     };
     if next.data.len() < minimum
@@ -382,7 +382,7 @@ fn describe(bytes: &[u8]) -> Result<Description<'_>> {
             let mut routing = false;
             let mut destinations = 0;
             loop {
-                if matches!(next, 6 | 17) {
+                if matches!(next, 6 | 17 | 58) {
                     header[6] = next;
                     return Ok(Description {
                         header,

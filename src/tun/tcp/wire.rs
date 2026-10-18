@@ -206,7 +206,7 @@ pub fn encode(segment: &Segment<'_>, mtu: usize) -> Result<Packet> {
     }
     let header = 20 + used.div_ceil(4) * 4;
     let size = ip + header + payload.len();
-    if !(tun::MIN_MTU..=tun::MAX_MTU).contains(&mtu)
+    if !(if ip == 20 { 68 } else { 1280 }..=tun::MAX_MTU).contains(&mtu)
         || source.port() == 0
         || destination.port() == 0
     {

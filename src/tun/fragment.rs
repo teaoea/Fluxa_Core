@@ -42,6 +42,35 @@ impl Identifiers {
     }
 }
 
+/// 分片及 UDP 流共用不复用标识；耗尽后要求静默期，避免旧引用误关联到新流。
+pub(super) fn identity(ipv4: bool) -> Result<u32> {
+    (if ipv4 { &IPV4 } else { &IPV6 })
+        .lock()
+        .map_err(|_| Error::Internal)?
+        .take(
+            if ipv4 {
+                u16::MAX as u64
+            } else {
+                u32::MAX as u64
+            },
+            Instant::now(),
+        )
+}
+
+pub(super) fn flow_identity(ipv4: bool) -> Result<u32> {
+    if ipv4 {
+        return identity(true);
+    }
+    static LABELS: Mutex<Identifiers> = Mutex::new(Identifiers {
+        next: 0,
+        last: None,
+    });
+    LABELS
+        .lock()
+        .map_err(|_| Error::Internal)?
+        .take(0xfffff, Instant::now())
+}
+
 /// 完整报文最多 9000 字节，MTU 至少 1280，最多产生八片。
 pub(crate) fn encode(
     source: SocketAddr,
@@ -50,6 +79,18 @@ pub(crate) fn encode(
     mtu: usize,
 ) -> Result<Datagram> {
     if !(MIN_MTU..=MAX_MTU).contains(&mtu) {
+        return Err(Error::InvalidInput);
+    }
+    encode_path(source, destination, payload, mtu)
+}
+/// 经路径反馈降低的 IPv4 MTU 可以小于接口配置下限；仍保留最多八片与总字节预算。
+pub(crate) fn encode_path(
+    source: SocketAddr,
+    destination: SocketAddr,
+    payload: &[u8],
+    mtu: usize,
+) -> Result<Datagram> {
+    if !(if source.is_ipv4() { 68 } else { MIN_MTU }..=MAX_MTU).contains(&mtu) {
         return Err(Error::InvalidInput);
     }
     let packet = encode_udp(source, destination, payload, MAX_MTU)?;
@@ -65,17 +106,7 @@ pub(crate) fn encode(
     if count > 8 {
         return Err(Error::ResourceLimit);
     }
-    let id = if ipv4 { &IPV4 } else { &IPV6 }
-        .lock()
-        .map_err(|_| Error::Internal)?
-        .take(
-            if ipv4 {
-                u16::MAX as u64
-            } else {
-                u32::MAX as u64
-            },
-            Instant::now(),
-        )?;
+    let id = identity(ipv4)?;
     let mut packets = VecDeque::with_capacity(count);
     for (index, body) in transport.chunks(chunk).enumerate() {
         let offset = index * chunk;
