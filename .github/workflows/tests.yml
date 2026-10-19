@@ -54,6 +54,11 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONDONTWRITEBYTECODE: '1'
+      # 保留调试断言，避免全目标链接的符号与增量缓存耗尽托管运行器磁盘。
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
       FLUXA_TEST_EVIDENCE_DIR: /tmp/fluxa-linux-tcp-evidence
     steps:
       - uses: actions/checkout@v4
