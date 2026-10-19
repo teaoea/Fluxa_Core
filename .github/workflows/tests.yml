@@ -1,8 +1,7 @@
 name: 测试与报告契约
+# 发布改为受控本机手动上传；此工作流仅保留按需测试，不参与发布。
 on:
-  push:
-    branches: [dev, main]
-  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -88,27 +87,3 @@ jobs:
             tests/test_tun_udp.md
             /tmp/fluxa-linux-tcp-evidence/
           if-no-files-found: error
-
-  dev-release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    needs: [rust, tcp-linux]
-    runs-on: macos-15
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - name: 安装固定构建工具链
-        run: |
-          rustup toolchain install 1.98.1 --profile minimal
-          rustup default 1.98.1
-          cargo fetch --locked
-      - name: 构建并发布本提交的不稳定测试附件
-        env:
-          FLUXA_BINARY_PUBLISH_TOKEN: ${{ secrets.FLUXA_BINARY_PUBLISH_TOKEN }}
-          FLUXA_DEV_SOURCE: ${{ github.sha }}
-          FLUXA_DEV_REPOSITORY: ${{ github.repository }}
-          FLUXA_DEV_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash Tools/dev-release.sh

@@ -112,8 +112,8 @@ def validate_assets(release):
 def publish(source, version, run, writer, directory):
     if not re.fullmatch(r'[0-9a-f]{40}', source) or not re.fullmatch(r'\d+\.\d+\.\d+-dev', version):
         raise ValueError('源码或 dev 版本无效')
-    if not re.fullmatch(r'https://github.com/teaoea/Fluxa_Core/actions/runs/\d+', run):
-        raise ValueError('验证记录来源无效')
+    if not re.fullmatch(r'manual-local:[0-9a-f]{64}', run):
+        raise ValueError('必须提供本机验证记录的 SHA-256，不接受 Actions 运行地址')
     tag = 'v' + version + '.' + source
     record = verify_files(directory)
     allowed = {'version', 'tag', 'source_commit', 'unstable', 'platforms', 'minimum_macos',
@@ -158,7 +158,7 @@ def publish(source, version, run, writer, directory):
         raise ValueError('分发标签冲突；禁止移动')
     notes = directory / 'notes.md'
     notes.write_text('作者：可莉唯一的狗。\n\n不稳定测试版本，不代表系统 VPN 或最低系统验收完成。\n\n'
-                     + '内核源码：' + source + '\n\n门禁：' + run + '\n\n不发布 crates.io，不更新稳定版 latest。\n')
+                     + '内核源码：' + source + '\n\n本机验证记录摘要：' + run + '\n\n不发布 crates.io，不更新稳定版 latest。\n')
     writer.release('create', tag, *(str(directory / name) for name in FILES), '--repo', DESTINATION,
                    '--verify-tag', '--target', anchor, '--draft', '--prerelease', '--latest=false',
                    '--title', 'libfluxa_core ' + version + '（不稳定测试）', '--notes-file', str(notes))
@@ -173,11 +173,18 @@ def publish(source, version, run, writer, directory):
 def main():
     source = os.environ.get('FLUXA_DEV_SOURCE', '')
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-    if source != actual or os.environ.get('GITHUB_REF') != 'refs/heads/dev':
-        raise ValueError('只允许已检出的 dev 门禁提交分发')
+    branch = subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()
+    if source != actual or branch != 'dev':
+        raise ValueError('只允许已检出的 dev 本机验证提交分发')
     if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all']):
         raise ValueError('发布时源码不再干净，拒绝上传')
     version = re.search(r'^version = "([^"]+)"', Path('Cargo.toml').read_text(), re.M)[1]
+    verification = os.environ.get('FLUXA_DEV_VERIFICATION', '')
+    if not verification:
+        raise ValueError('缺少本机验证记录')
+    checked = subprocess.check_output(['python3', 'Tools/verify-manual-release.py', verification], text=True).strip()
+    if checked != os.environ.get('FLUXA_DEV_RUN'):
+        raise ValueError('上传摘要与本机验证记录不一致')
     writer = GitHub(os.environ.get('FLUXA_BINARY_PUBLISH_TOKEN'))
     import sys
     if len(sys.argv) != 2:

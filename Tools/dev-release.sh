@@ -1,5 +1,5 @@
 #!/bin/bash
-# 每个已通过门禁的 dev 提交只发布 GitHub 不稳定附件；无 crates.io 凭据或发布命令。
+# 本机手动准备 dev 附件；上传为显式步骤，不依赖 GitHub Actions。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || { echo '测试附件当前只支持 macOS ARM64'; exit 1; }
@@ -10,10 +10,13 @@ cd "$(dirname "$0")/.."
 version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev$ ]] || { echo 'dev 必须使用不稳定版本号'; exit 1; }
 tag="v${version}.${FLUXA_DEV_SOURCE}"
-work="$(mktemp -d /tmp/fluxa-dev-release.XXXXXX)"
-trap 'rm -rf "$work"' EXIT
-# 缺少跨仓库授权时提前拒绝；源码仓库不承担任何二进制暂存发布。
-[[ -n "${FLUXA_BINARY_PUBLISH_TOKEN:-}" ]] || { echo '缺少公开分发仓库发布授权'; exit 1; }
+[[ "${1:-}" == --prepare && $# -eq 2 ]] || { echo '用法：Tools/dev-release.sh --prepare <全新附件目录>'; exit 1; }
+[[ -n "${FLUXA_DEV_VERIFICATION:-}" ]] || { echo '缺少本机验证记录'; exit 1; }
+# 本机记录必须与确定提交和当前完整源码指纹绑定；失败、未执行和旧指纹不得发布。
+FLUXA_DEV_RUN="$(python3 Tools/verify-manual-release.py "$FLUXA_DEV_VERIFICATION")"
+export FLUXA_DEV_RUN
+mkdir "$2"
+work="$(cd "$2" && pwd)"
 bash build-macos.sh
 ditto -c -k --keepParent Vendor/FluxaEngine.xcframework "$work/FluxaEngine.xcframework.zip"
 # 独立 HTTPS 互通服务供远程二进制适配测试使用，与框架来自同一源码。
@@ -31,4 +34,6 @@ record={'version':sys.argv[2],'tag':sys.argv[3],'source_commit':os.environ['FLUX
 (root/'notes.md').write_text('不稳定测试版本，仅供开发验证；不代表系统 VPN 已完成或正式发布。\n\n源码：'+record['source_commit']+'\n基础版本：'+record['version']+'\n平台：macOS ARM64，最低部署 14.0（最低系统运行未验收）。\n框架 SHA-256：'+record['framework_sha256']+'\n检查：'+record['verification_run']+'\n\n不发布 crates.io，不移动正式 latest，不提供 iOS/tvOS/Intel 切片。\n')
 PY
 # 公开仓库仅登记来源清单及 Release 附件；源码、测试与构建脚本不向外复制。
-python3 Tools/publish-core-binaries.py "$work"
+printf '已准备手动上传附件：%s\n' "$work"
+printf '先在 teaoea/libfluxa-core 创建草稿，上传三个白名单附件，下载校验后再公开。\n'
+# 有现成的有限分发凭据时，也可显式运行 publish-core-binaries.py；不读取 Actions secret。

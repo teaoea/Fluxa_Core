@@ -1370,12 +1370,12 @@
       "file": "tests/test_dev_release.py",
       "kind": "python_unit",
       "sources": [
-        "Tools/dev-release.sh；Tools/publish-core-binaries.py；build-macos.sh；.github/workflows/tests.yml：公开二进制白名单与禁止源码发布"
+        "Tools/dev-release.sh；Tools/publish-core-binaries.py；Tools/verify-manual-release.py；build-macos.sh；.github/workflows/tests.yml：本机手动发布与公开白名单"
       ],
       "declared_cases": [
         "test_dirty_source_never_publishes",
         "test_wrong_source_never_publishes",
-        "test_missing_credential_never_builds",
+        "test_missing_verification_never_builds",
         "test_wrong_provenance_never_publishes",
         "test_unknown_manifest_fields_never_become_public",
         "test_implementation_sources_never_become_public",
@@ -1388,7 +1388,10 @@
         "test_conflicting_tag_is_not_moved",
         "test_api_auth_failure_is_not_missing_release",
         "test_policy_blocks_crates_and_source_release",
-        "test_framework_preserves_current_license_files"
+        "test_framework_preserves_current_license_files",
+        "test_actions_reference_is_rejected",
+        "test_manual_verification_rejects_stale_and_incomplete_evidence",
+        "test_prepare_does_not_require_upload_credentials"
       ]
     },
     {

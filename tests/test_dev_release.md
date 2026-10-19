@@ -1,18 +1,18 @@
 # 测试报告：test_dev_release
 
-<!-- fluxa-test-report:{"command": ["python3", "/private/tmp/fluxa-release-ci-core/tests/test_dev_release.py", "-v", "-b"], "exit_code": 0, "duration_seconds": 2.6879216670000003, "status": "PASS", "discovered": ["test_dirty_source_never_publishes", "test_wrong_source_never_publishes", "test_missing_credential_never_builds", "test_wrong_provenance_never_publishes", "test_unknown_manifest_fields_never_become_public", "test_implementation_sources_never_become_public", "test_checksum_failure_never_publishes", "test_symlink_input_never_publishes", "test_new_release_stays_prerelease_and_not_latest", "test_existing_release_is_verified_without_overwrite", "test_failed_upload_never_publishes_draft", "test_download_mismatch_never_publishes_draft", "test_conflicting_tag_is_not_moved", "test_api_auth_failure_is_not_missing_release", "test_policy_blocks_crates_and_source_release", "test_framework_preserves_current_license_files"], "results": {"test_dirty_source_never_publishes": "PASS", "test_wrong_source_never_publishes": "PASS", "test_missing_credential_never_builds": "PASS", "test_wrong_provenance_never_publishes": "PASS", "test_unknown_manifest_fields_never_become_public": "PASS", "test_implementation_sources_never_become_public": "PASS", "test_checksum_failure_never_publishes": "PASS", "test_symlink_input_never_publishes": "PASS", "test_new_release_stays_prerelease_and_not_latest": "PASS", "test_existing_release_is_verified_without_overwrite": "PASS", "test_failed_upload_never_publishes_draft": "PASS", "test_download_mismatch_never_publishes_draft": "PASS", "test_conflicting_tag_is_not_moved": "PASS", "test_api_auth_failure_is_not_missing_release": "PASS", "test_policy_blocks_crates_and_source_release": "PASS", "test_framework_preserves_current_license_files": "PASS"}, "fingerprint": "0fe6bc8022959c0c365dab8215dc1d8ba3e40cc86485f729b9767ec2b05271e8", "time": "2026-10-19T09:06:48.401919+08:00", "scope": "逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_dev_release", "file": "tests/test_dev_release.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "938903d3556deb78874c327d75dab425fdb7e4cf", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["python3", "tests/test_dev_release.py", "-v", "-b"], "exit_code": 0, "duration_seconds": 1.963068917, "status": "PASS", "discovered": ["test_dirty_source_never_publishes", "test_wrong_source_never_publishes", "test_missing_verification_never_builds", "test_wrong_provenance_never_publishes", "test_unknown_manifest_fields_never_become_public", "test_implementation_sources_never_become_public", "test_checksum_failure_never_publishes", "test_symlink_input_never_publishes", "test_new_release_stays_prerelease_and_not_latest", "test_existing_release_is_verified_without_overwrite", "test_failed_upload_never_publishes_draft", "test_download_mismatch_never_publishes_draft", "test_conflicting_tag_is_not_moved", "test_api_auth_failure_is_not_missing_release", "test_policy_blocks_crates_and_source_release", "test_framework_preserves_current_license_files", "test_actions_reference_is_rejected", "test_manual_verification_rejects_stale_and_incomplete_evidence", "test_prepare_does_not_require_upload_credentials"], "results": {"test_dirty_source_never_publishes": "PASS", "test_wrong_source_never_publishes": "PASS", "test_missing_verification_never_builds": "PASS", "test_wrong_provenance_never_publishes": "PASS", "test_unknown_manifest_fields_never_become_public": "PASS", "test_implementation_sources_never_become_public": "PASS", "test_checksum_failure_never_publishes": "PASS", "test_symlink_input_never_publishes": "PASS", "test_new_release_stays_prerelease_and_not_latest": "PASS", "test_existing_release_is_verified_without_overwrite": "PASS", "test_failed_upload_never_publishes_draft": "PASS", "test_download_mismatch_never_publishes_draft": "PASS", "test_conflicting_tag_is_not_moved": "PASS", "test_api_auth_failure_is_not_missing_release": "PASS", "test_policy_blocks_crates_and_source_release": "PASS", "test_framework_preserves_current_license_files": "PASS", "test_actions_reference_is_rejected": "PASS", "test_manual_verification_rejects_stale_and_incomplete_evidence": "PASS", "test_prepare_does_not_require_upload_credentials": "PASS"}, "fingerprint": "444e04f21728f294c299f84c57a9afe9007ba718eeca4f789065414df96e34d8", "time": "2026-10-19T15:41:30.020120+08:00", "scope": "逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_dev_release", "file": "tests/test_dev_release.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0c4891c6616c2c6a3b46615fb15ffe0dc48d5326", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
 - 测试文件：`tests/test_dev_release.py`
-- 测试对象：Tools/dev-release.sh；Tools/publish-core-binaries.py；build-macos.sh；.github/workflows/tests.yml：公开二进制白名单与禁止源码发布
+- 测试对象：Tools/dev-release.sh；Tools/publish-core-binaries.py；Tools/verify-manual-release.py；build-macos.sh；.github/workflows/tests.yml：本机手动发布与公开白名单
 - 执行机制：python_unit
 - 测试范围：逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。
-- 实际命令：`python3 /private/tmp/fluxa-release-ci-core/tests/test_dev_release.py -v -b`
-- 执行时间：2026-10-19T09:06:48.401919+08:00
-- 实际耗时：2.6879216670000003 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "938903d3556deb78874c327d75dab425fdb7e4cf", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`0fe6bc8022959c0c365dab8215dc1d8ba3e40cc86485f729b9767ec2b05271e8`
+- 实际命令：`python3 tests/test_dev_release.py -v -b`
+- 执行时间：2026-10-19T15:41:30.020120+08:00
+- 实际耗时：1.963068917 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "0c4891c6616c2c6a3b46615fb15ffe0dc48d5326", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`444e04f21728f294c299f84c57a9afe9007ba718eeca4f789065414df96e34d8`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | `test_dirty_source_never_publishes` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_wrong_source_never_publishes` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `test_missing_credential_never_builds` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `test_missing_verification_never_builds` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_wrong_provenance_never_publishes` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_unknown_manifest_fields_never_become_public` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_implementation_sources_never_become_public` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
@@ -36,12 +36,15 @@
 | `test_api_auth_failure_is_not_missing_release` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_policy_blocks_crates_and_source_release` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_framework_preserves_current_license_files` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `test_actions_reference_is_rejected` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `test_manual_verification_rejects_stale_and_incomplete_evidence` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `test_prepare_does_not_require_upload_credentials` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：16
-- 实际执行完成：16
-- 通过：16
+- 实际发现：19
+- 实际执行完成：19
+- 通过：19
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -61,7 +64,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/var/folders/jt/73g_dh311h58pwwk_cmw6s8r0000gn/T/fluxa-test-evidence-lf6ffrv9/test_dev_release.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/var/folders/jt/73g_dh311h58pwwk_cmw6s8r0000gn/T/fluxa-test-evidence-vtgo0158/test_dev_release.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

@@ -1,7 +1,7 @@
 # 测试文件：tests/test_dev_release.py
 # 测试类型：发布控制流离线回归
-# 测试对象：Tools/dev-release.sh；Tools/publish-core-binaries.py；build-macos.sh；.github/workflows/tests.yml
-# 测试内容：test_dirty_source_never_publishes；test_wrong_source_never_publishes；test_missing_credential_never_builds；test_wrong_provenance_never_publishes；test_unknown_manifest_fields_never_become_public；test_implementation_sources_never_become_public；test_checksum_failure_never_publishes；test_symlink_input_never_publishes；test_new_release_stays_prerelease_and_not_latest；test_existing_release_is_verified_without_overwrite；test_failed_upload_never_publishes_draft；test_download_mismatch_never_publishes_draft；test_conflicting_tag_is_not_moved；test_api_auth_failure_is_not_missing_release；test_policy_blocks_crates_and_source_release；test_framework_preserves_current_license_files。
+# 测试对象：Tools/dev-release.sh；Tools/publish-core-binaries.py；Tools/verify-manual-release.py；build-macos.sh；.github/workflows/tests.yml
+# 测试内容：test_dirty_source_never_publishes；test_wrong_source_never_publishes；test_missing_verification_never_builds；test_wrong_provenance_never_publishes；test_unknown_manifest_fields_never_become_public；test_implementation_sources_never_become_public；test_checksum_failure_never_publishes；test_symlink_input_never_publishes；test_new_release_stays_prerelease_and_not_latest；test_existing_release_is_verified_without_overwrite；test_failed_upload_never_publishes_draft；test_download_mismatch_never_publishes_draft；test_conflicting_tag_is_not_moved；test_api_auth_failure_is_not_missing_release；test_policy_blocks_crates_and_source_release；test_framework_preserves_current_license_files；test_actions_reference_is_rejected；test_manual_verification_rejects_stale_and_incomplete_evidence；test_prepare_does_not_require_upload_credentials。
 # 测试依据：永久禁止 crates.io、源码仓库禁止发布二进制、公开仓库禁止源码与不可覆盖约定。
 # 前置条件：Git、Bash、Python；网络发布使用明确的离线夹具，不访问真实发布服务。
 import base64
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('publisher', ROOT/'Tools/publish-core-binaries.py')
 publisher = importlib.util.module_from_spec(spec); spec.loader.exec_module(publisher)
 SOURCE = 'a' * 40
-RUN = 'https://github.com/teaoea/Fluxa_Core/actions/runs/123'
+RUN = 'manual-local:' + 'd' * 64
 VERSION = '2.6.1-dev'
 
 class Remote:
@@ -99,9 +99,9 @@ class DevReleaseTests(unittest.TestCase):
         (self.repo/'untracked').write_text('dirty'); self.assertNotEqual(self.run_release().returncode,0)
     def test_wrong_source_never_publishes(self):
         self.env['FLUXA_DEV_SOURCE']='0'*40; self.assertNotEqual(self.run_release().returncode,0)
-    def test_missing_credential_never_builds(self):
-        self.env.pop('FLUXA_BINARY_PUBLISH_TOKEN'); result=self.run_release()
-        self.assertNotEqual(result.returncode,0); self.assertIn('缺少公开分发仓库发布授权',result.stdout)
+    def test_missing_verification_never_builds(self):
+        result=subprocess.run(['bash','Tools/dev-release.sh','--prepare',str(self.home/'output')],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+        self.assertNotEqual(result.returncode,0); self.assertIn('缺少本机验证记录',result.stdout)
     def test_wrong_provenance_never_publishes(self):
         self.record['source_commit']='f'*40; self.save_record()
         with self.assertRaises(ValueError): self.publish()
@@ -157,7 +157,33 @@ class DevReleaseTests(unittest.TestCase):
         self.assertFalse((ROOT/'.github/workflows/release.yml').exists())
         self.assertNotIn('gh release ',(ROOT/'Tools/dev-release.sh').read_text())
         workflow=(ROOT/'.github/workflows/tests.yml').read_text()
-        self.assertIn('secrets.FLUXA_BINARY_PUBLISH_TOKEN',workflow)
+        self.assertNotIn('dev-release:',workflow)
+        self.assertNotIn('secrets.FLUXA_BINARY_PUBLISH_TOKEN',workflow)
+        self.assertIn('workflow_dispatch:',workflow)
+    def test_actions_reference_is_rejected(self):
+        self.record['verification_run']='https://github.com/teaoea/Fluxa_Core/actions/runs/123'
+        self.save_record()
+        with self.assertRaises(ValueError):
+            publisher.publish(SOURCE,VERSION,self.record['verification_run'],self.remote,self.assets)
+        self.assertEqual(self.remote.calls,[])
+    def test_manual_verification_rejects_stale_and_incomplete_evidence(self):
+        import sys
+        sys.path.insert(0,str(ROOT/'Tools'))
+        spec=importlib.util.spec_from_file_location('manual',ROOT/'Tools/verify-manual-release.py')
+        manual=importlib.util.module_from_spec(spec);spec.loader.exec_module(manual)
+        path=self.home/'verification.json'
+        record={'source_commit':SOURCE,'fingerprint':'fixed','checks':{name:{'status':'PASS','exit_code':0} for name in ['format','clippy','rust_tests','error_contract','swift_ffi']},'unverified':['真实系统 VPN']}
+        with patch.object(manual.subprocess,'check_output',return_value=SOURCE+'\n'),patch.object(manual.test_reports,'fingerprint',return_value='fixed'):
+            path.write_text(json.dumps(record));self.assertTrue(manual.verify(path).startswith('manual-local:'))
+            record['fingerprint']='stale';path.write_text(json.dumps(record))
+            with self.assertRaises(ValueError):manual.verify(path)
+            record['fingerprint']='fixed';record['checks']['swift_ffi']={'status':'NOT RUN','exit_code':0};path.write_text(json.dumps(record))
+            with self.assertRaises(ValueError):manual.verify(path)
+    def test_prepare_does_not_require_upload_credentials(self):
+        script=(ROOT/'Tools/dev-release.sh').read_text()
+        self.assertNotIn('${FLUXA_BINARY_PUBLISH_TOKEN',script)
+        self.assertIn('Tools/verify-manual-release.py',script)
+        self.assertIn('--prepare',script)
     def test_framework_preserves_current_license_files(self):
         # 运行真实打包脚本，仅替换耗时的工具；文件复制不打桩，能检出许可文件改名遗漏。
         shutil.copyfile(ROOT/'build-macos.sh',self.repo/'build-macos.sh')
