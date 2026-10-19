@@ -157,7 +157,8 @@
         "admission_failure_keeps_tcp_bytes_and_returns_reservations",
         "admission_failure_keeps_tun_return_packet",
         "nested_runtime_does_not_detach_failed_http_calls",
-        "candidate_commands_are_safe_on_bounded_host_stack"
+        "candidate_commands_are_safe_on_bounded_host_stack",
+        "storage_commands_reject_unentitled_hosts_and_role_injection"
       ]
     },
     {
@@ -1207,7 +1208,10 @@
       "file": "tests/test_outbound_configuration.rs",
       "kind": "unit",
       "sources": [
-        "src/outbound/configuration.rs"
+        "src/outbound/configuration.rs",
+        "src/dns/main.rs",
+        "src/providers.rs",
+        "src/outbound/execution.rs"
       ],
       "module": "test_outbound_configuration",
       "declared_cases": [
@@ -1217,7 +1221,13 @@
         "replacement_releases_unreferenced_old_snapshot",
         "partial_updates_invalidate_summary_but_retain_budget",
         "debug_overlay_survives_main_commit",
-        "concurrent_candidates_have_one_commit_winner"
+        "concurrent_candidates_have_one_commit_winner",
+        "admitted_family_fallback_survives_configuration_replacement",
+        "named_numeric_dns_failure_never_uses_direct",
+        "explicit_doh_ignores_formal_route_and_retires_old_resolver",
+        "geoip_ready_failure_atomicity_and_disabled_rules",
+        "preferred_family_order_ip_reject_and_nxdomain",
+        "ordered_upstreams_get_independent_deadlines"
       ]
     },
     {
@@ -1300,13 +1310,14 @@
       "file": "tests/test_platform_providers.rs",
       "kind": "unit",
       "sources": [
-        "src/platform/providers.rs"
+        "src/platform/providers.rs",
+        "src/platform/storage.rs"
       ],
       "module": "test_platform_providers",
       "declared_cases": [
         "exchange_swaps_whole_directories_without_missing_target",
         "local_calendar_uses_valid_civil_dates_and_bounded_time",
-        "asset_parent_is_platform_scoped"
+        "shared_container_requires_real_entitlement"
       ]
     },
     {
@@ -1337,26 +1348,6 @@
         "bootstrap_ttl_rebuild_and_system_dnssec_fail_closed",
         "initialization_failure_never_publishes_partial_endpoints",
         "close_stops_idle_dns_transport_before_waiting"
-      ]
-    },
-    {
-      "id": "test_dns_geoip_contract",
-      "file": "tests/test_dns_geoip_contract.rs",
-      "kind": "integration",
-      "sources": [
-        "src/dns/main.rs",
-        "src/providers.rs",
-        "src/outbound/configuration.rs",
-        "src/outbound/execution.rs"
-      ],
-      "target": "test_dns_geoip_contract",
-      "declared_cases": [
-        "explicit_doh_ignores_formal_route_and_retires_old_resolver",
-        "geoip_ready_failure_atomicity_and_disabled_rules",
-        "preferred_family_order_ip_reject_and_nxdomain",
-        "ordered_upstreams_get_independent_deadlines",
-        "named_numeric_dns_failure_never_uses_direct",
-        "admitted_family_fallback_survives_configuration_replacement"
       ]
     },
     {
@@ -1420,6 +1411,26 @@
         "slots_are_bounded_before_background_work",
         "geoip_failure_is_error_not_disabled_success",
         "total_deadline_has_its_own_error_and_releases_resources"
+      ]
+    },
+    {
+      "id": "test_storage",
+      "file": "tests/test_storage.rs",
+      "kind": "unit",
+      "sources": [
+        "src/storage.rs",
+        "src/platform/storage.rs",
+        "src/configuration/defaults.rs"
+      ],
+      "module": "test_storage",
+      "declared_cases": [
+        "default_is_complete_localized_and_fail_closed",
+        "create_once_preserves_existing_yaml",
+        "extension_reads_but_cannot_write",
+        "invalid_input_and_links_are_rejected",
+        "concurrent_creation_never_overwrites",
+        "save_validates_before_replacing",
+        "cross_process_initialization_is_exclusive"
       ]
     }
   ]

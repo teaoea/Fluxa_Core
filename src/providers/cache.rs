@@ -186,11 +186,7 @@ impl Cache {
         }
         // 用户目录必须可信；只创建自己管理的两级目录，不递归穿越外部符号链接。
         let home = fs::canonicalize(home)?;
-        let mut parent = home;
-        for component in crate::platform::providers::asset_parent_components() {
-            parent = parent.join(component);
-            directory(&parent)?;
-        }
+        let parent = home;
         let path = parent.join(".rule-providers.lock");
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -209,7 +205,7 @@ impl Cache {
             fs::TryLockError::WouldBlock => Error::InvalidState,
             fs::TryLockError::Error(e) => e.into(),
         })?;
-        let path = parent.join("rules");
+        let path = parent.join("rule");
         directory(&path)?;
         // 独占租约后清理中断留下的内部暂存目录；不接触公开 YAML 名称或外部路径。
         for entry in fs::read_dir(&parent)? {

@@ -1,7 +1,7 @@
 [package]
 autotests = false
 name = "libfluxa_core"
-version = "2.6.2-dev"
+version = "2.7.0-dev"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.89"
@@ -130,7 +130,3 @@ path = "tests/test_main_configuration_contract.rs"
 [[test]]
 name = "test_provider_contract"
 path = "tests/test_provider_contract.rs"
-
-[[test]]
-name = "test_dns_geoip_contract"
-path = "tests/test_dns_geoip_contract.rs"

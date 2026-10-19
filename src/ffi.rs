@@ -308,6 +308,7 @@ fn output_limit(input: &[u8]) -> usize {
             if matches!(
                 hint.operation.as_str(),
                 "request"
+                    | "configuration_load"
                     | "https"
                     | "subscription_fetch"
                     | "subscription_rules"
@@ -339,6 +340,17 @@ enum Command {
         yaml: String,
     },
     ConfigurationStatus,
+    /// 仅初始化系统共享容器中的缺省配置，不提交网络配置。
+    StorageInitialize {},
+    /// 只读加载配置，不创建文件或接受调用者自报的宿主角色。
+    ConfigurationLoad {
+        filename: String,
+    },
+    /// 宿主身份由系统读取，扩展进程不能通过 JSON 自报写入权限。
+    ConfigurationSave {
+        filename: String,
+        yaml: String,
+    },
     /// 只准备隔离资产，不允许网络接管；成功通过状态查询读取。
     VpnPreparationBegin {
         yaml: String,
@@ -423,9 +435,7 @@ enum Command {
     OutboundCloseAll,
     DnsConfigure(crate::dns::Config),
     DnsValidate(crate::dns::Config),
-    RuntimeRulesOpen {
-        directory: String,
-    },
+    RuntimeRulesOpen {},
     RuntimeRulesStatus,
     RuntimeRulesBegin {
         settings: crate::routing::Config,
@@ -552,6 +562,10 @@ impl RuntimeRulesSummary {
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     configuration: Option<crate::configuration::Summary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_configuration_created: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configuration_yaml: Option<crate::storage::ConfigurationText>,
     #[serde(skip_serializing_if = "Option::is_none")]
     configuration_status: Option<crate::configuration::ConfigurationStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1271,15 +1285,12 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ..Reply::default()
             })
         },
-        Command::RuntimeRulesOpen { directory } => {
-            if directory.len() > 4096 {
-                return Err(Error::InvalidInput);
-            }
+        Command::RuntimeRulesOpen {} => {
             let mut guard = engine.runtime_rules.lock().map_err(|_| Error::Internal)?;
             if guard.is_some() {
                 return Err(Error::InvalidState);
             }
-            let store = crate::routing::store::Store::open(directory)?;
+            let store = crate::routing::store::Store::open(crate::storage::runtime_rule_directory()?)?;
             let summary = match store.snapshot() {
                 Ok(snapshot) => {
                     engine.outbound.configure_routing(Some(Arc::new(
@@ -1395,6 +1406,21 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 success: true,
                 ..Reply::default()
             })
+        },
+        Command::StorageInitialize {} => Ok(Reply {
+            success: true,
+            default_configuration_created: Some(crate::storage::initialize()?),
+            ..Reply::default()
+        }),
+        Command::ConfigurationLoad { filename } => Ok(Reply {
+            success: true,
+            configuration_yaml: Some(crate::storage::read_configuration(&filename)?),
+            ..Reply::default()
+        }),
+        Command::ConfigurationSave { filename, yaml } => {
+            let yaml = Zeroizing::new(yaml);
+            crate::storage::save_configuration(&filename, &yaml)?;
+            Ok(Reply { success: true, ..Reply::default() })
         },
         Command::ConfigurationApply { yaml } => apply_configuration(engine, yaml),
         Command::ProviderStatus => Ok(Reply {
@@ -1774,9 +1800,12 @@ pub extern "C" fn fluxa_engine_capabilities() -> u64 {
     const TUN_TCP_CAPABILITY: u64 = 1 << 28;
     // 位 29：隔离候选资产准备，不表示前置检查通过或系统 VPN 可用。
     const VPN_CANDIDATE_CAPABILITY: u64 = 1 << 29;
+    // 位 30：系统共享容器中的默认配置与受控保存；仍需真实宿主 entitlement。
+    const SHARED_STORAGE_CAPABILITY: u64 = 1 << 30;
     33554431
         | TUN_TCP_CAPABILITY
         | VPN_CANDIDATE_CAPABILITY
+        | SHARED_STORAGE_CAPABILITY
         | STRUCTURED_ERROR_CAPABILITY
         | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {

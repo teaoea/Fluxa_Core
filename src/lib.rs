@@ -21,6 +21,8 @@ pub mod providers;
 pub mod rewrite;
 pub mod routing;
 pub mod script;
+/// 共享容器配置读写；扩展宿主只读。
+pub mod storage;
 pub mod subscription;
 pub mod traffic_script;
 pub mod tun;

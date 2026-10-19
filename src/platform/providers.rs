@@ -99,19 +99,3 @@ pub(crate) fn exchange(left: &Path, right: &Path) -> Result<()> {
 #[cfg(test)]
 #[path = "../../tests/test_platform_providers.rs"]
 mod test_platform_providers;
-
-/// 数据目录来自当前进程沙盒 HOME；内核选择系统约定，不接受远程配置任意写入路径。
-pub(crate) fn asset_parent_components() -> &'static [&'static str] {
-    #[cfg(any(target_os = "ios", target_os = "tvos"))]
-    {
-        if cfg!(target_os = "tvos") {
-            &["Library", "Caches", "Fluxa"]
-        } else {
-            &["Library", "Application Support", "Fluxa"]
-        }
-    }
-    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
-    {
-        &[".fluxa"]
-    }
-}

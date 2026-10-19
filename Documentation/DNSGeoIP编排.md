@@ -35,9 +35,8 @@ Rust 使用 Arc<outbound::Manager>::apply_configuration_async；显式企业 TLS
 
 | 平台 | 资产目录 |
 | --- | --- |
-| macOS / 现行非移动默认平台 | ~/.fluxa/rules/ |
-| iOS / iPadOS | 应用沙箱 Library/Application Support/Fluxa/rules/ |
-| tvOS | 应用沙箱 Library/Caches/Fluxa/rules/ |
+| Apple 平台 | 系统 App Group 容器的 rule/，组标识 group.app.fluxa.ios |
+| 非 Apple 宿主 | 本轮未提供系统共享容器适配，明确 Unsupported，不回退 HOME |
 
 提供者文件 <name>.yaml，数据库固定 geoip.mmdb，共用受保护目录和整目录交换。清单写版本 2、接受 1/2。启动流式验证已有二进制摘要，不加载为 Ready；禁用不初始化。禁用保留文件，规则更新用 16 KiB 缓冲保留其内容。损坏资产受控拒绝；显式强制刷新可用新验证库修复损坏 GeoIP。摘要保证一致性，不代替 HTTPS 认证或外部签名。
 
@@ -54,7 +53,7 @@ Database Reader 与持久化正文共享 Arc<Vec<u8>>，不为保存再复制整
 | 无部分端点、零 TTL、主动关闭 | dns/main.rs initialize/bootstrap，dns/mod.rs cleanup | test_dns_main：失败重复初始化、零 TTL、保留旧引用及空闲连接关闭 |
 | 仅允许失败换族 | outbound/execution.rs | preferred_family_order_ip_reject_and_nxdomain；admitted_family_fallback_survives_configuration_replacement |
 | Ready 门禁、失败旧版本保留 | providers.rs update，configuration/rules.rs | geoip_ready_failure_atomicity_and_disabled_rules；test_providers 本地日期幂等 |
-| 资产原子提交与损坏拒绝 | providers/cache.rs | geoip_binary_and_rules_share_atomic_batch；私有 HOME 子进程文件检查 |
+| 资产原子提交与损坏拒绝 | providers/cache.rs | geoip_binary_and_rules_share_atomic_batch；私有目录夹具的文件检查 |
 | API 状态一致，无独立关闭破坏事务 | ffi.rs | main_dns_and_geoip_status_use_same_configuration |
 
 L1/L2 以真实检查命令和报告退出码为准；L3 以表中用户确认规范核对，不能凭两个实现一致；L4 核对报告、原始日志和指纹。尚未验证：外部 VLESS DNS 成功互通、移动设备路径/权限与 tvOS 清缓存、真实夏令时、系统 VPN、断电恢复、RSS 硬上限。系统代理、局域网共享、文件日志保持 TODO 暂存。

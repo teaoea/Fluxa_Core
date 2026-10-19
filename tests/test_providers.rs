@@ -131,7 +131,7 @@ async fn import_reuse_refresh_and_restart_keep_policy_and_atomic_cache() {
     assert_eq!(policy(&manager, "new.remote"), Policy::Reject);
     assert_eq!(policy(&manager, "ads.example"), Policy::Direct);
     assert!(
-        std::fs::read_to_string(home.join(".fluxa/rules/one.yaml"))
+        std::fs::read_to_string(home.join("rule/one.yaml"))
             .unwrap()
             .contains("new.remote")
     );
@@ -180,7 +180,7 @@ async fn invalid_update_keeps_files_snapshot_and_live_connection() {
         )
         .await
         .unwrap();
-    let file = home.join(".fluxa/rules/one.yaml");
+    let file = home.join("rule/one.yaml");
     let content = std::fs::read(&file).unwrap();
     let revision = manager.network_snapshot().unwrap().revision;
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -332,7 +332,7 @@ async fn disabled_manual_and_policy_edits_reuse_body_without_rewriting() {
     assert_eq!(fixture.provider.requests.load(Ordering::SeqCst), 1);
     assert_eq!(policy(&manager, "ads.example"), Policy::Direct);
     assert!(!manager.provider_status().unwrap().providers[0].enabled);
-    let file = home.join(".fluxa/rules/one.yaml");
+    let file = home.join("rule/one.yaml");
     let inode = std::fs::metadata(&file).unwrap().ino();
     let enabled = yaml(fixture.port, "");
     manager
@@ -392,7 +392,7 @@ async fn multi_provider_failure_never_partially_publishes() {
         .unwrap();
     let revision = manager.network_snapshot().unwrap().revision;
     let before: [Vec<u8>; 2] =
-        ["one", "two"].map(|n| std::fs::read(home.join(format!(".fluxa/rules/{n}.yaml"))).unwrap());
+        ["one", "two"].map(|n| std::fs::read(home.join(format!("rule/{n}.yaml"))).unwrap());
     fixture.provider.bodies.lock().unwrap().insert(
         "/provider-one".into(),
         "rules: ['domain,one.new.example']".into(),
@@ -407,7 +407,7 @@ async fn multi_provider_failure_never_partially_publishes() {
     assert_eq!(manager.network_snapshot().unwrap().revision, revision);
     for (i, name) in ["one", "two"].iter().enumerate() {
         assert_eq!(
-            std::fs::read(home.join(format!(".fluxa/rules/{name}.yaml"))).unwrap(),
+            std::fs::read(home.join(format!("rule/{name}.yaml"))).unwrap(),
             before[i]
         );
         assert_eq!(

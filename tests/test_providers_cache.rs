@@ -60,7 +60,7 @@ fn corruption_version_and_symlink_are_rejected() {
     drop(batch);
     cache.close().unwrap();
     fs::write(
-        home.join(".fluxa/rules/.state.json"),
+        home.join("rule/.state.json"),
         b"{\"version\":99,\"entries\":{},\"attempts\":[]}",
     )
     .unwrap();
@@ -89,7 +89,7 @@ fn corruption_version_and_symlink_are_rejected() {
     let key = hash(b"duplicate");
     let bad = serde_json::json!([{"key":key,"time":1},{"key":key,"time":2}]);
     fs::write(
-        home.join(".fluxa/.provider-attempts.json"),
+        home.join(".provider-attempts.json"),
         serde_json::to_vec(&bad).unwrap(),
     )
     .unwrap();
@@ -103,7 +103,7 @@ fn corruption_version_and_symlink_are_rejected() {
         let home = self::home();
         let (mut cache, _) = Cache::open(&home).unwrap();
         cache.close().unwrap();
-        std::os::unix::fs::symlink("/tmp", home.join(".fluxa/rules/link.yaml")).unwrap();
+        std::os::unix::fs::symlink("/tmp", home.join("rule/link.yaml")).unwrap();
         assert!(Cache::open(&home).is_err());
         fs::remove_dir_all(home).unwrap();
     }

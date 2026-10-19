@@ -26,7 +26,7 @@ rules: ['final,direct']
 
 正文单项最多 8 MiB、URL 最多 4096 字节、最多五次 HTTPS 重定向，拒绝 HTTP 降级、重定向环和非 200 最终响应；整次下载上限 60 秒。正文常驻共享预算 128 MiB；解析租约保留至编译完成；编译仍受已有规则、来源和索引预算约束，不能把数量上限解释为所有内容形态都可接受。
 
-macOS 缓存保存为 `~/.fluxa/rules/<name>.yaml`；iOS/iPadOS 为应用沙箱 `Library/Application Support/Fluxa/rules/<name>.yaml`；tvOS 为应用沙箱 `Library/Caches/Fluxa/rules/<name>.yaml`，不是 App 包内资源。`.state.json` 登记来源 URL 哈希、正文 SHA-256、成功时间及本地日期槽；`.fluxa/.provider-attempts.json` 独立保存有限尝试记录。内容哈希用于一致性校验，不代替 HTTPS 来源认证。目录不允许符号链接或组/其他用户写入；本设计不声称防御已控制相同用户账户的攻击者。
+Apple 平台的规则与 GeoIP 缓存统一位于系统 App Group 容器的 `rule/`；不再使用 HOME、Application Support 或 Caches 推导持久化位置。组标识固定为 `group.app.fluxa.ios`，通过系统签名 entitlement 与 NSFileManager 取得；缺少权限明确失败。`.state.json` 位于 rule 内，来源 URL 哈希、正文 SHA-256、成功时间及日期槽维持原格式；根目录的 `.provider-attempts.json` 保留有限尝试记录。内部原子交换暂存目录不向用户展示。哈希只证明缓存一致性，不代替 HTTPS 认证。
 
 首次启用且没有同 URL 的有效缓存时下载；未配置 update-time 的提供者之后只手动更新，重启复用有效缓存。停用提供者不自动下载，手动更新不会自动启用。只改本地规则或提供者策略会重新编译已验证正文，不重新下载、不重写远程文件，忽略条数按当前策略重新统计。
 
@@ -50,7 +50,7 @@ Rust 使用 `Arc<Manager>::apply_configuration_async`；自定义受信根使用
 
 ## 验证边界
 
-同名报告位于 tests/test_providers.md、test_providers_cache.md、test_providers_document.md、test_platform_providers.md、test_provider_contract.md；HTTPS、FFI 与规则回归以各自报告为准。测试使用私有临时 HOME 和真实回环 TLS/目录交换，不修改用户 HOME 或系统代理。Linux 文件系统、实际夏令时切换、长期睡眠/重启、公网源及真实系统 VPN 不属于本机回环测试通过的证明范围。旧性能文档数值不作为本轮提供者性能结论。
+同名报告位于 tests/test_providers.md、test_providers_cache.md、test_providers_document.md、test_platform_providers.md、test_provider_contract.md；HTTPS、FFI 与规则回归以各自报告为准。测试使用显式私有临时目录 和真实回环 TLS/目录交换，不依赖或修改用户 HOME 或系统代理。Linux 文件系统、实际夏令时切换、长期睡眠/重启、公网源及真实系统 VPN 不属于本机回环测试通过的证明范围。旧性能文档数值不作为本轮提供者性能结论。
 
 进程规则来源约束：process-name 只在 macOS 本地配置参与；iOS/iPadOS/tvOS 本地编译忽略；远程规则集一律单行忽略（direct、reject 或节点策略均相同）。无法由操作系统确定流归属时跳过进程规则继续匹配，禁止接受远程自报进程身份。
 

@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - storage_commands_reject_unentitled_hosts_and_role_injection：真实小栈 ABI 拒绝无共享组宿主、越界文件名与自报写权限。
 //! - candidate_commands_are_safe_on_bounded_host_stack：256 KiB 实际 ABI 命令分发、候选查询与关闭。
 //! - http_request_works_on_bounded_host_stack：256 KiB 宿主栈可构造请求并获得真实校验错误，不溢出或触网。
 //! - main_dns_and_geoip_status_use_same_configuration：真实 ABI hosts、Disabled 状态和拒绝部分关闭保持同一快照。
@@ -29,6 +30,36 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[test]
+    fn storage_commands_reject_unentitled_hosts_and_role_injection() {
+        let _gate = TEST_GATE.blocking_lock();
+        // 公开主配置允许 4 MiB 正文，不能把加载回复误限为普通小命令的 256 KiB。
+        assert!(
+            output_limit(br#"{"operation":"configuration_load","filename":"config.yaml"}"#)
+                >= 2 * crate::configuration::MAX_CONFIG_BYTES + 4096
+        );
+        std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
+            let owner = TestHandle(fluxa_engine_create());
+            for (request, code) in [
+                (serde_json::json!({"operation":"storage_initialize"}), if cfg!(target_vendor="apple") {9001} else {1021}),
+                (serde_json::json!({"operation":"storage_initialize","read_only":false}), 1001),
+                (serde_json::json!({"operation":"runtime_rules_open","directory":"/tmp/forbidden-fluxa-path"}), 1001),
+                (serde_json::json!({"operation":"runtime_rules_open"}), if cfg!(target_vendor="apple") {9001} else {1021}),
+                (serde_json::json!({"operation":"configuration_load","filename":"../escape.yaml"}), 1001),
+                (serde_json::json!({"operation":"configuration_save","filename":"../escape.yaml","yaml":"rules: ['final,reject']"}), 1001),
+            ] {
+                let bytes = serde_json::to_vec(&request).unwrap();
+                // SAFETY: 输入字节同步借用，响应句柄只由 TestHandle 释放一次。
+                let response = TestHandle(unsafe { fluxa_engine_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+                assert_ne!(response.0, 0);
+                let json: serde_json::Value = serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
+                assert_eq!(json["success"], false, "{json}");
+                assert_eq!(json["error_info"]["code"], code, "{json}");
+                assert!(json.get("default_configuration_created").is_none());
+                assert!(!json.to_string().contains("Group Containers"));
+            }
+        }).unwrap().join().unwrap();
+    }
     #[test]
     fn candidate_commands_are_safe_on_bounded_host_stack() {
         let _gate = TEST_GATE.blocking_lock();
@@ -74,6 +105,25 @@ mod tests {
         let _gate = TEST_GATE.blocking_lock();
         let owner = TestHandle(fluxa_engine_create());
         let handle = owner.0;
+        let home = std::env::temp_dir().join(format!(
+            "fluxa-ffi-storage-{}",
+            crate::lifecycle::identifier().unwrap()
+        ));
+        std::fs::create_dir(&home).unwrap();
+        let manager = engine(handle).unwrap().outbound.clone();
+        let root = home.clone();
+        run_network(async move {
+            manager
+                .apply_provider_document(
+                    Arc::new(crate::configuration::Document::from_yaml(
+                        "dns: {enable: true,server: ['127.0.0.1:9']}\nrules: ['final,reject']",
+                    )?),
+                    HttpsClient::system()?,
+                    Some(root),
+                )
+                .await
+        })
+        .unwrap();
         let call = |value: serde_json::Value| {
             let bytes = serde_json::to_vec(&value).unwrap();
             // SAFETY: 请求缓冲区在同步 ABI 调用期间有效；返回句柄由 TestHandle 唯一释放。
@@ -101,6 +151,8 @@ mod tests {
         );
         assert_eq!(disabled["success"], true);
         assert_eq!(disabled["geoip_status"]["code"], 2410);
+        drop(owner);
+        std::fs::remove_dir_all(home).unwrap();
     }
     #[tokio::test]
     async fn main_configuration_validation_is_read_only_and_structured() {
@@ -300,7 +352,7 @@ mod tests {
         assert_eq!(updated["provider_status"]["providers"][0]["rules"], 1);
         assert_eq!(updated["provider_status"]["providers"][0]["ignored"], 1);
         assert!(
-            std::fs::read_to_string(home.join(".fluxa/rules/one.yaml"))
+            std::fs::read_to_string(home.join("rule/one.yaml"))
                 .unwrap()
                 .contains("two.example")
         );
@@ -472,9 +524,9 @@ mod tests {
         assert_eq!(
             fluxa_engine_capabilities(),
             if cfg!(target_os = "macos") {
-                1073741823
+                2147483647
             } else {
-                1006632959
+                2080374783
             }
         );
     }

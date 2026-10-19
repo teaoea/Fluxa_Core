@@ -1,22 +1,22 @@
 # 完整主配置示例
 
-# 日志记录等级，
-# macOS保存到[用户目录/.fluxa/log/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
-# iOS、iPadOS保存到[Library/Application Support/Fluxa/Logs/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
-# tvOS保存到[ibrary/Caches/Fluxa/Logs/silent（日志等级）/（年-月-日）/（整点小时）.jsonl]
+# 配置文件存放到：App Group Container/config
+# 打开App会检查目录，是否有配置文件，如果不存在配置文件
+# 生成一份全量配置文件config.yaml（不含proxies、proxy-groups）
+# 对配置文件每个字段加上注释，注释采用设备语言，符号使用设备语言对应符号
+# 禁止将文件存放位置向用户暴露
+# 默认配置文件的由Core创建，App只负责检查是否存在配置文件
+# Network Extension只能读取配置文件，不能写入配置文件
+
+# 配置文件头注释
+# 项目地址
+# GitHub：https://github.com/teaoea/fluxa-app
+# 问题反馈地址，反馈问题是需提交日志
+# Issues：https://github.com/teaoea/fluxa-app/issues
+
+# 日志记录等级
+# 存放位置：App Group Container/log/silent（日志等级）/（年-月-日）/（整点小时）.jsonl
 # 按照1小时为间隔，每小时的日志为独立文件
-# 目录结构示例
-# .fluxa/
-# └── log/
-#     ├── info/
-#     │   └── 2026-10-17/
-#     │       ├── 09:00.jsonl
-#     │       ├── 10:00.jsonl
-#     │       └── 11:00.jsonl
-#     └── error/
-#         └── 2026-10-17/
-#             └── 12:00.jsonl
-#
 # silent，不记录日志
 # info，记录完整日志，含debug、warn、error
 # debug，仅记录调试日志
@@ -52,9 +52,7 @@ mode: rule
 # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb
 # 中国增强版 GeoIP
 # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country-without-asn.mmdb
-# macOS保存到[用户目录/.fluxa/rules/]
-# iOS、iPadOS保存到[Library/Application Support/Fluxa/rules/]
-# tvOS保存到[Library/Caches/Fluxa/rules/]
+# # 存放位置：App Group Container/rule/
 geoip:
   enabled: false # false：禁用GeoIP；true：启用GeoIP，每次软件重新启动时或者到了更新时间会下载mmdb
   #url: "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb" # 如需配置GeoIP，建议使用这个mmdb数据库
@@ -90,6 +88,7 @@ proxies:
 proxy-groups: []
 
 # 远程插件
+# 存放位置：App Group Container/plugin/
 plugin-providers:
   - name: 插件集名称
     category: 插件集分类
@@ -101,9 +100,7 @@ plugin-providers:
 # 正文格式为 rules: ["domain,example.com", "protocol,quic,example.com"]，类型小写，不携带策略。
 # YAML 结构错误拒绝整个更新；自带策略或不合法的行单独忽略。
 # 订阅的规则集会下载下来，保存到约定位置
-# macOS保存到[用户目录/.fluxa/rules/]
-# iOS、iPadOS保存到[Library/Application Support/Fluxa/rules/]
-# tvOS保存到[Library/Caches/Fluxa/rules/]
+# 存放位置：App Group Container/rule/
 # 订阅的规则集会在每天指定时间自动更新，自动更新与手动更新会覆盖旧规则集文件，未配置update-time字段则不自动更新，仅在第一次导入时下载
 # 规则集更新或者本地规则变动，会进行合并裁剪，写入到内存，如果本地规则变动，但是订阅规则还未到更新时间
 # 订阅规则不会更新，而是直接使用rules文件夹下被激活的规则集文件

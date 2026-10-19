@@ -1,18 +1,18 @@
 # 测试报告：test_outbound_configuration
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-185a33e4556c7e57", "::test_outbound_configuration::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.005907166000000075, "status": "PASS", "discovered": ["outbound::configuration::test_outbound_configuration::concurrent_candidates_have_one_commit_winner", "outbound::configuration::test_outbound_configuration::debug_overlay_survives_main_commit", "outbound::configuration::test_outbound_configuration::failed_preparation_preserves_previous_configuration", "outbound::configuration::test_outbound_configuration::partial_updates_invalidate_summary_but_retain_budget", "outbound::configuration::test_outbound_configuration::replacement_releases_unreferenced_old_snapshot", "outbound::configuration::test_outbound_configuration::stale_preparation_cannot_overwrite_newer_configuration", "outbound::configuration::test_outbound_configuration::stopped_manager_rejects_prepared_candidate"], "results": {"outbound::configuration::test_outbound_configuration::concurrent_candidates_have_one_commit_winner": "PASS", "outbound::configuration::test_outbound_configuration::debug_overlay_survives_main_commit": "PASS", "outbound::configuration::test_outbound_configuration::failed_preparation_preserves_previous_configuration": "PASS", "outbound::configuration::test_outbound_configuration::partial_updates_invalidate_summary_but_retain_budget": "PASS", "outbound::configuration::test_outbound_configuration::replacement_releases_unreferenced_old_snapshot": "PASS", "outbound::configuration::test_outbound_configuration::stale_preparation_cannot_overwrite_newer_configuration": "PASS", "outbound::configuration::test_outbound_configuration::stopped_manager_rejects_prepared_candidate": "PASS"}, "fingerprint": "057cbe1b92439f32ccf6469b84b539fbd830dac34a9f1c7f81072ace804f370c", "time": "2026-10-19T01:06:06.563948+08:00", "attempt": 1, "suite": "test_outbound_configuration", "file": "tests/test_outbound_configuration.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3381616e3625e0dd62ba1163ca1e1b228a00991", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3173f20207c5ee43", "::test_outbound_configuration::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 2.454153208, "status": "PASS", "discovered": ["outbound::configuration::test_outbound_configuration::concurrent_candidates_have_one_commit_winner", "outbound::configuration::test_outbound_configuration::debug_overlay_survives_main_commit", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::admitted_family_fallback_survives_configuration_replacement", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::explicit_doh_ignores_formal_route_and_retires_old_resolver", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::geoip_ready_failure_atomicity_and_disabled_rules", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::named_numeric_dns_failure_never_uses_direct", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::ordered_upstreams_get_independent_deadlines", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::preferred_family_order_ip_reject_and_nxdomain", "outbound::configuration::test_outbound_configuration::failed_preparation_preserves_previous_configuration", "outbound::configuration::test_outbound_configuration::partial_updates_invalidate_summary_but_retain_budget", "outbound::configuration::test_outbound_configuration::replacement_releases_unreferenced_old_snapshot", "outbound::configuration::test_outbound_configuration::stale_preparation_cannot_overwrite_newer_configuration", "outbound::configuration::test_outbound_configuration::stopped_manager_rejects_prepared_candidate"], "results": {"outbound::configuration::test_outbound_configuration::concurrent_candidates_have_one_commit_winner": "PASS", "outbound::configuration::test_outbound_configuration::debug_overlay_survives_main_commit": "PASS", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::admitted_family_fallback_survives_configuration_replacement": "PASS", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::explicit_doh_ignores_formal_route_and_retires_old_resolver": "PASS", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::geoip_ready_failure_atomicity_and_disabled_rules": "PASS", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::named_numeric_dns_failure_never_uses_direct": "PASS", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::ordered_upstreams_get_independent_deadlines": "PASS", "outbound::configuration::test_outbound_configuration::dns_geoip_contract::preferred_family_order_ip_reject_and_nxdomain": "PASS", "outbound::configuration::test_outbound_configuration::failed_preparation_preserves_previous_configuration": "PASS", "outbound::configuration::test_outbound_configuration::partial_updates_invalidate_summary_but_retain_budget": "PASS", "outbound::configuration::test_outbound_configuration::replacement_releases_unreferenced_old_snapshot": "PASS", "outbound::configuration::test_outbound_configuration::stale_preparation_cannot_overwrite_newer_configuration": "PASS", "outbound::configuration::test_outbound_configuration::stopped_manager_rejects_prepared_candidate": "PASS"}, "fingerprint": "49581b16d94240c8820f183a99851ce4779d211a44bb3c6a434cff1c38d04969", "time": "2026-10-19T15:18:27.101291+08:00", "attempt": 1, "suite": "test_outbound_configuration", "file": "tests/test_outbound_configuration.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a84c532496de4d2c98da8cf847aec4ea0b9abd3c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
 - 测试文件：`tests/test_outbound_configuration.rs`
-- 测试对象：src/outbound/configuration.rs
+- 测试对象：src/outbound/configuration.rs、src/dns/main.rs、src/providers.rs、src/outbound/execution.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-185a33e4556c7e57 ::test_outbound_configuration:: --test-threads=1`
-- 执行时间：2026-10-19T01:06:06.563948+08:00
-- 实际耗时：0.005907166000000075 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3381616e3625e0dd62ba1163ca1e1b228a00991", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`057cbe1b92439f32ccf6469b84b539fbd830dac34a9f1c7f81072ace804f370c`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3173f20207c5ee43 ::test_outbound_configuration:: --test-threads=1`
+- 执行时间：2026-10-19T15:18:27.101291+08:00
+- 实际耗时：2.454153208 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a84c532496de4d2c98da8cf847aec4ea0b9abd3c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`49581b16d94240c8820f183a99851ce4779d211a44bb3c6a434cff1c38d04969`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -22,6 +22,12 @@
 | --- | --- | --- |
 | `outbound::configuration::test_outbound_configuration::concurrent_candidates_have_one_commit_winner` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `outbound::configuration::test_outbound_configuration::debug_overlay_survives_main_commit` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `outbound::configuration::test_outbound_configuration::dns_geoip_contract::admitted_family_fallback_survives_configuration_replacement` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `outbound::configuration::test_outbound_configuration::dns_geoip_contract::explicit_doh_ignores_formal_route_and_retires_old_resolver` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `outbound::configuration::test_outbound_configuration::dns_geoip_contract::geoip_ready_failure_atomicity_and_disabled_rules` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `outbound::configuration::test_outbound_configuration::dns_geoip_contract::named_numeric_dns_failure_never_uses_direct` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `outbound::configuration::test_outbound_configuration::dns_geoip_contract::ordered_upstreams_get_independent_deadlines` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `outbound::configuration::test_outbound_configuration::dns_geoip_contract::preferred_family_order_ip_reject_and_nxdomain` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `outbound::configuration::test_outbound_configuration::failed_preparation_preserves_previous_configuration` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `outbound::configuration::test_outbound_configuration::partial_updates_invalidate_summary_but_retain_budget` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `outbound::configuration::test_outbound_configuration::replacement_releases_unreferenced_old_snapshot` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
@@ -30,9 +36,9 @@
 
 ## 执行汇总
 
-- 实际发现：7
-- 实际执行完成：7
-- 通过：7
+- 实际发现：13
+- 实际执行完成：13
+- 通过：13
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -52,7 +58,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-vpn-stack-final/test_outbound_configuration.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-core-storage-precommit/test_outbound_configuration.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

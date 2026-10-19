@@ -470,9 +470,10 @@ impl Manager {
         let runtime = if let Some(runtime) = existing {
             runtime
         } else {
-            let home = home
-                .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
-                .ok_or(Error::InvalidState)?;
+            let home = match home {
+                Some(root) => root,
+                None => crate::storage::asset_root()?,
+            };
             let runtime = crate::providers::Runtime::new(self, client, home)?;
             {
                 let mut state = self.state.lock().map_err(|_| Error::Internal)?;

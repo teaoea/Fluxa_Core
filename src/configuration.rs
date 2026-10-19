@@ -1,5 +1,6 @@
 //! 主配置的内核校验入口：先预算、再严格解析、最后校验交叉引用。
 //! 成功只表示配置合法，不表示资源已启动、节点可用或 VPN 已接管。
+pub(crate) mod defaults;
 pub(crate) mod models;
 mod rules;
 use crate::{

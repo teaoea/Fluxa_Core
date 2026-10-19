@@ -15,3 +15,5 @@
 ## VPN 隔离候选准备（开发接口）
 
 2.6.0-dev 提供有界、可取消的候选资产准备，复用配置、DNS/GeoIP 与提供者规则编译，不发布到当前管理器、不改写正式缓存。候选就绪不等于必要链路可用、前置检查通过、用户授权或系统 VPN 启动。参见 [候选准备说明](Documentation/VPN候选准备.md) 和 examples/vpn_candidate.rs。
+
+共享容器与默认主配置由 Core 管理，固定 App Group、扩展只读及真实验证边界见 [共享存储](Documentation/共享存储.md)。

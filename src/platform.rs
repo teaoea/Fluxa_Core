@@ -6,3 +6,6 @@ pub(crate) mod process;
 
 /// 提供者日历与同级目录原子交换。
 pub(crate) mod providers;
+
+/// Apple 共享容器与只读扩展宿主身份。
+pub(crate) mod storage;

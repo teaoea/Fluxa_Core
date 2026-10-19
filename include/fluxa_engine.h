@@ -67,3 +67,6 @@ int32_t fluxa_engine_tun_receive(uint64_t handle, uint64_t *output);
 #endif
 
 /* 能力位 29：VPN 隔离资产候选准备；不表示前置检查通过、权限许可或系统接管。 */
+
+/* 能力位 30：storage_initialize / configuration_load / configuration_save；只使用系统 App Group，
+   无共享组签名权限或扩展写配置返回现有结构化错误，不接受外部绝对路径。 */
