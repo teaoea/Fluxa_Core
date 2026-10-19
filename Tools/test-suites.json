@@ -1379,15 +1379,24 @@
       "file": "tests/test_dev_release.py",
       "kind": "python_unit",
       "sources": [
-        "Tools/dev-release.sh；build-macos.sh；.github/workflows/tests.yml：dev 不稳定附件控制流"
+        "Tools/dev-release.sh；Tools/publish-core-binaries.py；build-macos.sh；.github/workflows/tests.yml：公开二进制白名单与禁止源码发布"
       ],
       "declared_cases": [
         "test_dirty_source_never_publishes",
         "test_wrong_source_never_publishes",
-        "test_existing_release_is_verified_without_overwrite",
-        "test_existing_checksum_failure_does_not_overwrite",
+        "test_missing_credential_never_builds",
+        "test_wrong_provenance_never_publishes",
+        "test_unknown_manifest_fields_never_become_public",
+        "test_implementation_sources_never_become_public",
+        "test_checksum_failure_never_publishes",
+        "test_symlink_input_never_publishes",
         "test_new_release_stays_prerelease_and_not_latest",
+        "test_existing_release_is_verified_without_overwrite",
         "test_failed_upload_never_publishes_draft",
+        "test_download_mismatch_never_publishes_draft",
+        "test_conflicting_tag_is_not_moved",
+        "test_api_auth_failure_is_not_missing_release",
+        "test_policy_blocks_crates_and_source_release",
         "test_framework_preserves_current_license_files"
       ]
     },

@@ -90,7 +90,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,7 +102,7 @@ jobs:
           cargo fetch --locked
       - name: 构建并发布本提交的不稳定测试附件
         env:
-          GH_TOKEN: ${{ github.token }}
+          FLUXA_BINARY_PUBLISH_TOKEN: ${{ secrets.FLUXA_BINARY_PUBLISH_TOKEN }}
           FLUXA_DEV_SOURCE: ${{ github.sha }}
           FLUXA_DEV_REPOSITORY: ${{ github.repository }}
           FLUXA_DEV_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

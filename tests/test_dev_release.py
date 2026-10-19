@@ -1,10 +1,12 @@
 # 测试文件：tests/test_dev_release.py
-# 测试类型：集成测试、发布控制流离线回归
-# 测试对象：Tools/dev-release.sh；build-macos.sh；.github/workflows/tests.yml
-# 测试内容：test_dirty_source_never_publishes；test_wrong_source_never_publishes；test_existing_release_is_verified_without_overwrite；test_existing_checksum_failure_does_not_overwrite；test_new_release_stays_prerelease_and_not_latest；test_failed_upload_never_publishes_draft；test_framework_preserves_current_license_files。
-# 测试依据：dev 每提交测试附件、确定源码、不可覆盖、非正式发布和失败不伪成功约定。
-# 前置条件：Git、Bash、Python；所有 gh/cargo/ditto 均为本地桩，不访问真实发布服务。
+# 测试类型：发布控制流离线回归
+# 测试对象：Tools/dev-release.sh；Tools/publish-core-binaries.py；build-macos.sh；.github/workflows/tests.yml
+# 测试内容：test_dirty_source_never_publishes；test_wrong_source_never_publishes；test_missing_credential_never_builds；test_wrong_provenance_never_publishes；test_unknown_manifest_fields_never_become_public；test_implementation_sources_never_become_public；test_checksum_failure_never_publishes；test_symlink_input_never_publishes；test_new_release_stays_prerelease_and_not_latest；test_existing_release_is_verified_without_overwrite；test_failed_upload_never_publishes_draft；test_download_mismatch_never_publishes_draft；test_conflicting_tag_is_not_moved；test_api_auth_failure_is_not_missing_release；test_policy_blocks_crates_and_source_release；test_framework_preserves_current_license_files。
+# 测试依据：永久禁止 crates.io、源码仓库禁止发布二进制、公开仓库禁止源码与不可覆盖约定。
+# 前置条件：Git、Bash、Python；网络发布使用明确的离线夹具，不访问真实发布服务。
+import base64
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -12,62 +14,150 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
+from unittest.mock import patch
 
-ROOT=Path(__file__).resolve().parents[1]
-MOCK=r'''#!/usr/bin/env python3
-import os,sys,json,hashlib,shutil
+MOCK = r'''#!/usr/bin/env python3
+import sys
 from pathlib import Path
-args=sys.argv[1:]; home=Path(os.environ['MOCK_ROOT']); mode=Path(sys.argv[0]).name
-with (home/'calls').open('a') as f: f.write(json.dumps([mode,*args])+'\n')
-if mode=='uname': print('Darwin' if args==['-s'] else 'arm64')
-elif mode=='ditto': Path(args[-1]).write_bytes(b'fixed-test-archive')
-elif mode=='cargo':
- p=Path(os.environ['CARGO_TARGET_DIR'])/'release/examples/https_fixture';p.parent.mkdir(parents=True,exist_ok=True);p.write_text('fixture')
-elif mode=='gh':
- if args[:2]==['release','view']:
-  if os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
-  print(json.dumps({'isDraft':os.environ.get('MOCK_EXISTING')=='draft','isPrerelease':True}))
- if args[:1]==['api']:
-  if '--method' in args and args[args.index('--method')+1]=='POST':
-   (home/'tagged').touch()
-  elif not (home/'tagged').exists() and os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
-  print(json.dumps({'object':{'type':'commit','sha':os.environ['FLUXA_DEV_SOURCE']}}))
- elif args[:2]==['release','create']:
-  if '--verify-tag' not in args or not (home/'tagged').exists() and os.environ.get('MOCK_EXISTING')=='none':sys.exit(1)
-  if os.environ.get('MOCK_FAIL_UPLOAD')=='1':sys.exit(1)
-  (home/'created').touch()
-  for arg in args:
-   if arg.endswith('/FluxaEngine.xcframework.zip'):shutil.copyfile(arg,home/'archive')
-   if arg.endswith('/fluxa-test-fixture-macos-arm64.zip'):shutil.copyfile(arg,home/'fixture_archive')
- elif args[:2]==['release','download']:
-  out=Path(args[args.index('--dir')+1]);out.mkdir(exist_ok=True)
-  archive=(home/'archive').read_bytes() if (home/'archive').exists() else b'fixed-test-archive'
-  (out/'FluxaEngine.xcframework.zip').write_bytes(archive)
-  fixture=(home/'fixture_archive').read_bytes() if (home/'fixture_archive').exists() else b'fixed-test-fixture'
-  (out/'fluxa-test-fixture-macos-arm64.zip').write_bytes(fixture)
-  if 'provenance.json' in args:
-   p={'source_commit':os.environ['FLUXA_DEV_SOURCE'],'tag':args[2],'version':'2.5.0-dev','unstable':True,'fixture_sha256':hashlib.sha256(fixture).hexdigest(),'framework_sha256':'0'*64 if os.environ.get('MOCK_BAD_HASH')=='1' else hashlib.sha256(archive).hexdigest()}
-   (out/'provenance.json').write_text(json.dumps(p))
+args=sys.argv[1:]
+print('Darwin' if args==['-s'] else 'arm64')
 '''
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('publisher', ROOT/'Tools/publish-core-binaries.py')
+publisher = importlib.util.module_from_spec(spec); spec.loader.exec_module(publisher)
+SOURCE = 'a' * 40
+RUN = 'https://github.com/teaoea/Fluxa_Core/actions/runs/123'
+VERSION = '2.6.1-dev'
+
+class Remote:
+    def __init__(self, directory):
+        self.files = {name: (directory/name).read_bytes() for name in publisher.FILES}
+        self.calls = []; self.existing = False; self.published = False
+        self.fail_upload = False; self.bad_download = False; self.conflicting_tag = False
+    def release_record(self):
+        return {'draft': False, 'prerelease': True, 'assets': [
+            {'name': name, 'size': len(value)} for name, value in self.files.items()]}
+    def api(self, endpoint, payload=None, missing=False, method=None):
+        self.calls.append(('api', endpoint, payload, method))
+        if endpoint == 'repos/'+publisher.DESTINATION:
+            return {'full_name': publisher.DESTINATION, 'private': False}
+        if '/releases/tags/' in endpoint:
+            return self.release_record() if self.existing or self.published else None
+        if '/contents/' in endpoint:
+            if payload is not None:
+                self.manifest = base64.b64decode(payload['content'])
+                return {'commit': {'sha': 'b'*40}}
+            if self.existing:
+                return {'content': base64.b64encode(self.files['provenance.json']).decode()}
+            return None
+        if '/git/ref/tags/' in endpoint:
+            return {'object': {'type':'commit','sha':'c'*40}} if self.conflicting_tag else None
+        if endpoint.endswith('/git/refs'):
+            return {}
+        raise AssertionError(endpoint)
+    def release(self, *args):
+        self.calls.append(('release', *args))
+        if args[0] == 'create' and self.fail_upload:
+            raise RuntimeError('测试上传故障')
+        if args[0] == 'edit': self.published = True
+    def download(self, repository, tag, directory):
+        self.calls.append(('download', repository, tag))
+        for name, value in self.files.items():
+            (directory/name).write_bytes(value + (b'bad' if self.bad_download and name.endswith('.zip') else b''))
 
 class DevReleaseTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(prefix='fluxa-dev-release-tests-')
-        self.addCleanup(self.tmp.cleanup);self.home=Path(self.tmp.name);self.repo=self.home/'repo';self.repo.mkdir()
-        (self.repo/'Tools').mkdir();shutil.copyfile(ROOT/'Tools/dev-release.sh',self.repo/'Tools/dev-release.sh')
-        (self.repo/'Cargo.toml').write_text('[package]\nname = "test"\nversion = "2.5.0-dev"\n')
+        self.tmp = tempfile.TemporaryDirectory(prefix='fluxa-publish-contract-')
+        self.addCleanup(self.tmp.cleanup); self.home = Path(self.tmp.name)
+        self.assets = self.home/'assets'; self.assets.mkdir()
+        for name, member in [(publisher.FILES[1], 'FluxaEngine.xcframework/macos-arm64/libfluxa_core.framework/libfluxa_core'), (publisher.FILES[2], 'fluxa-test-fixture')]:
+            with zipfile.ZipFile(self.assets/name, 'w') as archive: archive.writestr(member, b'fixed binary fixture')
+        self.record = {'version':VERSION,'tag':'v'+VERSION+'.'+SOURCE,'source_commit':SOURCE,
+            'unstable':True,'platforms':['macos-arm64'],'minimum_macos':'14.0',
+            'framework_sha256':publisher.digest(self.assets/publisher.FILES[1]),
+            'fixture_sha256':publisher.digest(self.assets/publisher.FILES[2]),'verification_run':RUN}
+        self.save_record(); self.remote = Remote(self.assets)
+        self.repo = self.home/'repo'; (self.repo/'Tools').mkdir(parents=True)
+        shutil.copyfile(ROOT/'Tools/dev-release.sh',self.repo/'Tools/dev-release.sh')
+        (self.repo/'Cargo.toml').write_text('[package]\nname = "test"\nversion = "2.6.1-dev"\n')
         (self.repo/'.gitignore').write_text('Vendor/\n')
-        (self.repo/'build-macos.sh').write_text('set -eu\nmkdir -p Vendor/FluxaEngine.xcframework\nprintf fixture > Vendor/FluxaEngine.xcframework/fixture\n')
-        for cmd in [['init','-q'],['config','user.name','测试'],['config','user.email','test@example.invalid'],['add','.'],['commit','-qm','测试基线']]:subprocess.run(['git',*cmd],cwd=self.repo,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        for args in [['init','-q'],['config','user.name','测试'],['config','user.email','test@example.invalid'],['add','.'],['commit','-qm','测试基线']]:
+            subprocess.run(['git',*args],cwd=self.repo,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=self.repo,text=True).strip()
-        bin=self.home/'bin';bin.mkdir()
-        for name in ['uname','cargo','ditto','gh']:
-            p=bin/name;p.write_text(MOCK);p.chmod(0o755)
-        self.env={**os.environ,'PATH':str(bin)+os.pathsep+os.environ['PATH'],'MOCK_ROOT':str(self.home),'MOCK_EXISTING':'none','FLUXA_DEV_SOURCE':sha,'FLUXA_DEV_REPOSITORY':'teaoea/Fluxa_Core','FLUXA_DEV_RUN':'https://example.invalid/run'}
+        bin=self.home/'bin'; bin.mkdir()
+        (bin/'uname').write_text('#!/bin/sh\nif [ "$1" = -s ]; then echo Darwin; else echo arm64; fi\n'); (bin/'uname').chmod(0o755)
+        self.env={**os.environ,'PATH':str(bin)+os.pathsep+os.environ['PATH'],'FLUXA_DEV_SOURCE':sha,
+            'FLUXA_DEV_REPOSITORY':'teaoea/Fluxa_Core','FLUXA_BINARY_PUBLISH_TOKEN':'offline-fixture','MOCK_ROOT':str(self.home)}
+    def save_record(self):
+        (self.assets/'provenance.json').write_text(json.dumps(self.record))
+    def publish(self):
+        return publisher.publish(SOURCE,VERSION,RUN,self.remote,self.assets)
     def run_release(self):
         return subprocess.run(['bash','Tools/dev-release.sh'],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
-    def calls(self):
-        return [json.loads(x) for x in (self.home/'calls').read_text().splitlines()]
+    def test_dirty_source_never_publishes(self):
+        (self.repo/'untracked').write_text('dirty'); self.assertNotEqual(self.run_release().returncode,0)
+    def test_wrong_source_never_publishes(self):
+        self.env['FLUXA_DEV_SOURCE']='0'*40; self.assertNotEqual(self.run_release().returncode,0)
+    def test_missing_credential_never_builds(self):
+        self.env.pop('FLUXA_BINARY_PUBLISH_TOKEN'); result=self.run_release()
+        self.assertNotEqual(result.returncode,0); self.assertIn('缺少公开分发仓库发布授权',result.stdout)
+    def test_wrong_provenance_never_publishes(self):
+        self.record['source_commit']='f'*40; self.save_record()
+        with self.assertRaises(ValueError): self.publish()
+        self.assertEqual(self.remote.calls,[])
+    def test_unknown_manifest_fields_never_become_public(self):
+        self.record['credentials']='must not publish'; self.save_record()
+        with self.assertRaises(ValueError): self.publish()
+        self.assertEqual(self.remote.calls,[])
+    def test_implementation_sources_never_become_public(self):
+        with zipfile.ZipFile(self.assets/publisher.FILES[1], 'a') as archive:
+            archive.writestr('FluxaEngine.xcframework/src/lib.rs', 'private implementation')
+        self.record['framework_sha256']=publisher.digest(self.assets/publisher.FILES[1]); self.save_record()
+        with self.assertRaises(ValueError): self.publish()
+        self.assertEqual(self.remote.calls,[])
+    def test_checksum_failure_never_publishes(self):
+        (self.assets/publisher.FILES[1]).write_bytes(b'changed')
+        with self.assertRaises((ValueError,zipfile.BadZipFile)): self.publish()
+        self.assertEqual(self.remote.calls,[])
+    def test_symlink_input_never_publishes(self):
+        path=self.assets/publisher.FILES[1]; path.unlink(); path.symlink_to(self.assets/publisher.FILES[2])
+        with self.assertRaises(ValueError): self.publish()
+    def test_new_release_stays_prerelease_and_not_latest(self):
+        self.publish(); create=next(c for c in self.remote.calls if c[:2]==('release','create'))
+        edit=next(c for c in self.remote.calls if c[:2]==('release','edit'))
+        self.assertIn('--draft',create); self.assertIn('--prerelease',create); self.assertIn('--latest=false',create)
+        self.assertIn('--draft=false',edit); self.assertIn('--latest=false',edit)
+        self.assertLess(self.remote.calls.index(create),self.remote.calls.index(edit))
+        for call in self.remote.calls:
+            if call[0]=='api': self.assertTrue(call[1].startswith('repos/teaoea/libfluxa-core'))
+        self.assertEqual(json.loads(self.remote.manifest),self.record)
+        self.assertFalse(any(str(x).endswith('.rs') or str(x).endswith('.swift') for x in create))
+    def test_existing_release_is_verified_without_overwrite(self):
+        self.remote.existing=True; self.publish()
+        self.assertFalse(any(c[0]=='release' or c[0]=='api' and c[2] is not None for c in self.remote.calls))
+    def test_failed_upload_never_publishes_draft(self):
+        self.remote.fail_upload=True
+        with self.assertRaises(RuntimeError): self.publish()
+        self.assertFalse(self.remote.published)
+    def test_download_mismatch_never_publishes_draft(self):
+        self.remote.bad_download=True
+        with self.assertRaises(ValueError): self.publish()
+        self.assertFalse(self.remote.published)
+    def test_conflicting_tag_is_not_moved(self):
+        self.remote.conflicting_tag=True
+        with self.assertRaises(ValueError): self.publish()
+        self.assertFalse(any(c[0]=='release' for c in self.remote.calls))
+    def test_api_auth_failure_is_not_missing_release(self):
+        client=publisher.GitHub('offline-fixture')
+        with patch.object(client,'command',return_value=subprocess.CompletedProcess([],1,b'HTTP/2.0 401 Unauthorized\n\n{}',b'')):
+            with self.assertRaises(RuntimeError): client.api('repos/test',missing=True)
+    def test_policy_blocks_crates_and_source_release(self):
+        self.assertIn('publish = false',(ROOT/'Cargo.toml').read_text())
+        self.assertFalse((ROOT/'.github/workflows/release.yml').exists())
+        self.assertNotIn('gh release ',(ROOT/'Tools/dev-release.sh').read_text())
+        workflow=(ROOT/'.github/workflows/tests.yml').read_text()
+        self.assertIn('secrets.FLUXA_BINARY_PUBLISH_TOKEN',workflow)
     def test_framework_preserves_current_license_files(self):
         # 运行真实打包脚本，仅替换耗时的工具；文件复制不打桩，能检出许可文件改名遗漏。
         shutil.copyfile(ROOT/'build-macos.sh',self.repo/'build-macos.sh')
@@ -90,17 +180,5 @@ class DevReleaseTests(unittest.TestCase):
         for name in ['LICENSE','LICENSE.md']:
             self.assertEqual((notices/name).read_bytes(),(ROOT/name).read_bytes())
         self.assertEqual((notices/'third-party').read_text(),'第三方声明')
-    def test_dirty_source_never_publishes(self):
-        (self.repo/'untracked').write_text('dirty');self.assertNotEqual(self.run_release().returncode,0);self.assertFalse(any(x[0]=='gh' for x in self.calls()))
-    def test_wrong_source_never_publishes(self):
-        self.env['FLUXA_DEV_SOURCE']='0'*40;self.assertNotEqual(self.run_release().returncode,0);self.assertFalse(any(x[0]=='gh' for x in self.calls()))
-    def test_existing_release_is_verified_without_overwrite(self):
-        self.env['MOCK_EXISTING']='published';r=self.run_release();self.assertEqual(r.returncode,0,r.stdout);self.assertFalse(any(x[1:3] in (['release','create'],['release','edit'],['release','delete']) for x in self.calls()))
-    def test_existing_checksum_failure_does_not_overwrite(self):
-        self.env.update(MOCK_EXISTING='published',MOCK_BAD_HASH='1');r=self.run_release();self.assertNotEqual(r.returncode,0);self.assertFalse(any(x[1:3]==['release','create'] for x in self.calls()))
-    def test_new_release_stays_prerelease_and_not_latest(self):
-        r=self.run_release();self.assertEqual(r.returncode,0,r.stdout);calls=self.calls();create=next(x for x in calls if x[1:3]==['release','create']);edit=next(x for x in calls if x[1:3]==['release','edit']);self.assertIn('--verify-tag',create);tagged=next(x for x in calls if x[1:2]==['api'] and 'POST' in x);self.assertLess(calls.index(tagged),calls.index(create));self.assertIn('--draft',create);self.assertIn('--prerelease',create);self.assertIn('--latest=false',create);self.assertIn('--prerelease',edit);self.assertIn('--latest=false',edit);self.assertIn('--draft=false',edit);self.assertLess(calls.index(create),calls.index(edit));self.assertFalse(any('publish' in x for x in calls))
-    def test_failed_upload_never_publishes_draft(self):
-        self.env['MOCK_FAIL_UPLOAD']='1';r=self.run_release();self.assertNotEqual(r.returncode,0);self.assertFalse(any(x[1:3]==['release','edit'] for x in self.calls()))
 
-if __name__=='__main__':unittest.main()
+if __name__=='__main__': unittest.main()
