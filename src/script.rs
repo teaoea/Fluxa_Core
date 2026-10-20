@@ -1,5 +1,6 @@
 //! 受限同步脚本执行：每次新建运行时，不提供网络、文件、模块或原生能力。
-//! 调用者必须只传入随应用发布并审查过的脚本；这里不下载或安装脚本。
+//! 公共同步门面不负责下载；声明式脚本由资源管线校验和保存，再经隔离工作线程执行。
+pub(crate) mod worker;
 use crate::{
     budget::ByteBudget,
     error::{Error, Result},
@@ -24,6 +25,18 @@ static HEAPS: ByteBudget = ByteBudget::new(4 * MAX_HEAP);
 /// 输入、输出仅为 JSON；源码是同步函数表达式，例如 `(input) => input`。
 /// 此接口阻塞调用线程，客户端应在后台调用，不执行 Promise 作业队列。
 pub fn execute(source: &str, input: &Json) -> Result<Json> {
+    execute_cancellable(source, input, Arc::new(AtomicBool::new(false)))
+}
+/// 仅内核脚本工作线程提供取消令牌；JS 无法修改权限或保留宿主引用。
+pub(crate) fn execute_cancellable(
+    source: &str,
+    input: &Json,
+    canceled: Arc<AtomicBool>,
+) -> Result<Json> {
+    if canceled.load(Ordering::Acquire) {
+        return Err(Error::Cancelled);
+    }
+
     if source.is_empty() || source.len() > MAX_SOURCE {
         return Err(Error::InvalidInput);
     }
@@ -38,12 +51,13 @@ pub fn execute(source: &str, input: &Json) -> Result<Json> {
     let deadline = Instant::now() + MAX_TIME;
     let interrupted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&interrupted);
+    let cancellation = canceled.clone();
     runtime.set_interrupt_handler(Some(Box::new(move || {
         let stop = Instant::now() >= deadline;
         if stop {
             flag.store(true, Ordering::Relaxed);
         }
-        stop
+        stop || cancellation.load(Ordering::Acquire)
     })));
     let context = Context::full(&runtime).map_err(|_| Error::ResourceLimit)?;
     let result = context.with(|ctx| -> rquickjs::Result<String> {
@@ -53,6 +67,9 @@ pub fn execute(source: &str, input: &Json) -> Result<Json> {
         let value: Value = function.call((ctx.json_parse(input)?,))?;
         serialize.call((value,))
     });
+    if canceled.load(Ordering::Acquire) {
+        return Err(Error::Cancelled);
+    }
     if interrupted.load(Ordering::Relaxed) || Instant::now() >= deadline {
         return Err(Error::ScriptTimeout);
     }

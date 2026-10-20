@@ -135,7 +135,7 @@ impl Manager {
         )
         .await
     }
-    async fn connect_configured_snapshot_hop(
+    pub(super) async fn connect_configured_snapshot_hop(
         &self,
         request: RoutedTarget,
         snapshot: std::sync::Arc<super::NetworkSnapshot>,

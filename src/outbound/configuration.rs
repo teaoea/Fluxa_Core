@@ -37,6 +37,8 @@ impl Limits {
 /// 提交后新请求读取新快照，已开始事务/连接不中断、不改换对端。
 #[derive(Clone, Default)]
 pub struct NetworkSnapshot {
+    pub(crate) plugins: Arc<crate::configuration::plugins::Bundle>,
+    pub(crate) scripts: std::sync::Arc<crate::script::worker::Bindings>,
     pub revision: u64,
     // 主配置关闭 DNS，或受限 DNS 引导未配置 bootstrap 时允许系统解析；不作为启用上游的失败回退。
     pub(crate) system_dns: bool,
@@ -65,11 +67,14 @@ impl Manager {
         revision: u64,
         prepared: crate::configuration::Prepared,
     ) -> Result<u64> {
+        prepared.scripts.pin()?;
         let limits = prepared.document.raw_limits();
         let authority = crate::lifecycle::session::Authority::new()?;
         self.replace_network_at(Some(revision), |_| NetworkSnapshot {
             session: Some(authority),
             system_dns: true,
+            scripts: prepared.scripts,
+            plugins: prepared.plugins,
             configuration: Some(prepared.document),
             configuration_complete: true,
             router: Some(prepared.router),
@@ -225,6 +230,8 @@ impl Manager {
             system_dns: false,
             ip_strategy: Default::default(),
             geoip: None,
+            scripts: Default::default(),
+            plugins: Default::default(),
         })
     }
     pub fn configure_limits(&self, limits: Limits) -> Result<u64> {
@@ -583,6 +590,8 @@ impl Manager {
             resolver: prepared.resolver.clone(),
             ip_strategy: prepared.document.ip_strategy(),
             configuration_complete: true,
+            scripts: prepared.scripts.clone(),
+            plugins: prepared.plugins.clone(),
             configuration: Some(prepared.document.clone()),
             router: Some(prepared.router.clone()),
             outbounds: prepared.outbounds.clone(),
@@ -608,6 +617,7 @@ impl Manager {
             None => prepared.router,
         };
         let next = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        prepared.scripts.pin()?;
         let limits = prepared.document.raw_limits();
         let replacement = Arc::new(NetworkSnapshot {
             revision: next,
@@ -616,6 +626,8 @@ impl Manager {
             geoip: prepared.geoip,
             ip_strategy: prepared.document.ip_strategy(),
             system_dns: !prepared.document.dns_settings().enable,
+            scripts: prepared.scripts,
+            plugins: prepared.plugins,
             configuration: Some(prepared.document),
             configuration_complete: true,
             router: Some(router),
@@ -659,5 +671,20 @@ impl Manager {
             Box<dyn std::future::Future<Output = Result<u64>> + Send + '_>,
         > = Box::pin(runtime.apply(document, None, false));
         operation.await
+    }
+}
+
+impl Manager {
+    /// 查询已发布主配置与插件的有效解密范围；主配置 bypass 无条件优先，不代表解密监听已启动。
+    pub fn mitm_matches(&self, host: &str) -> Result<bool> {
+        let host = crate::network::normalize_host(host)?;
+        let snapshot = self.network_snapshot()?;
+        snapshot.ensure_active()?;
+        let main = snapshot
+            .configuration
+            .as_ref()
+            .filter(|_| snapshot.configuration_complete)
+            .ok_or(Error::InvalidState)?;
+        Ok(snapshot.plugins.decrypts(main, &host))
     }
 }

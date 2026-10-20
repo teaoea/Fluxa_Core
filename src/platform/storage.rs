@@ -205,6 +205,33 @@ mod apple {
     }
 }
 
+/// 已验证的只读文件描述符；目录事务删除旧文件名后，旧快照仍可按需读取同一文件。
+#[cfg(unix)]
+pub(crate) struct Resource(std::fs::File);
+#[cfg(unix)]
+impl Resource {
+    pub(crate) fn read(&self, maximum: usize) -> Result<zeroize::Zeroizing<String>> {
+        use std::os::unix::fs::FileExt;
+        if self.0.metadata()?.len() > maximum as u64 {
+            return Err(Error::ResourceLimit);
+        }
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
+        let mut block = [0u8; 8192];
+        loop {
+            let count = self.0.read_at(&mut block, bytes.len() as u64)?;
+            if count == 0 {
+                break;
+            }
+            if bytes.len().checked_add(count).is_none_or(|n| n > maximum) {
+                return Err(Error::ResourceLimit);
+            }
+            bytes.extend_from_slice(&block[..count]);
+        }
+        String::from_utf8(bytes.to_vec())
+            .map(zeroize::Zeroizing::new)
+            .map_err(|_| Error::InvalidInput)
+    }
+}
 /// 文件操作绑定已打开目录描述符，拒绝跟随目录和最终文件符号链接。
 #[cfg(unix)]
 pub(crate) struct Directory(std::fs::File);
@@ -267,6 +294,35 @@ impl Directory {
         }
         Ok(file)
     }
+    /// 只比较已打开目录和当前绝对路径的文件身份，不跟随最终目录符号链接。
+    pub(crate) fn is_current(&self, path: &std::path::Path) -> Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+        let actual = self.0.metadata()?;
+        let current = match std::fs::symlink_metadata(path) {
+            Ok(v) => v,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e.into()),
+        };
+        if current.file_type().is_symlink() || !current.is_dir() {
+            return Err(Error::InvalidInput);
+        }
+        Ok(actual.dev() == current.dev() && actual.ino() == current.ino())
+    }
+    pub(crate) fn resource(&self, value: &str, maximum: usize) -> Result<Resource> {
+        let file = self.file(value, libc::O_RDONLY)?;
+        if file.metadata()?.len() > maximum as u64 {
+            return Err(Error::ResourceLimit);
+        }
+        Ok(Resource(file))
+    }
+    /// 仅打开并检查元数据，不读取源码；编译期用于排除不存在或不合规的脚本文件。
+    pub(crate) fn require_file(&self, value: &str, maximum: usize) -> Result<()> {
+        let file = self.file(value, libc::O_RDONLY)?;
+        if file.metadata()?.len() > maximum as u64 {
+            return Err(Error::ResourceLimit);
+        }
+        Ok(())
+    }
     pub fn validate_target(&self, value: &str) -> Result<()> {
         use std::os::fd::AsRawFd;
         let value = name(value)?;
@@ -294,6 +350,15 @@ impl Directory {
         }
         Ok(())
     }
+    /// 只读角色只打开已存在的协调锁，不创建或更新目录项。
+    pub(crate) fn lock_existing(&self) -> Result<std::fs::File> {
+        let file = self.file(".configuration.lock", libc::O_RDONLY)?;
+        file.try_lock().map_err(|e| match e {
+            std::fs::TryLockError::WouldBlock => Error::InvalidState,
+            std::fs::TryLockError::Error(e) => e.into(),
+        })?;
+        Ok(file)
+    }
     pub fn lock(&self) -> Result<std::fs::File> {
         let value = name(".configuration.lock")?;
         // 先打开已有锁；新建用 EXCL，竞争者只能重新打开，绝不截断/替换锁文件。
@@ -317,9 +382,15 @@ impl Directory {
         Ok(file)
     }
     pub fn read(&self, value: &str) -> Result<zeroize::Zeroizing<String>> {
+        self.read_bounded(value, crate::configuration::MAX_CONFIG_BYTES)
+    }
+    pub(crate) fn read_bounded(
+        &self,
+        value: &str,
+        maximum: usize,
+    ) -> Result<zeroize::Zeroizing<String>> {
         use std::io::Read;
         let file = self.file(value, libc::O_RDONLY)?;
-        let maximum = crate::configuration::MAX_CONFIG_BYTES;
         if file.metadata()?.len() > maximum as u64 {
             return Err(Error::ResourceLimit);
         }

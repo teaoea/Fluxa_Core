@@ -68,6 +68,25 @@ fn default_is_complete_localized_and_fail_closed() {
         ] {
             assert!(yaml.contains(key), "missing {key}");
         }
+        // 主字段块之间恰好空一行；字段注释必须紧邻对应字段，不与上一块粘连。
+        let lines: Vec<_> = yaml.lines().collect();
+        let mut first = true;
+        for (index, line) in lines.iter().enumerate() {
+            if line.starts_with('#') || line.starts_with(' ') || line.is_empty() {
+                continue;
+            }
+            assert!(line.contains(':'));
+            let mut start = index;
+            while start > 0 && lines[start - 1].starts_with('#') {
+                start -= 1;
+            }
+            if !first {
+                assert!(start >= 2, "missing block separator: {line}");
+                assert_eq!(lines[start - 1], "", "missing blank before {line}");
+                assert!(!lines[start - 2].is_empty(), "extra blank before {line}");
+            }
+            first = false;
+        }
         for (previous, line) in yaml.lines().zip(yaml.lines().skip(1)) {
             if !line.trim_start().starts_with('#')
                 && (line.trim_start().contains(": ") || line.trim_end().ends_with(':'))

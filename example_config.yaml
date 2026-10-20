@@ -4,7 +4,7 @@
 # 打开App会检查目录，是否有配置文件，如果不存在配置文件
 # 生成一份全量配置文件config.yaml（不含proxies、proxy-groups）
 # 对配置文件每个字段加上注释，注释采用设备语言，符号使用设备语言对应符号
-# 禁止将文件存放位置向用户暴露
+# 每次编译都必须重新通过系统 API 获取 App Group Containe，禁止将文件存放位置向用户暴露
 # 默认配置文件的由Core创建，App只负责检查是否存在配置文件
 # Network Extension只能读取配置文件，不能写入配置文件
 
@@ -88,9 +88,17 @@ proxies:
 proxy-groups: []
 
 # 远程插件
-# 存放位置：App Group Container/plugin/
+# 存放位置：App Group Container/plugin/id
+# 每个插件都有唯一的id，插件通过id进行优先级处理，不得将插件名称作为id，id采用数字自增就行，禁止目录重复
+# 每次导入新插件，都是最后一个目录的数字+1，例如：1、2、3、4
+# 插件引入的js，存放到App Group Container/plugin/id/目录内
+# 插件调整位置，例如1变成2、2变成1，同步调整id，以及文件存放路径
+# 插件内复写规则引入的js，例如request.js，实际路径是App Group Container/plugin/（id）/request.js
+# 每次编译配置文件需要将复写规则引入的js脚本的绝对路径编译进去，但是不得将js脚本内容一并编译进去，js脚本只能在需要时按需加载
+# js 脚本按需加载并缓存；生命周期由复写规则 js-ttl 声明，单位秒，省略默认 3600；不读取 JS 头注释中的 TTL，缓存可以手动清除
+# js需要线程隔离，清除缓存时同步移除对应线程，手动清理缓存，即是js对应线程正在执行，也需要移除，自动清理缓存，需要等线程执行完毕才能移除，同时标记待移除，不在接受新任务
 plugin-providers:
-  - name: 插件集名称
+  - name: 插件集名称 #
     category: 插件集分类
     url: https://example.com/fluxa/plugins.yaml # 插件集订阅地址
     enabled: false # 插件集是否启用，false 不启用，true 启用
@@ -206,6 +214,111 @@ mitm:
     - "*.chatgpt.com"
     - "wechat.com"
 
-# 主配置仅展示改写列表；插件专属 ui、browser-scripts 需使用 kind: plugin。
-# 示例不包含任意远程 JS、节点凭据或 CA 私钥。
-rewrites: []
+# 复写模块
+# 规则示例
+# A：https://example.com/api/* reject(404)
+# B：https://example.com/api/** reject(404)
+# *  匹配恰好一个非空路径段，不跨越 /
+# ** 匹配零个或多个路径段，允许跨越 /
+# A可以匹配https://example.com/api/a，但是不能匹配https://example.com/api/aa/a
+# B可以匹配https://example.com/api/a，也可以匹配https://example.com/api/aa/a
+# URL 匹配默认区分大小写，默认采用完整路径匹配，不进行模糊匹配，不自动扩展通配符的匹配范围
+# Core 应当在加载规则时完成编译，简单匹配优先使用字符串比较
+# 通配符匹配不得依赖正则表达式引擎，所有优化必须保持原始匹配语义
+# 复写规则的优先级高于rules规则，本地复写规则优先于插件内的复写规则
+# 用户手动编写的js脚本的默认存放在App Group Container/js目录
+# 用户自行在配置文件内编写的复写规则，只能引用App Group Container/js目录内的js脚本
+# action支持：⬇️
+# reject：拦截，处理阶段request/response
+# respond：直接构造自定义 HTTP 响应，处理阶段request
+# modify-request：修改 HTTP 请求内容，处理阶段request
+# modify-response：修改服务器返回的 HTTP 响应，处理阶段response
+# redirect：返回 HTTP 3xx 重定向响应，处理阶段request
+# script：通过 JS 动态处理请求或响应，处理阶段request/response
+# abort：中断连接，不构造 HTTP 响应，request
+# direct：直连，优先级低于临时调试规则，但是高于其他任何规则
+# proxy 或 proxy(节点名称)：均合法；proxy 未指定节点时忽略，proxy(节点名称) 使用前端填入的已配置节点，失败不回退直连；优先级低于临时调试规则，高于其他规则
+rewrites:
+  # ==================== 请求条件拦截 ====================
+
+  - url: https://example.com/api/* # URL 匹配表达式，* 仅匹配一个非空路径段
+    enable: true # 是否启用，默认true（启用）
+    phase: request # 执行阶段：request 为请求阶段
+    when: # 附加匹配条件，所有条件默认使用 AND 逻辑
+      method: GET # HTTP 请求方法，区分 GET、POST、PUT 等
+      request-headers: # HTTP 请求头匹配条件
+        exists: # 要求存在的请求头字段
+          - User-Agent # 请求必须包含 User-Agent
+          - X-Client-ID # 请求必须包含 X-Client-ID
+        equals: # 请求头字段必须满足指定值
+          X-Client-Type: mobile # X-Client-Type 必须等于 mobile
+      query: # URL 查询参数匹配条件
+        exists: # 要求存在的查询参数
+          - ad_id # 查询参数必须包含 ad_id
+        equals: # 查询参数必须满足指定值
+          source: app # source 参数必须等于 app
+    action: reject # 执行动作：拒绝请求
+    status: 404 # 返回 HTTP 404 状态码
+
+  # ==================== 响应条件拦截 ====================
+
+  - url: https://example.com/images/** # ** 匹配零个或多个路径段
+    phase: response # 执行阶段：response 为响应阶段
+    when: # 原始 HTTP 响应必须满足以下条件
+      status: 200 # 原始响应状态码必须为 200
+      response-headers: # HTTP 响应头匹配条件
+        exists: # 要求存在的响应头字段
+          - Content-Type # 响应必须包含 Content-Type
+        equals: # 响应头字段值匹配
+          X-Resource-Type: image # 指定响应头必须等于 image
+      content-type: image/png # 响应媒体类型必须为 PNG 图片
+      content-length: # 原始响应体长度匹配条件
+        min: 1 # 最小长度，单位为字节
+        max: 1048576 # 最大长度，单位为字节，此处为 1 MiB
+    action: modify-response # 修改原始 HTTP 响应
+    response: # 新的响应内容
+      status: 200 # 修改后的 HTTP 状态码
+      body: # 修改后的响应体
+        preset: transparent-png # 使用 Core 内置的 1×1 透明 PNG
+
+  # ==================== 视频响应替换 ====================
+
+  - url: https://example.com/video/** # 匹配指定路径下所有层级
+    phase: request # 在请求阶段直接处理，无须等待服务器响应
+    when: # 请求匹配条件
+      method: GET # 仅处理 GET 请求
+    action: respond # 由 Core 直接构造 HTTP 响应
+    response: # 自定义 HTTP 响应
+      status: 200 # 返回 HTTP 200
+      body: # 自定义响应体
+        preset: minimal-mp4 # 使用内置 0 毫秒、无音频 MP4 诱骗视频，用于去广告；实际播放器是否跳过广告需验证
+
+  # ==================== 请求头修改 ====================
+
+  - url: https://example.com/api/data # 精确 URL 匹配
+    phase: request # 请求阶段
+    when: # 请求匹配条件
+      method: POST # 仅匹配 POST 请求
+    action: modify-request # 修改原始 HTTP 请求
+    request: # 请求修改内容
+      headers: # 请求头修改操作
+        set: # 设置或覆盖请求头
+          X-Custom-Header: Fluxa # 设置自定义请求头
+        remove: # 删除指定请求头
+          - X-Tracking-ID # 删除 X-Tracking-ID
+
+  # ==================== JavaScript 复杂处理 ====================
+
+  - url: https://example.com/api/user/** # URL 匹配表达式
+    phase: response # 响应阶段执行 JS
+    when: # JS 执行前的原生匹配条件
+      status: 200 # 仅处理 HTTP 200 响应
+      content-type: application/json # 仅处理 JSON 响应
+    action: script # 调用 JavaScript 引擎
+    js: response # 精确引用 scripts.name，不要求 .js 后缀；编译时绑定约定目录的绝对路径
+    js-ttl: 3600 # 脚本缓存生命周期，单位秒，省略默认 3600；只允许用于 action: script
+
+# js脚本引入
+scripts:
+  name: response # 必填资源名称，与 rewrites[].js 精确一致，不从 URL 推导名称
+  url: https://example.com/response.js # js文件路径

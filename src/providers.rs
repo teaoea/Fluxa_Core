@@ -54,6 +54,7 @@ struct State {
     directory_synced: bool,
     last_cycle: Option<u64>,
     geoip_slot: Option<i32>,
+    plugin_slots: BTreeMap<String, Option<i32>>,
 }
 pub(crate) struct Runtime {
     owner: Weak<Manager>,
@@ -68,7 +69,7 @@ pub(crate) struct Runtime {
     changed: Notify,
     _lease: Mutex<Option<ByteLease>>,
 }
-fn now() -> Result<u64> {
+pub(crate) fn now() -> Result<u64> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Error::Internal)?
@@ -78,7 +79,7 @@ fn now() -> Result<u64> {
     }
     Ok(now)
 }
-fn slot(time: Option<&str>, now: u64) -> Result<Option<i32>> {
+pub(crate) fn slot(time: Option<&str>, now: u64) -> Result<Option<i32>> {
     let Some(time) = time else { return Ok(None) };
     let b = time.as_bytes();
     if b.len() != 5 || b[2] != b':' || ![0, 1, 3, 4].iter().all(|i| b[*i].is_ascii_digit()) {
@@ -130,6 +131,7 @@ impl Runtime {
                 directory_synced: true,
                 last_cycle: None,
                 geoip_slot: None,
+                plugin_slots: BTreeMap::new(),
             }),
             worker: Mutex::new(None),
             changed: Notify::new(),
@@ -265,7 +267,7 @@ impl Runtime {
                 return Ok(true);
             }
         }
-        Ok(false)
+        configuration.assets_due(&state.plugin_slots, at)
     }
     async fn automatic(self: &Arc<Self>) -> Result<()> {
         let _operation = self.authority.enter(self.authority.identity())?;
@@ -393,6 +395,19 @@ impl Runtime {
             None
         };
         let result = async {
+            let assets = if configuration.has_assets() {
+                Some(
+                    crate::configuration::plugins::load(
+                        &configuration,
+                        &client,
+                        self.home.as_deref(),
+                        manual.as_ref().is_some_and(Option::is_none),
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
             let geoip = if let Some(url) = configuration.geoip_url() {
                 let (previous, previous_slot) = {
                     let state = self.state.lock().map_err(|_| Error::Internal)?;
@@ -469,11 +484,11 @@ impl Runtime {
                     path,
                 });
             }
-            Ok((loaded, geoip, geoip_downloaded))
+            Ok((loaded, geoip, geoip_downloaded, assets))
         }
         .await;
         let stopped = network.stop_provider_download().await;
-        let ((mut data, sources, counts, leases, downloaded), geoip, geoip_downloaded) =
+        let ((mut data, sources, counts, leases, downloaded), geoip, geoip_downloaded, mut assets) =
             match (result, stopped) {
                 (Err(e), _) => {
                     if let Some(resolver) = &resolver {
@@ -498,7 +513,7 @@ impl Runtime {
         let me = self.clone();
         let document = configuration.clone();
         let operation = self.authority.enter(self.authority.identity())?;
-        let prepared = tokio::task::spawn_blocking(move || {
+        let mut prepared = tokio::task::spawn_blocking(move || {
             let _operation = operation;
             let _leases = leases;
             me.authority.check(me.authority.identity())?;
@@ -506,6 +521,10 @@ impl Runtime {
         })
         .await
         .map_err(|_| Error::Internal)??;
+        if let Some(assets) = &assets {
+            prepared.plugins = assets.bundle.clone();
+            prepared.scripts = assets.scripts.clone();
+        }
         // 本地规则/策略编辑只重新编译；正文与元数据没有变化时不重写远程文件。
         let changed = {
             let state = self.state.lock().map_err(|_| Error::Internal)?;
@@ -525,14 +544,29 @@ impl Runtime {
         } else {
             None
         };
+        let plugin_slots = prepared.plugins.slots.clone();
         let revision = self.authority.with_active(self.authority.identity(), || {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
             let revision = owner.commit_provider_configuration(
                 baseline,
                 prepared,
                 self.traffic.clone(),
-                || batch.as_mut().map_or(Ok(()), |b| b.commit()),
+                || {
+                    if let Some(assets) = &mut assets {
+                        assets.commit()?;
+                    }
+                    if let Err(error) = batch.as_mut().map_or(Ok(()), |b| b.commit()) {
+                        if let Some(assets) = &mut assets {
+                            assets.rollback()?;
+                        }
+                        return Err(error);
+                    }
+                    Ok(())
+                },
             )?;
+            if let Some(assets) = &mut assets {
+                assets.accept();
+            }
             // 数据库仅由已发布服务/规则快照持有；磁盘元数据不延长内存或资源占用。
             if let Some(asset) = &mut data.geoip {
                 asset.database = None;
@@ -542,12 +576,22 @@ impl Runtime {
             state.revision = Some(revision);
             state.counts = counts;
             state.geoip_slot = geoip_slot;
+            state.plugin_slots = plugin_slots;
             // 仅真实下载成功可清除下载失败；本地编辑不能伪装后台源已恢复。
             if downloaded || geoip_downloaded {
                 state.error = None;
             }
             Ok(revision)
         })?;
+        if let Some(assets) = assets
+            && let Err(error) = assets.sync()
+        {
+            self.record(error);
+            self.state
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .directory_synced = false;
+        }
         if let Some(batch) = batch {
             // 提交后不再 await：不能在已发布版本之后被外层取消误报为未提交。
             // 目录 fsync 失败用已提交状态明确报告，不回滚已对新请求可见的快照。

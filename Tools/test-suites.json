@@ -158,7 +158,8 @@
         "admission_failure_keeps_tun_return_packet",
         "nested_runtime_does_not_detach_failed_http_calls",
         "candidate_commands_are_safe_on_bounded_host_stack",
-        "storage_commands_reject_unentitled_hosts_and_role_injection"
+        "storage_commands_reject_unentitled_hosts_and_role_injection",
+        "script_cache_clear_is_owned_and_schema_is_strict"
       ]
     },
     {
@@ -1227,7 +1228,8 @@
         "explicit_doh_ignores_formal_route_and_retires_old_resolver",
         "geoip_ready_failure_atomicity_and_disabled_rules",
         "preferred_family_order_ip_reject_and_nxdomain",
-        "ordered_upstreams_get_independent_deadlines"
+        "ordered_upstreams_get_independent_deadlines",
+        "named_script_modifies_real_tls_request_and_conditional_response"
       ]
     },
     {
@@ -1434,6 +1436,165 @@
         "concurrent_creation_never_overwrites",
         "save_validates_before_replacing",
         "cross_process_initialization_is_exclusive"
+      ]
+    },
+    {
+      "id": "test_configuration_rewrites",
+      "file": "tests/test_configuration_rewrites.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/rewrites.rs",
+        "src/configuration/models.rs",
+        "src/configuration.rs"
+      ],
+      "module": "test_configuration_rewrites",
+      "declared_cases": [
+        "example_actions_are_accepted",
+        "action_fields_are_exclusive",
+        "required_fields_and_types_are_strict",
+        "nested_unknown_and_duplicate_fields_are_rejected",
+        "header_method_and_query_changes_are_validated",
+        "body_presets_and_bounds_are_strict",
+        "script_references_are_filenames_not_source_or_paths",
+        "url_and_status_boundaries_are_explicit",
+        "validation_never_activates_unimplemented_rewrites",
+        "complete_user_example_is_accepted",
+        "loading_compiles_url_patterns",
+        "script_mapping_and_extensionless_reference_are_valid",
+        "ttl_belongs_to_rewrite_and_defaults_to_one_hour"
+      ]
+    },
+    {
+      "id": "test_rewrite_url_pattern",
+      "file": "tests/test_rewrite_url_pattern.rs",
+      "kind": "unit",
+      "sources": [
+        "src/rewrite/url_pattern.rs"
+      ],
+      "module": "test_rewrite_url_pattern",
+      "declared_cases": [
+        "user_single_and_double_star_examples",
+        "literal_paths_are_anchored_and_case_sensitive",
+        "double_star_supports_zero_segments_and_literal_suffix",
+        "empty_and_trailing_segments_remain_explicit",
+        "query_is_separate_from_path_segments",
+        "encoding_and_dot_segments_are_not_rewritten",
+        "invalid_patterns_and_targets_are_rejected",
+        "length_and_deep_segment_bounds_are_enforced",
+        "greedy_matches_independent_dynamic_programming"
+      ]
+    },
+    {
+      "id": "test_configuration_rewrites_execution",
+      "file": "tests/test_configuration_rewrites_execution.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/rewrites/execution.rs",
+        "src/configuration/rewrites/conditions.rs",
+        "src/configuration/rewrites/presets.rs",
+        "src/configuration/rewrites.rs",
+        "src/https.rs",
+        "src/routing.rs"
+      ],
+      "module": "test_configuration_rewrites_execution",
+      "declared_cases": [
+        "request_conditions_are_and",
+        "headers_and_query_have_distinct_case_rules",
+        "response_waits_for_original_status_and_mime",
+        "length_uses_actual_body",
+        "body_conditions_are_explicit",
+        "disabled_rules_and_unbound_proxy_are_skipped",
+        "phase_and_unknown_fields_are_rejected",
+        "request_modification_preserves_origin",
+        "response_modification_clears_stale_metadata",
+        "redirect_and_abort_are_distinct",
+        "first_match_has_priority",
+        "script_condition_does_not_fake_execution",
+        "media_presets_are_real_bytes",
+        "proxy_reference_is_checked",
+        "direct_preserves_debug_precedence",
+        "mp4_declares_zero_milliseconds_without_audio"
+      ]
+    },
+    {
+      "id": "test_rewrite_pipeline",
+      "file": "tests/test_rewrite_pipeline.rs",
+      "kind": "integration",
+      "target": "test_rewrite_pipeline",
+      "sources": [
+        "src/configuration.rs",
+        "src/configuration/rewrites.rs",
+        "src/configuration/rewrites/execution.rs",
+        "src/https.rs",
+        "src/outbound/stream.rs",
+        "src/routing.rs"
+      ],
+      "declared_cases": [
+        "local_actions_never_dial",
+        "request_and_response_use_real_wire_data",
+        "response_rules_wait_for_upstream",
+        "direct_overrides_formal_reject",
+        "named_proxy_dials_only_selected_node",
+        "stopped_manager_cannot_construct_responses",
+        "https_rewrites_after_verified_tls"
+      ]
+    },
+    {
+      "id": "test_script_worker",
+      "file": "tests/test_script_worker.rs",
+      "kind": "unit",
+      "sources": [
+        "src/script/worker.rs",
+        "src/script.rs",
+        "src/platform/storage.rs"
+      ],
+      "module": "test_script_worker",
+      "declared_cases": [
+        "exact_name_without_extension_is_bound_and_source_is_loaded_lazily",
+        "missing_or_unregistered_resource_is_excluded_without_reinterpreting_url",
+        "ttl_comes_from_configuration_and_expiry_releases_the_thread",
+        "clear_interrupts_active_script_and_joins_before_returning",
+        "one_resource_uses_one_binding_with_shortest_configured_ttl",
+        "repeated_compilation_evicts_only_idle_threads_instead_of_exhausting_cache",
+        "automatic_expiry_rejects_new_jobs_but_does_not_interrupt_running_js"
+      ]
+    },
+    {
+      "id": "test_configuration_plugins",
+      "file": "tests/test_configuration_plugins.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/plugins.rs",
+        "src/configuration/rewrites/execution.rs",
+        "src/script/worker.rs"
+      ],
+      "module": "test_configuration_plugins",
+      "declared_cases": [
+        "only_strict_plugin_fields_and_single_script_mapping_are_allowed",
+        "main_mitm_bypass_and_master_switch_override_plugin_decryption",
+        "imports_namespaced_scripts_and_main_rewrites_win",
+        "reordering_moves_ids_files_and_priority_without_redownload",
+        "invalid_plugin_or_abandoned_batch_preserves_old_resources",
+        "missing_script_excludes_only_bad_rewrite_and_keeps_native_rules",
+        "disabled_new_entry_and_read_only_reuse_never_download_or_write",
+        "automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot",
+        "interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair",
+        "recovery_journal_cannot_name_external_paths"
+      ]
+    },
+    {
+      "id": "test_configuration_rewrites_script_message",
+      "file": "tests/test_configuration_rewrites_script_message.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/rewrites/script_message.rs"
+      ],
+      "module": "test_configuration_rewrites_script_message",
+      "declared_cases": [
+        "request_patch_cannot_change_origin_or_protected_headers",
+        "response_patch_removes_stale_body_metadata",
+        "response_patch_cannot_mutate_original_request",
+        "compressed_binary_and_oversized_input_are_rejected"
       ]
     }
   ]

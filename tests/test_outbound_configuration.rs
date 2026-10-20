@@ -1,3 +1,5 @@
+//! named_script_modifies_real_tls_request_and_conditional_response：验证同名业务契约。
+//!
 //! 迁移的 DNS/GeoIP 契约用例：
 //! - admitted_family_fallback_survives_configuration_replacement：保留原独立业务断言，以私有根目录替代 HOME。
 //! - named_numeric_dns_failure_never_uses_direct：保留原独立业务断言，以私有根目录替代 HOME。
@@ -758,4 +760,89 @@ rules: ['final,direct']
         task.abort();
         server.abort();
     }
+}
+
+#[tokio::test]
+async fn named_script_modifies_real_tls_request_and_conditional_response() {
+    // 私有候选夹具只注入绑定，不调用/冒充系统共享容器；执行走真实发布和 TLS 数据管线。
+    let fixture = crate::test_fixture_https::fixture().await;
+    let path = std::env::temp_dir().join(format!(
+        "fluxa-js-wire-{}",
+        crate::lifecycle::identifier().unwrap()
+    ));
+    std::fs::create_dir(&path).unwrap();
+    let directory = crate::platform::storage::Directory::open(&path, "js", true).unwrap();
+    directory.write("response",br#"input => input.status ? ({status:201,body: 'response:' + input.body}) : ({method:'POST',body:'request-body'})"#,false).unwrap();
+    let url = format!("https://localhost:{}/echo", fixture.port);
+    let doc=Arc::new(Document::from_yaml(&serde_json::json!({"rules":["final,direct"],"scripts":{"name":"response"},"rewrites":[
+        {"url":url,"phase":"request","action":"script","js":"response"},
+        {"url":url,"phase":"response","when":{"status":200,"content-type":"text/plain"},"action":"script","js":"response"}
+    ]}).to_string()).unwrap());
+    let bindings = crate::script::worker::Bindings::in_root(
+        &path,
+        true,
+        Some("response"),
+        vec![("response".into(), 3600)],
+    )
+    .unwrap();
+    let mut prepared = Arc::new(Document::from_yaml("rules: ['final,direct']").unwrap())
+        .prepare_shared(Vec::new())
+        .unwrap();
+    prepared.document = doc;
+    prepared.scripts = bindings;
+    let manager = Arc::new(Manager::default());
+    let baseline = manager.network_snapshot().unwrap().revision;
+    manager.commit_configuration(baseline, prepared).unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(fixture.root.clone()).unwrap();
+    let client = crate::https::HttpsClient::with_roots(roots)
+        .unwrap()
+        .with_network(manager.clone());
+    let response = client
+        .execute_request("GET", &url, &[], b"original", None)
+        .await
+        .unwrap();
+    assert_eq!(response.status, 201);
+    assert_eq!(response.body, b"response:request-body");
+    assert!(
+        !response
+            .headers
+            .iter()
+            .any(|h| h.name.eq_ignore_ascii_case("content-length"))
+    );
+    manager.clear_script_cache().await.unwrap();
+    directory
+        .write(
+            "response",
+            b"() => {throw new Error('condition must skip JS');}",
+            true,
+        )
+        .unwrap();
+    let doc=Arc::new(Document::from_yaml(&serde_json::json!({"rules":["final,direct"],"scripts":{"name":"response"},"rewrites":[{"url":url,"phase":"response","when":{"status":403},"action":"script","js":"response"}]}).to_string()).unwrap());
+    let mut prepared = Arc::new(Document::from_yaml("rules: ['final,direct']").unwrap())
+        .prepare_shared(Vec::new())
+        .unwrap();
+    prepared.document = doc;
+    prepared.scripts = crate::script::worker::Bindings::in_root(
+        &path,
+        true,
+        Some("response"),
+        vec![("response".into(), 3600)],
+    )
+    .unwrap();
+    manager
+        .commit_configuration(manager.network_snapshot().unwrap().revision, prepared)
+        .unwrap();
+    let skipped = client
+        .execute_request("GET", &url, &[], b"untouched", None)
+        .await
+        .unwrap();
+    assert_eq!(skipped.status, 200);
+    assert_eq!(skipped.body, b"untouched");
+    manager.stop().await.unwrap();
+    assert!(matches!(
+        client.execute_request("GET", &url, &[], &[], None).await,
+        Err(Error::InvalidState)
+    ));
+    std::fs::remove_dir_all(path).unwrap();
 }

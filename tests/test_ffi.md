@@ -1,6 +1,6 @@
 # 测试报告：test_ffi
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3173f20207c5ee43", "::test_ffi::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 2.604744, "status": "PASS", "discovered": ["ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection"], "results": {"ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet": "PASS", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles": "PASS", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error": "PASS", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full": "PASS", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity": "PASS", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error": "PASS", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json": "PASS", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only": "PASS", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured": "PASS", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration": "PASS", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls": "PASS", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type": "PASS", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored": "PASS", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection": "PASS"}, "fingerprint": "49581b16d94240c8820f183a99851ce4779d211a44bb3c6a434cff1c38d04969", "time": "2026-10-19T15:18:27.101291+08:00", "attempt": 1, "suite": "test_ffi", "file": "tests/test_ffi.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a84c532496de4d2c98da8cf847aec4ea0b9abd3c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-00177ba80b5d6f22", "::test_ffi::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 1.2071695830000024, "status": "PASS", "discovered": ["ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored", "ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection"], "results": {"ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet": "PASS", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles": "PASS", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error": "PASS", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full": "PASS", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity": "PASS", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error": "PASS", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json": "PASS", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only": "PASS", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured": "PASS", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration": "PASS", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls": "PASS", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type": "PASS", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored": "PASS", "ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict": "PASS", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection": "PASS"}, "fingerprint": "61d0a5c77467cbe83dd8b71f19ff8bbd0525807a98db3bd97d6cae35eff4ed9a", "time": "2026-10-21T05:26:21.614476+08:00", "attempt": 1, "suite": "test_ffi", "file": "tests/test_ffi.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/ffi.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3173f20207c5ee43 ::test_ffi:: --test-threads=1`
-- 执行时间：2026-10-19T15:18:27.101291+08:00
-- 实际耗时：2.604744 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a84c532496de4d2c98da8cf847aec4ea0b9abd3c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`49581b16d94240c8820f183a99851ce4779d211a44bb3c6a434cff1c38d04969`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-00177ba80b5d6f22 ::test_ffi:: --test-threads=1`
+- 执行时间：2026-10-21T05:26:21.614476+08:00
+- 实际耗时：1.2071695830000024 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`61d0a5c77467cbe83dd8b71f19ff8bbd0525807a98db3bd97d6cae35eff4ed9a`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -37,13 +37,14 @@
 | `ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：18
-- 实际执行完成：18
-- 通过：18
+- 实际发现：19
+- 实际执行完成：19
+- 通过：19
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -63,11 +64,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-core-storage-precommit/test_ffi.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-when-work/precommit/test_ffi.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
-
-## 人工核验及历史失败
-
-新增存储用例在 256 KiB 栈原生线程运行。初次角色注入断言真实失败：serde 单元变体忽略未知字段；改为空结构变体后通过，断言保持。失败证据 /private/tmp/fluxa-core-storage-final；最终证据 /private/tmp/fluxa-core-storage-precommit。未宣称 Swift 客户端或真实签名扩展验收。

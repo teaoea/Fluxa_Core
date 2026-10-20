@@ -16,7 +16,7 @@
 
 Rust Rewrite 与 Script 提供独立调用入口，process_response 用于异步管线。C ABI v1 的 mitm_start 扩展 rewrites 字段，能力位 4 表示内置流量脚本；旧字段兼容。Swift NativeRewriteRule 新增 script 与 jsonKeys 可选参数，匹配、执行和 JSON 正文处理均在 Rust。
 
-用户 YAML 写为 script: remove-json-keys 和 json-keys: [ad]；C ABI 内部使用 json_keys，不是用户配置文件。Rust 源码不下载远程脚本，客户端也不得把任意下载源码传入脚本接口。
+用户 YAML 写为 script: remove-json-keys 和 json-keys: [ad]；C ABI 内部使用 json_keys，不是用户配置文件。本节旧内置动作接口不负责脚本下载；新主配置声明式资源下载与 QuickJS 调用采用 [插件与脚本](插件与脚本.md) 的独立契约，不把任意资源 URL 当作旧内置动作源码。
 
 普通 HTTP 请求经过上游 HTTP 代理使用 absolute-form；HTTPS 保留 CONNECT。代理错误不回退直连。当前调试监听仍只允许回环，LAN、认证、SOCKS、TUN、网关、DNS 路由与代理出站协议仍未交付。
 

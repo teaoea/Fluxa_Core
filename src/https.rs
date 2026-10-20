@@ -32,6 +32,8 @@ struct ConnectionOptions {
     allow_http: bool,
     maximum_body: Option<usize>,
     database_download: bool,
+    skip_rewrites: bool,
+    snapshot: Option<Arc<crate::outbound::NetworkSnapshot>>,
 }
 impl HttpsClient {
     /// 复用受验证的根证书配置供加密 DNS；不提供跳过证书校验入口。
@@ -113,6 +115,7 @@ impl HttpsClient {
                 &[],
                 ConnectionOptions {
                     maximum_body: Some(maximum),
+                    skip_rewrites: true,
                     ..ConnectionOptions::default()
                 },
             ),
@@ -131,6 +134,7 @@ impl HttpsClient {
                 &[],
                 ConnectionOptions {
                     database_download: true,
+                    skip_rewrites: true,
                     ..ConnectionOptions::default()
                 },
             ),
@@ -185,6 +189,8 @@ impl HttpsClient {
                     database_download: false,
                     proxy_port,
                     stream: None,
+                    skip_rewrites: false,
+                    snapshot: None,
                 },
             ),
         )
@@ -293,6 +299,162 @@ impl HttpsClient {
         target: &str,
         headers: &[Header],
         body: &[u8],
+        mut options: ConnectionOptions,
+    ) -> Result<Response> {
+        if options.skip_rewrites {
+            return self
+                .execute_wire(method, target, headers, body, options)
+                .await;
+        }
+        let snapshot = self.network.network_snapshot()?;
+        let Some(document) = snapshot.configuration.as_ref().filter(|d| {
+            snapshot.configuration_complete && (d.has_rewrites() || snapshot.plugins.has_rules())
+        }) else {
+            return self
+                .execute_wire(method, target, headers, body, options)
+                .await;
+        };
+        validate_rewrite_input(method, target, headers, body, options.allow_http)?;
+        if options.proxy_port == Some(0) {
+            return Err(Error::InvalidInput);
+        }
+        static MEMORY: crate::budget::ByteBudget =
+            crate::budget::ByteBudget::new(256 * 1024 * 1024);
+        let _memory = MEMORY.reserve(4 * http::MAX_BODY + 4 * http::MAX_HEADER)?;
+        let owner = snapshot.session.clone().ok_or(Error::InvalidState)?;
+        let _operation = owner.enter(owner.identity())?;
+        let original = crate::configuration::rewrites::execution::Message {
+            method: method.into(),
+            url: target.into(),
+            headers: headers.into(),
+            body: body.into(),
+        };
+        let mut request = original.clone();
+        let outcome = document.rewrite_request_bound(
+            &original,
+            &mut request,
+            Some(&snapshot.scripts),
+            &snapshot.plugins,
+        )?;
+        let route = match outcome {
+            crate::configuration::rewrites::execution::Outcome::Response(mut value) => {
+                if method == "HEAD" {
+                    value.body.clear();
+                }
+                return owner.with_active(owner.identity(), || Ok(value));
+            }
+            crate::configuration::rewrites::execution::Outcome::Route(policy, node) => {
+                Some((policy, node))
+            }
+            crate::configuration::rewrites::execution::Outcome::Continue => None,
+            crate::configuration::rewrites::execution::Outcome::Script(binding) => {
+                crate::configuration::rewrites::script_message::execute(
+                    binding,
+                    &self.network.scripts,
+                    &mut request,
+                    None,
+                )
+                .await?;
+                None
+            }
+        };
+        let mut execution = snapshot.as_ref().clone();
+        if let Some((policy, node)) = route {
+            // 既有连接和显式本地中转不能冒充本次新选出的出站。
+            if options.proxy_port.is_some() || options.stream.is_some() {
+                return Err(Error::Unsupported);
+            }
+            execution.router = Some(Arc::new(
+                execution
+                    .router
+                    .as_ref()
+                    .ok_or(Error::InvalidState)?
+                    .for_http_rewrite(policy, node)?,
+            ));
+        }
+        options.snapshot = Some(Arc::new(execution));
+        let result = async {
+            let mut response = self
+                .execute_wire(
+                    &request.method,
+                    &request.url,
+                    &request.headers,
+                    &request.body,
+                    options,
+                )
+                .await?;
+            document
+                .rewrite_response_bound(
+                    &original,
+                    &mut response,
+                    &snapshot.scripts,
+                    &self.network.scripts,
+                    &snapshot.plugins,
+                )
+                .await?;
+            owner.with_active(owner.identity(), || Ok(response))
+        };
+        tokio::select! {biased; _=owner.canceled()=>Err(Error::Cancelled), result=result=>result}
+    }
+    async fn connect_http_request(
+        &self,
+        host: &str,
+        port: u16,
+        tls: bool,
+        proxy_port: Option<u16>,
+        snapshot: Option<Arc<crate::outbound::NetworkSnapshot>>,
+    ) -> Result<SecureStream> {
+        let snapshot = match snapshot {
+            Some(snapshot) => snapshot,
+            None => self.network.network_snapshot()?,
+        };
+        let socket = self
+            .network
+            .connect_stream_snapshot(host, port, proxy_port, snapshot)
+            .await?;
+        let mut socket = BufReader::new(socket);
+        if tls && proxy_port.is_some() {
+            use tokio::io::AsyncWriteExt;
+            let authority = if host.contains(':') {
+                format!("[{host}]:{port}")
+            } else {
+                format!("{host}:{port}")
+            };
+            socket
+                .get_mut()
+                .write_all(
+                    format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n").as_bytes(),
+                )
+                .await?;
+            let head = http::read_head(&mut socket).await?;
+            let parts: Vec<_> = head.first.splitn(3, ' ').collect();
+            if parts.len() < 2
+                || parts[0] != "HTTP/1.1"
+                || parts[1] != "200"
+                || head.value("transfer-encoding").is_some()
+                || head.value("content-length").is_some_and(|v| v != "0")
+            {
+                return Err(Error::Tls);
+            }
+        }
+        if tls {
+            let name = ServerName::try_from(host.to_owned()).map_err(|_| Error::InvalidInput)?;
+            TlsConnector::from(self.config.clone())
+                .connect(name, socket)
+                .await
+                .map(|s| Box::new(s) as SecureStream)
+                .map_err(Error::from_tls)
+        } else {
+            Ok(Box::new(socket))
+        }
+    }
+    /// 协议下载跳过业务复写，防止本地响应篡改提供者及数据库。
+    async fn execute_wire(
+        &self,
+        method: &str,
+        target: &str,
+        headers: &[Header],
+        body: &[u8],
         options: ConnectionOptions,
     ) -> Result<Response> {
         let started = Instant::now();
@@ -386,17 +548,14 @@ impl HttpsClient {
         let stream = match options.stream {
             Some(stream) => stream,
             None => {
-                if let Some(proxy_port) = options.proxy_port.filter(|_| http_proxy) {
-                    Box::new(
-                        self.network
-                            .connect_stream(&host, port, Some(proxy_port))
-                            .await?,
-                    ) as SecureStream
-                } else if url.scheme() == "http" {
-                    self.connect_plain(&host, port, None).await?
-                } else {
-                    self.connect_tls(&host, port, options.proxy_port).await?
-                }
+                self.connect_http_request(
+                    &host,
+                    port,
+                    url.scheme() == "https",
+                    options.proxy_port,
+                    options.snapshot,
+                )
+                .await?
             }
         };
         let mut stream = BufReader::new(stream);
@@ -466,3 +625,65 @@ pub(crate) fn is_token(byte: u8) -> bool {
 #[cfg(test)]
 #[path = "../tests/test_https.rs"]
 mod test_https;
+
+/// 本地响应也必须先核验原始输入，不能利用规则命中绕过协议及资源限制。
+fn validate_rewrite_input(
+    method: &str,
+    target: &str,
+    headers: &[Header],
+    body: &[u8],
+    allow_http: bool,
+) -> Result<()> {
+    if target.len() > 4096 {
+        return Err(Error::ResourceLimit);
+    }
+    let url = Url::parse(target).map_err(|_| Error::InvalidInput)?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || url.port_or_known_default() == Some(0)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || target.bytes().any(|b| b <= 32 || b == 127 || b == b'\\')
+    {
+        return Err(Error::InvalidInput);
+    }
+    if !allow_http && !target.starts_with("https://")
+        || method.is_empty()
+        || method.len() > 32
+        || !method.bytes().all(is_token)
+        || method.eq_ignore_ascii_case("CONNECT")
+    {
+        return Err(Error::InvalidInput);
+    }
+    if headers.len() > 128 || body.len() > http::MAX_BODY {
+        return Err(Error::ResourceLimit);
+    }
+    let mut total = 0;
+    for header in headers {
+        total += header.name.len() + header.value.len() + 4;
+        if header.name.is_empty()
+            || !header.name.bytes().all(is_token)
+            || header.value.bytes().any(|b| b < 32 || b == 127)
+            || [
+                "host",
+                "content-length",
+                "transfer-encoding",
+                "connection",
+                "proxy-connection",
+                "proxy-authorization",
+                "upgrade",
+                "expect",
+                "trailer",
+            ]
+            .iter()
+            .any(|n| header.name.eq_ignore_ascii_case(n))
+        {
+            return Err(Error::InvalidInput);
+        }
+    }
+    if total > http::MAX_HEADER {
+        return Err(Error::ResourceLimit);
+    }
+    Ok(())
+}

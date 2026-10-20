@@ -13,12 +13,14 @@ const CHINESE: &str = r###"# Fluxa 默认主配置
 # 反馈问题时请附日志，并先移除节点凭据、私钥和敏感内容。
 # 日志等级，silent 不记录日志。
 log-level: silent
+
 # 系统代理。
 system-proxy:
   # 监听端口，0 表示关闭；启用时最小 1054。
   port: 0
   # 绕过地址。
   bypass: ["127.0.0.1", "localhost", "::1", "*.local"]
+
 # 局域网共享。
 lan-share:
   # 监听端口，0 表示关闭，不得与系统代理端口相同。
@@ -27,8 +29,10 @@ lan-share:
   account: ""
   # 访问密码，避免在反馈中泄露。
   password: ""
+
 # 运行模式：rule、global、direct。
 mode: rule
+
 # GeoIP 数据库。
 geoip:
   # 默认不下载数据库。
@@ -37,24 +41,31 @@ geoip:
   url: "https://example.com/geoip.mmdb"
   # 每日更新时间，采用设备本地时区。
   update-time: "00:00"
+
 # 地址族策略，默认优先 IPv4；不会因拦截而直连放行。
 ip-strategy: prefer-ipv4
+
 # 节点提供者保留字段，当前仅支持空列表。
 proxy-providers: []
+
 # 插件提供者，导入后按已支持能力校验。
 plugin-providers: []
+
 # 远程规则集，默认不订阅或下载。
 rule-providers: []
+
 # 本地规则；无节点的初始配置拒绝未匹配流量。
 rules:
   # 唯一兜底规则；添加节点后由用户明确修改策略。
   - final,reject
+
 # 出站资源上限。
 outbound-limits:
   # 最大连接数，范围 1–64。
   maximum-connections: 64
   # 空闲超时，单位毫秒。
   idle-timeout-ms: 300000
+
 # DNS 设置。
 dns:
   # 关闭时使用系统 DNS；启用后不自动增加系统兜底。
@@ -79,6 +90,7 @@ dns:
     bypass: ["*.local", "*.lan", "time.apple.com", "*.push.apple.com"]
   # 静态域名映射，仅允许 IP 地址。
   hosts: {}
+
 # 系统隧道设置；创建配置不代表已启动 VPN。
 tun:
   # 默认关闭，系统接管需要独立授权与启动检查。
@@ -89,6 +101,7 @@ tun:
   mtu: 1500
   # 不接管的目标网段。
   bypass: ["192.168.0.0/16", "10.0.0.0/8", "100.64.0.0/10"]
+
 # HTTPS 解密设置；私钥不得写入主配置。
 mitm:
   # 默认关闭解密。
@@ -101,8 +114,14 @@ mitm:
   hosts: []
   # 解密排除域名，优先于解密允许项。
   bypass: []
+
 # 正文改写规则，默认无规则。
 rewrites: []
+
+# JS 资源为单个对象；启用对应复写后填写，name 与复写 js 精确一致，可省略 .js 后缀。
+# scripts:
+#   name: response
+#   url: https://example.com/response.js
 "###;
 const ENGLISH: &str = r###"# Fluxa default configuration
 # GitHub: https://github.com/teaoea/fluxa-app
@@ -110,12 +129,14 @@ const ENGLISH: &str = r###"# Fluxa default configuration
 # Attach logs to issue reports after removing credentials, private keys, and sensitive content.
 # Log level; silent writes no log files.
 log-level: silent
+
 # System proxy.
 system-proxy:
   # Listener port; 0 disables it; minimum enabled port is 1054.
   port: 0
   # Bypass addresses.
   bypass: ["127.0.0.1", "localhost", "::1", "*.local"]
+
 # LAN sharing.
 lan-share:
   # Listener port; 0 disables it; must differ from the system proxy port.
@@ -124,8 +145,10 @@ lan-share:
   account: ""
   # Access password; omit credentials from issue reports.
   password: ""
+
 # Operating mode: rule, global, or direct.
 mode: rule
+
 # GeoIP database.
 geoip:
   # Disabled by default; no database download.
@@ -134,24 +157,31 @@ geoip:
   url: "https://example.com/geoip.mmdb"
   # Daily update time in the device local time zone.
   update-time: "00:00"
+
 # Address family policy; prefer IPv4 by default; rejection never permits direct fallback.
 ip-strategy: prefer-ipv4
+
 # Reserved proxy providers; only an empty list is supported.
 proxy-providers: []
+
 # Plugin providers; imported entries are checked against supported capabilities.
 plugin-providers: []
+
 # Remote rule providers; no default subscription or download.
 rule-providers: []
+
 # Local rules; the initial configuration without nodes rejects unmatched traffic.
 rules:
   # The sole final rule; change its policy explicitly after adding nodes.
   - final,reject
+
 # Outbound resource limits.
 outbound-limits:
   # Maximum connections, from 1 to 64.
   maximum-connections: 64
   # Idle timeout in milliseconds.
   idle-timeout-ms: 300000
+
 # DNS settings.
 dns:
   # Uses system DNS while disabled; enabling never adds an implicit system fallback.
@@ -176,6 +206,7 @@ dns:
     bypass: ["*.local", "*.lan", "time.apple.com", "*.push.apple.com"]
   # Static hostname mappings; values must be IP addresses.
   hosts: {}
+
 # System tunnel settings; creating this file does not start a VPN.
 tun:
   # Disabled by default; system takeover requires separate authorization and preflight.
@@ -186,6 +217,7 @@ tun:
   mtu: 1500
   # Destination networks excluded from tunnel takeover.
   bypass: ["192.168.0.0/16", "10.0.0.0/8", "100.64.0.0/10"]
+
 # HTTPS decryption settings; never store private keys in the main configuration.
 mitm:
   # Decryption is disabled by default.
@@ -198,6 +230,12 @@ mitm:
   hosts: []
   # Decryption exclusions; these take precedence over permitted hosts.
   bypass: []
+
 # Body rewrite rules; empty by default.
 rewrites: []
+
+# A single named JS resource; the rewrite js value must exactly match name, without requiring .js.
+# scripts:
+#   name: response
+#   url: https://example.com/response.js
 "###;

@@ -19,3 +19,6 @@
 共享容器与默认主配置由 Core 管理，固定 App Group、扩展只读及真实验证边界见 [共享存储](Documentation/共享存储.md)。
 
 内核二进制使用[本机手动发布流程](Documentation/本机手动发布.md)，不依赖 GitHub Actions 发布。
+
+
+2.8.0-dev 本轮新增原生条件复写、声明式插件及命名 JS 管线，`scripts.name: response` 可由 `js: response` 精确引用，不要求 .js 后缀。主配置优先、数字 ID 目录、真实共享容器绑定及缓存清理约束见 [插件与脚本](Documentation/插件与脚本.md)；本机 TLS 与测试夹具不代表系统 VPN 或完整主配置 MITM 启动验收。

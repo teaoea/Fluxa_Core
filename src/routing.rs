@@ -344,6 +344,21 @@ impl Router {
             },
         })
     }
+    /// HTTP 复写只替换本次正式路由，保留 Debug 授权、到期和撤销检查。
+    pub(crate) fn for_http_rewrite(
+        &self,
+        policy: Policy,
+        outbound: Option<String>,
+    ) -> Result<Self> {
+        let mut router = Self::compile(Config {
+            mode: Mode::Rules,
+            fallback: policy,
+            outbound,
+            ..Config::default()
+        })?;
+        router.debug = self.debug.clone();
+        Ok(router)
+    }
     pub(crate) fn needs_process(&self) -> bool {
         self.runtime.needs_process()
     }

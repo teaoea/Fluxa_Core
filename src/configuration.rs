@@ -2,6 +2,8 @@
 //! 成功只表示配置合法，不表示资源已启动、节点可用或 VPN 已接管。
 pub(crate) mod defaults;
 pub(crate) mod models;
+pub(crate) mod plugins;
+pub(crate) mod rewrites;
 mod rules;
 use crate::{
     budget::{ByteBudget, ByteLease},
@@ -184,8 +186,14 @@ fn validate(raw: &mut Raw) -> Result<()> {
         name(&provider.category)?;
         https_url(&provider.url)?;
         daily_time(provider.update_time.as_deref())?;
-        if provider.enabled {
-            return Err(Error::Unsupported);
+        if raw
+            .plugin_providers
+            .iter()
+            .filter(|p| p.name == provider.name)
+            .count()
+            != 1
+        {
+            return Err(Error::InvalidInput);
         }
     }
     if raw.geoip.enabled {
@@ -234,11 +242,34 @@ fn validate(raw: &mut Raw) -> Result<()> {
     }
     // 记录配置选择，实际 TLS/正文捕获管线在后续完整配置事务接入，不能据此声明运行成功。
     let _mitm_execution = (raw.mitm.skip_server_cert_verify, raw.mitm.capture_body);
-    for rewrite in &raw.rewrites {
+    if let Some(script) = &raw.scripts {
+        script_name(&script.name)?;
+        if let Some(url) = &script.url {
+            https_url(url)?;
+        }
+    }
+    for rewrite in &mut raw.rewrites {
         rewrite.validate()?;
+        if let Some(node) = rewrite.proxy_node()
+            && !raw.proxies.iter().any(|p| p.name == node)
+        {
+            return Err(Error::InvalidInput);
+        }
     }
     // 类型本身穷尽限制了值；后续网络准备读取这些字段，校验成功不等于已经应用。
     let _selection = (raw.log_level, raw.ip_strategy, raw.dns.dnssec);
+    Ok(())
+}
+pub(crate) fn script_name(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || value.starts_with('.')
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+    {
+        return Err(Error::InvalidInput);
+    }
     Ok(())
 }
 fn name(value: &str) -> Result<()> {
@@ -512,6 +543,8 @@ pub(crate) enum PreparationPurpose {
 }
 // 候选只在内核调用栈内存活；不向宿主暴露提交令牌、快照或活动资源控制权。
 pub(crate) struct Prepared {
+    pub(crate) plugins: std::sync::Arc<plugins::Bundle>,
+    pub(crate) scripts: std::sync::Arc<crate::script::worker::Bindings>,
     pub document: std::sync::Arc<Document>,
     pub resolver: Option<std::sync::Arc<crate::dns::Resolver>>,
     pub geoip: Option<std::sync::Arc<crate::geoip::Service>>,
@@ -535,7 +568,8 @@ impl Document {
         std::sync::Arc::new(self).prepare_shared(Vec::new())
     }
     pub(crate) fn needs_runtime(&self) -> bool {
-        self.raw.dns.enable
+        self.has_assets()
+            || self.raw.dns.enable
             || self.raw.geoip.enabled
             || !matches!(self.raw.ip_strategy, IpStrategy::PreferIpv4)
     }
@@ -577,7 +611,6 @@ impl Document {
             || raw.mitm.enabled
             || raw.system_proxy.port != 0
             || raw.lan_share.port != 0
-            || !raw.rewrites.is_empty()
             || !matches!(raw.log_level, LogFilter::Silent)
         {
             return Err(Error::Unsupported);
@@ -642,11 +675,41 @@ impl Document {
                     .into_flat()?,
             ))?);
         Ok(Prepared {
+            plugins: std::sync::Arc::new(plugins::Bundle::default()),
+            scripts: if download {
+                std::sync::Arc::default()
+            } else {
+                crate::script::worker::Bindings::compile(
+                    self.raw.scripts.as_ref().map(|s| s.name.as_str()),
+                    self.raw
+                        .rewrites
+                        .iter()
+                        .filter_map(|r| r.script_reference())
+                        .collect(),
+                )?
+            },
             resolver: None,
             geoip: None,
             document: self,
             router,
             outbounds: std::sync::Arc::new(outbounds),
         })
+    }
+}
+
+impl Document {
+    pub(crate) fn has_assets(&self) -> bool {
+        !self.raw.plugin_providers.is_empty()
+            || self.raw.scripts.as_ref().is_some_and(|s| s.url.is_some())
+    }
+}
+
+impl Document {
+    pub(crate) fn mitm_excluded(&self, host: &str) -> bool {
+        self.raw
+            .mitm
+            .exclude_hosts
+            .iter()
+            .any(|p| host_pattern_matches(p, host))
     }
 }

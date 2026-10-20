@@ -462,6 +462,7 @@ enum Command {
     DnsQuery(crate::dns::Query),
     DnsLastQuery,
     DnsClearCache,
+    ScriptCacheClear {},
     DnsFakeIpReverse {
         address: String,
     },
@@ -889,6 +890,15 @@ macro_rules! bounded_commands {
         }
     }};
 }
+// 清理使用小型取消入口，不能被普通请求 busy 状态或八份请求槽位挡住。
+fn clear_scripts(engine: &Engine) -> Result<Reply, Error> {
+    let owner = engine.outbound.clone();
+    run_network(async move { owner.clear_script_cache().await })?;
+    Ok(Reply {
+        success: true,
+        ..Reply::default()
+    })
+}
 fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     let engine = engine(handle)?;
     // 小型取消命令不等待普通请求配额，否则八个阻塞读可能阻止停止；输入仍有界。
@@ -923,6 +933,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                     ..Reply::default()
                 });
             }
+            Ok(Command::ScriptCacheClear {}) => return clear_scripts(&engine),
             Ok(Command::OutboundCloseAll) => {
                 runtime()?.block_on(engine.outbound.close_all())?;
                 return Ok(Reply {
@@ -955,6 +966,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             | Command::RouteEvaluate(_)
             | Command::RouteCheck(_)
             | Command::SubscriptionSchedule(_)
+            | Command::ScriptCacheClear {}
     );
     let _busy = if concurrent {
         None
@@ -1119,6 +1131,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ..Reply::default()
             })
         },
+        Command::ScriptCacheClear {}=>clear_scripts(engine),
         Command::SubscriptionSchedule(check) => Ok(Reply {
             success: true,
             subscription_schedule: Some(check.evaluate()?),

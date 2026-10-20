@@ -150,6 +150,17 @@ impl Manager {
         port: u16,
         proxy_port: Option<u16>,
     ) -> Result<ManagedStream> {
+        self.connect_stream_snapshot(host, port, proxy_port, self.network_snapshot()?)
+            .await
+    }
+    /// 本次 HTTP 请求捕获的配置，仍受会话、Debug 与资源准入约束。
+    pub(crate) async fn connect_stream_snapshot(
+        &self,
+        host: &str,
+        port: u16,
+        proxy_port: Option<u16>,
+        snapshot: Arc<super::NetworkSnapshot>,
+    ) -> Result<ManagedStream> {
         let host = crate::network::normalize_host(host)?;
         let ip = host.parse::<std::net::IpAddr>().ok();
         let request = RoutedTarget {
@@ -167,7 +178,9 @@ impl Manager {
         if hop.is_some_and(|hop| hop.port() == 0) {
             return Err(Error::InvalidInput);
         }
-        let opened = self.connect_configured_hop(request, hop).await?;
+        let opened = self
+            .connect_configured_snapshot_hop(request, snapshot, hop)
+            .await?;
         let id = opened.connection.id;
         let result = (|| {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;

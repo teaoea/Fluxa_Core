@@ -1,3 +1,5 @@
+//! script_cache_clear_is_owned_and_schema_is_strict：验证缓存清理命令不接受路径或宿主权限注入。
+//!
 //! 测试文件：tests/test_ffi.rs
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
@@ -30,6 +32,33 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[test]
+    fn script_cache_clear_is_owned_and_schema_is_strict() {
+        let _gate = TEST_GATE.blocking_lock();
+        let owner = TestHandle(fluxa_engine_create());
+        let held = engine(owner.0).unwrap();
+        held.busy.store(true, Ordering::Release);
+        for (request, success) in [
+            (br#"{"operation":"script_cache_clear"}"#.as_slice(), true),
+            (
+                br#"{"operation":"script_cache_clear","path":"/tmp/forbidden"}"#.as_slice(),
+                false,
+            ),
+        ] {
+            // SAFETY: 字节常量同步有效，回复句柄只由本测试的 TestHandle 释放。
+            let response = TestHandle(unsafe {
+                fluxa_engine_command_v2(owner.0, request.as_ptr(), request.len())
+            });
+            assert_ne!(response.0, 0);
+            let value: serde_json::Value =
+                serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
+            assert_eq!(value["success"], success);
+            if !success {
+                assert_eq!(value["error_info"]["code"], 1001);
+            }
+        }
+        held.busy.store(false, Ordering::Release);
+    }
     #[test]
     fn storage_commands_reject_unentitled_hosts_and_role_injection() {
         let _gate = TEST_GATE.blocking_lock();

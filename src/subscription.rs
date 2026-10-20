@@ -105,6 +105,16 @@ pub async fn fetch(
     client: &crate::https::HttpsClient,
     address: &str,
 ) -> Result<crate::https::Response> {
+    fetch_limited(client, address, 8 * 1024 * 1024).await
+}
+pub(crate) async fn fetch_limited(
+    client: &crate::https::HttpsClient,
+    address: &str,
+    maximum: usize,
+) -> Result<crate::https::Response> {
+    if maximum == 0 || maximum > 8 * 1024 * 1024 {
+        return Err(Error::InvalidInput);
+    }
     if address.len() > 4096 {
         return Err(Error::ResourceLimit);
     }
@@ -121,9 +131,7 @@ pub async fn fetch(
             {
                 return Err(Error::InvalidInput);
             }
-            let response = client
-                .execute_limited(url.as_str(), 8 * 1024 * 1024)
-                .await?;
+            let response = client.execute_limited(url.as_str(), maximum).await?;
             if response.status == 200 {
                 std::str::from_utf8(&response.body).map_err(|_| Error::InvalidInput)?;
                 return Ok(response);

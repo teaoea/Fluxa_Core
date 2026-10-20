@@ -222,7 +222,19 @@ async fn session(socket: TcpStream, state: &SessionState, capture: &mut Capture)
     let (host, port) = authority_target(parts[1], None)?;
     capture.url = format!("https://{}/", parts[1]);
     capture.request_headers = head.headers.clone();
-    if !state.hosts.contains(&host) {
+    let snapshot = state.upstream.network().network_snapshot()?;
+    let allowed = if let Some(main) = snapshot
+        .configuration
+        .as_ref()
+        .filter(|_| snapshot.configuration_complete)
+    {
+        // 独立授权的显式调试目标仍受主配置禁止解密列表限制。
+        !main.mitm_excluded(&host)
+            && (state.hosts.contains(&host) || snapshot.plugins.decrypts(main, &host))
+    } else {
+        state.hosts.contains(&host)
+    };
+    if !allowed {
         let mut remote = state
             .upstream
             .connect_plain(&host, port, state.options.upstream_proxy_port)
@@ -397,6 +409,10 @@ async fn forward<S: Duplex>(
     };
     let response = match result {
         Ok(response) => response,
+        Err(Error::Cancelled) => {
+            socket.get_mut().shutdown().await?;
+            return Err(Error::Cancelled);
+        }
         Err(error) => {
             return failure(socket, capture, error, 502, state.options.capture_bodies).await;
         }
@@ -404,6 +420,10 @@ async fn forward<S: Duplex>(
     let response = match rewrite::process_response(target, response, &state.options.rewrites).await
     {
         Ok(response) => response,
+        Err(Error::Cancelled) => {
+            socket.get_mut().shutdown().await?;
+            return Err(Error::Cancelled);
+        }
         Err(error) => {
             return failure(socket, capture, error, 502, state.options.capture_bodies).await;
         }

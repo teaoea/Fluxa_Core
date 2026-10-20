@@ -50,7 +50,7 @@ pub(crate) struct Raw {
     pub ip_strategy: IpStrategy,
     #[serde(default)]
     pub proxies: Vec<Proxy>,
-    // 两种提供者尚不接入执行；只接受已知的保留形状，不能以任意 JSON 绕过字段校验。
+    // 代理提供者仍保留为空；声明式插件由独立资源事务加载，不能用任意 JSON 绕过字段校验。
     #[serde(default)]
     pub proxy_providers: Vec<ReservedProxyProvider>,
     #[serde(default)]
@@ -67,7 +67,9 @@ pub(crate) struct Raw {
     #[serde(default)]
     pub mitm: Mitm,
     #[serde(default)]
-    pub rewrites: Vec<crate::rewrite::Rewrite>,
+    pub(super) rewrites: Vec<super::rewrites::Rule>,
+    #[serde(default, deserialize_with = "optional_script")]
+    pub(crate) scripts: Option<ScriptSource>,
 }
 /// 系统代理与局域网分别使用严格对象，不接受原先分散的顶层端口/认证字段。
 #[derive(Default, Deserialize)]
@@ -227,3 +229,17 @@ pub(crate) struct Mitm {
 #[cfg(test)]
 #[path = "../../tests/test_configuration_models.rs"]
 mod test_configuration_models;
+
+/// 主配置和插件共用一个命名资源对象；name 是唯一引用键，不从 URL 反推文件名。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ScriptSource {
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) url: Option<String>,
+}
+pub(super) fn optional_script<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ScriptSource>, D::Error> {
+    ScriptSource::deserialize(d).map(Some)
+}

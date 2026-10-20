@@ -1,4 +1,7 @@
-//! 迁移现有声明式改写；精确域名和路径前缀，不访问 Swift 或系统接口。
+//! URL 模式编译及既有改写管线；不访问 Swift 或系统接口。
+mod url_pattern;
+pub use url_pattern::UrlPattern;
+
 use crate::{
     error::{Error, Result},
     http::{Header, MAX_BODY, MAX_HEADER},
@@ -28,6 +31,24 @@ pub enum Action {
     ReplaceResponseText,
     ResponseScript,
 }
+/// 配置声明与现有管线共用的分帧、逐跳头及认证头保护集合。
+pub(crate) fn protected_header(name: &str) -> bool {
+    [
+        "host",
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "content-encoding",
+        "proxy-authorization",
+        "proxy-authenticate",
+        "proxy-connection",
+        "keep-alive",
+        "upgrade",
+        "trailer",
+        "expect",
+    ]
+    .contains(&name.to_ascii_lowercase().as_str())
+}
 impl Rewrite {
     pub fn validate(&self) -> Result<()> {
         normalize_host(&self.host)?;
@@ -48,21 +69,7 @@ impl Rewrite {
                     || !name.bytes().all(is_token)
                     || value.len() > 8192
                     || value.bytes().any(|b| b < 32 || b == 127)
-                    || [
-                        "host",
-                        "content-length",
-                        "transfer-encoding",
-                        "connection",
-                        "content-encoding",
-                        "proxy-authorization",
-                        "proxy-authenticate",
-                        "proxy-connection",
-                        "keep-alive",
-                        "upgrade",
-                        "trailer",
-                        "expect",
-                    ]
-                    .contains(&name.to_ascii_lowercase().as_str())
+                    || protected_header(name)
                 {
                     return Err(Error::InvalidInput);
                 }

@@ -40,7 +40,7 @@ fn initialize_in(context: crate::platform::storage::Context) -> Result<bool> {
         let _writer = WRITER.lock().map_err(|_| Error::Internal)?;
         let config = crate::platform::storage::Directory::open(&context.root, "config", true)?;
         let _lock = config.lock()?;
-        for name in ["log", "rule", "plugin"] {
+        for name in ["log", "rule", "plugin", "js"] {
             crate::platform::storage::Directory::open(&context.root, name, true)?;
         }
         if config.has_yaml()? {

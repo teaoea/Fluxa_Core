@@ -207,6 +207,7 @@ pub struct Manager {
     reaper: Mutex<Option<tokio::task::JoinHandle<()>>>,
     generation: watch::Sender<u64>,
     provider_control: tokio::sync::Mutex<()>,
+    pub(crate) scripts: Arc<crate::script::worker::Cache>,
 }
 impl Default for Manager {
     fn default() -> Self {
@@ -222,6 +223,7 @@ impl Default for Manager {
             reaper: Mutex::new(None),
             generation,
             provider_control: tokio::sync::Mutex::new(()),
+            scripts: Arc::new(crate::script::worker::Cache::default()),
         }
     }
 }
@@ -610,12 +612,28 @@ impl Manager {
         }
         self.clear(true).await
     }
+    /// 手动清理当前内核的脚本缓存；中断在途执行并等待线程退出，前端不管理工作线程。
+    pub async fn clear_script_cache(&self) -> Result<()> {
+        if self.state.lock().map_err(|_| Error::Internal)?.stopped {
+            return Err(Error::InvalidState);
+        }
+        let scripts = self.scripts.clone();
+        tokio::task::spawn_blocking(move || scripts.clear())
+            .await
+            .map_err(|_| Error::Internal)?
+    }
     pub async fn stop(&self) -> Result<()> {
         let providers = {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
             state.stopped = true;
             state.providers.clone()
         };
+        let scripts = self.scripts.clone();
+        if !scripts.begin_close()? {
+            tokio::task::spawn_blocking(move || scripts.close())
+                .await
+                .map_err(|_| Error::Internal)??;
+        }
         // 不移走对象后提前向第二个 close 报成功；所有调用等待同一关闭完成状态。
         let stopped = self.clear(true).await;
         let closed = match providers {
