@@ -1,6 +1,6 @@
 # 测试报告：test_vpn
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-macos-team-storage/target/debug/deps/libfluxa_core-318794320ad432f5", "::test_vpn::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.24872966600000268, "status": "PASS", "discovered": ["vpn::test_vpn::close_cancels_download_and_releases_slot_with_old_reference_alive", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules", "vpn::test_vpn::remote_sources_are_memory_only_and_keep_policy", "vpn::test_vpn::slots_are_bounded_before_background_work", "vpn::test_vpn::total_deadline_has_its_own_error_and_releases_resources"], "results": {"vpn::test_vpn::close_cancels_download_and_releases_slot_with_old_reference_alive": "PASS", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate": "PASS", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success": "PASS", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate": "PASS", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules": "PASS", "vpn::test_vpn::remote_sources_are_memory_only_and_keep_policy": "PASS", "vpn::test_vpn::slots_are_bounded_before_background_work": "PASS", "vpn::test_vpn::total_deadline_has_its_own_error_and_releases_resources": "PASS"}, "fingerprint": "95a77d0e822027d3d8d91dc72bd23cd1b197af94788923845e5c4d07153812fe", "time": "2026-10-21T05:14:07.529593+08:00", "attempt": 1, "suite": "test_vpn", "file": "tests/test_vpn.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-00177ba80b5d6f22", "::test_vpn::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.614787750000005, "status": "PASS", "discovered": ["vpn::test_vpn::close_cancels_download_and_releases_slot_with_old_reference_alive", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules", "vpn::test_vpn::remote_sources_are_memory_only_and_keep_policy", "vpn::test_vpn::slots_are_bounded_before_background_work", "vpn::test_vpn::total_deadline_has_its_own_error_and_releases_resources"], "results": {"vpn::test_vpn::close_cancels_download_and_releases_slot_with_old_reference_alive": "PASS", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate": "PASS", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success": "PASS", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate": "PASS", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules": "PASS", "vpn::test_vpn::remote_sources_are_memory_only_and_keep_policy": "PASS", "vpn::test_vpn::slots_are_bounded_before_background_work": "PASS", "vpn::test_vpn::total_deadline_has_its_own_error_and_releases_resources": "PASS"}, "fingerprint": "8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8", "time": "2026-10-21T05:33:11.104801+08:00", "attempt": 1, "suite": "test_vpn", "file": "tests/test_vpn.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": false, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/vpn.rs、src/providers.rs、src/configuration.rs、src/outbound/configuration.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/private/tmp/fluxa-macos-team-storage/target/debug/deps/libfluxa_core-318794320ad432f5 ::test_vpn:: --test-threads=1`
-- 执行时间：2026-10-21T05:14:07.529593+08:00
-- 实际耗时：0.24872966600000268 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`95a77d0e822027d3d8d91dc72bd23cd1b197af94788923845e5c4d07153812fe`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-00177ba80b5d6f22 ::test_vpn:: --test-threads=1`
+- 执行时间：2026-10-21T05:33:11.104801+08:00
+- 实际耗时：0.614787750000005 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": false, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -53,7 +53,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-team-final-evidence/test_vpn.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-core-2.8-evidence/rust/test_vpn.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
