@@ -35,6 +35,14 @@ mod apple {
     #[link(name = "Security", kind = "framework")]
     unsafe extern "C" {
         fn SecTaskCreateFromSelf(allocator: Object) -> Object;
+        fn SecCodeCopySelf(flags: u32, code: *mut Object) -> i32;
+        fn SecCodeCheckValidity(code: Object, flags: u32, requirement: Object) -> i32;
+        fn SecCodeCopySigningInformation(
+            code: *const c_void,
+            flags: u32,
+            information: *mut *const c_void,
+        ) -> i32;
+        static kSecCodeInfoTeamIdentifier: Object;
         fn SecTaskCopyValueForEntitlement(task: Object, key: Object, error: *mut Object) -> Object;
     }
     #[cfg(target_os = "macos")]
@@ -42,6 +50,9 @@ mod apple {
     unsafe extern "C" {
         fn CFGetTypeID(value: Object) -> usize;
         fn CFArrayGetTypeID() -> usize;
+        fn CFDictionaryGetTypeID() -> usize;
+        fn CFStringGetTypeID() -> usize;
+        fn CFDictionaryGetValue(dictionary: Object, key: Object) -> Object;
         fn CFRelease(value: Object);
     }
     #[cfg(target_os = "macos")]
@@ -127,7 +138,44 @@ mod apple {
         }
     }
     #[cfg(target_os = "macos")]
-    fn verify_entitlement() -> Result<()> {
+    fn signed_group() -> Result<std::ffi::CString> {
+        let mut code = ptr::null_mut();
+        // SAFETY: Security 写入当前进程代码对象，成功引用立即由 guard 接管。
+        let status = unsafe { SecCodeCopySelf(0, &mut code) };
+        let code = Owned(code);
+        if status != 0 || code.0.is_null() {
+            return Err(Error::InvalidState);
+        }
+        // SAFETY: 校验当前进程真实动态代码身份；不接受外部 requirement。
+        if unsafe { SecCodeCheckValidity(code.0, 0, ptr::null_mut()) } != 0 {
+            return Err(Error::InvalidState);
+        }
+        let mut information = ptr::null();
+        // SAFETY: 2 为 SDK 的 kSecCSSigningInformation；独占输出由 guard 释放。
+        let status =
+            unsafe { SecCodeCopySigningInformation(code.0.cast_const(), 2, &mut information) };
+        let information = Owned(information.cast_mut());
+        if status != 0 || information.0.is_null() {
+            return Err(Error::InvalidState);
+        }
+        // SAFETY: 先检查 CF 类型；字典与借用值由 information 保活。
+        let team = unsafe {
+            if CFGetTypeID(information.0) != CFDictionaryGetTypeID() {
+                return Err(Error::InvalidState);
+            }
+            let team = CFDictionaryGetValue(information.0, kSecCodeInfoTeamIdentifier);
+            if team.is_null() || CFGetTypeID(team) != CFStringGetTypeID() {
+                return Err(Error::InvalidState);
+            }
+            team
+        };
+        let identifier = macos_group(&text(team, c"UTF8String")?)?;
+        let identifier = std::ffi::CString::new(identifier).map_err(|_| Error::InvalidState)?;
+        verify_entitlement(&identifier)?;
+        Ok(identifier)
+    }
+    #[cfg(target_os = "macos")]
+    fn verify_entitlement(identifier: &CStr) -> Result<()> {
         // SAFETY: 只读取当前进程真实 Security Task；空 allocator 采用系统默认分配器。
         let task = Owned(unsafe { SecTaskCreateFromSelf(ptr::null_mut()) });
         if task.0.is_null() {
@@ -154,11 +202,7 @@ mod apple {
         let contains = unsafe {
             let call: unsafe extern "C" fn(Object, Object, Object) -> u8 =
                 std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
-            call(
-                value.0,
-                selector(c"containsObject:"),
-                string(c"group.app.fluxa.ios"),
-            )
+            call(value.0, selector(c"containsObject:"), string(identifier))
         };
         if contains == 0 {
             return Err(Error::InvalidState);
@@ -169,7 +213,9 @@ mod apple {
         // SAFETY: pool 在当前同步调用内创建和释放；没有对象指针逃出作用域。
         let _pool = Pool(unsafe { objc_autoreleasePoolPush() });
         #[cfg(target_os = "macos")]
-        verify_entitlement()?;
+        let identifier = signed_group()?;
+        #[cfg(not(target_os = "macos"))]
+        let identifier = c"group.app.fluxa.ios";
         let bundle = send(class(c"NSBundle"), c"mainBundle");
         if bundle.is_null() {
             return Err(Error::InvalidState);
@@ -189,7 +235,7 @@ mod apple {
         let url = send_object(
             manager,
             c"containerURLForSecurityApplicationGroupIdentifier:",
-            string(c"group.app.fluxa.ios"),
+            string(identifier.as_ref()),
         );
         if url.is_null() {
             return Err(Error::InvalidState);
@@ -551,3 +597,20 @@ fn set_errno(value: i32) {
     #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
     let _ = value;
 }
+
+/// macOS 无描述文件共享组必须绑定系统验证的十位签名团队，不接受配置覆盖。
+#[cfg(any(target_os = "macos", test))]
+fn macos_group(team: &str) -> Result<String> {
+    if team.len() != 10
+        || !team
+            .bytes()
+            .all(|v| v.is_ascii_uppercase() || v.is_ascii_digit())
+    {
+        return Err(Error::InvalidState);
+    }
+    Ok(format!("{team}.app.fluxa.shared"))
+}
+
+#[cfg(test)]
+#[path = "../../tests/test_platform_storage.rs"]
+mod test_platform_storage;

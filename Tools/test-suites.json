@@ -1596,6 +1596,19 @@
         "response_patch_cannot_mutate_original_request",
         "compressed_binary_and_oversized_input_are_rejected"
       ]
+    },
+    {
+      "id": "test_platform_storage",
+      "file": "tests/test_platform_storage.rs",
+      "kind": "unit",
+      "sources": [
+        "src/platform/storage.rs"
+      ],
+      "module": "test_platform_storage",
+      "declared_cases": [
+        "signed_team_namespace",
+        "reject_invalid_team"
+      ]
     }
   ]
 }
