@@ -1,6 +1,6 @@
 # 测试报告：test_storage
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3173f20207c5ee43", "::test_storage::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 1.4752270000000003, "status": "PASS", "discovered": ["storage::test_storage::concurrent_creation_never_overwrites", "storage::test_storage::create_once_preserves_existing_yaml", "storage::test_storage::cross_process_initialization_is_exclusive", "storage::test_storage::default_is_complete_localized_and_fail_closed", "storage::test_storage::extension_reads_but_cannot_write", "storage::test_storage::invalid_input_and_links_are_rejected", "storage::test_storage::save_validates_before_replacing"], "results": {"storage::test_storage::concurrent_creation_never_overwrites": "PASS", "storage::test_storage::create_once_preserves_existing_yaml": "PASS", "storage::test_storage::cross_process_initialization_is_exclusive": "PASS", "storage::test_storage::default_is_complete_localized_and_fail_closed": "PASS", "storage::test_storage::extension_reads_but_cannot_write": "PASS", "storage::test_storage::invalid_input_and_links_are_rejected": "PASS", "storage::test_storage::save_validates_before_replacing": "PASS"}, "fingerprint": "49581b16d94240c8820f183a99851ce4779d211a44bb3c6a434cff1c38d04969", "time": "2026-10-19T15:18:27.101291+08:00", "attempt": 1, "suite": "test_storage", "file": "tests/test_storage.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a84c532496de4d2c98da8cf847aec4ea0b9abd3c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-macos-team-storage/target/debug/deps/libfluxa_core-318794320ad432f5", "::test_storage::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 1.4859899579999905, "status": "PASS", "discovered": ["storage::test_storage::concurrent_creation_never_overwrites", "storage::test_storage::create_once_preserves_existing_yaml", "storage::test_storage::cross_process_initialization_is_exclusive", "storage::test_storage::default_is_complete_localized_and_fail_closed", "storage::test_storage::extension_reads_but_cannot_write", "storage::test_storage::invalid_input_and_links_are_rejected", "storage::test_storage::save_validates_before_replacing"], "results": {"storage::test_storage::concurrent_creation_never_overwrites": "PASS", "storage::test_storage::create_once_preserves_existing_yaml": "PASS", "storage::test_storage::cross_process_initialization_is_exclusive": "PASS", "storage::test_storage::default_is_complete_localized_and_fail_closed": "PASS", "storage::test_storage::extension_reads_but_cannot_write": "PASS", "storage::test_storage::invalid_input_and_links_are_rejected": "PASS", "storage::test_storage::save_validates_before_replacing": "PASS"}, "fingerprint": "95a77d0e822027d3d8d91dc72bd23cd1b197af94788923845e5c4d07153812fe", "time": "2026-10-21T05:14:07.529593+08:00", "attempt": 1, "suite": "test_storage", "file": "tests/test_storage.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/storage.rs、src/platform/storage.rs、src/configuration/defaults.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-3173f20207c5ee43 ::test_storage:: --test-threads=1`
-- 执行时间：2026-10-19T15:18:27.101291+08:00
-- 实际耗时：1.4752270000000003 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a84c532496de4d2c98da8cf847aec4ea0b9abd3c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`49581b16d94240c8820f183a99851ce4779d211a44bb3c6a434cff1c38d04969`
+- 实际命令：`/private/tmp/fluxa-macos-team-storage/target/debug/deps/libfluxa_core-318794320ad432f5 ::test_storage:: --test-threads=1`
+- 执行时间：2026-10-21T05:14:07.529593+08:00
+- 实际耗时：1.4859899579999905 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`95a77d0e822027d3d8d91dc72bd23cd1b197af94788923845e5c4d07153812fe`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -52,11 +52,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-core-storage-precommit/test_storage.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-team-final-evidence/test_storage.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
-
-## 人工核验及历史失败
-
-本轮先前失败包括注释断言误识别字段、旧 HOME 夹具、锁文件首次创建竞态和 try_lock 使独立夹具争用；修复后最终七项全部通过，未删除并发断言。原始失败日志位于 /private/tmp/fluxa-core-storage-evidence、-evidence-r2、-tests-r3.log 和 -concurrent*.log。L3 检查覆盖无节点 final,reject、越权拒绝、扩展只读、保存前校验、符号链接拒绝及六进程排他创建；真实签名 App/扩展、其他 Apple 平台和系统 VPN 尚未验证。

@@ -1,6 +1,6 @@
 # 测试报告：test_tun_icmp
 
-<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-185a33e4556c7e57", "::test_tun_icmp::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.005574667000004752, "status": "PASS", "discovered": ["tun::icmp::test_tun_icmp::independent_icmp_errors_validate_checksum_quote_direction_and_bounds", "tun::icmp::test_tun_icmp::old_udp_quote_cannot_adjust_new_flow_with_same_endpoints_and_body", "tun::icmp::test_tun_icmp::path_lifetime_and_ipv6_fragment_quote_are_bounded", "tun::icmp::test_tun_icmp::path_requires_recent_exact_quote_and_only_decreases"], "results": {"tun::icmp::test_tun_icmp::independent_icmp_errors_validate_checksum_quote_direction_and_bounds": "PASS", "tun::icmp::test_tun_icmp::old_udp_quote_cannot_adjust_new_flow_with_same_endpoints_and_body": "PASS", "tun::icmp::test_tun_icmp::path_lifetime_and_ipv6_fragment_quote_are_bounded": "PASS", "tun::icmp::test_tun_icmp::path_requires_recent_exact_quote_and_only_decreases": "PASS"}, "fingerprint": "057cbe1b92439f32ccf6469b84b539fbd830dac34a9f1c7f81072ace804f370c", "time": "2026-10-19T01:06:06.563948+08:00", "attempt": 1, "suite": "test_tun_icmp", "file": "tests/test_tun_icmp.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3381616e3625e0dd62ba1163ca1e1b228a00991", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/private/tmp/fluxa-macos-team-storage/target/debug/deps/libfluxa_core-318794320ad432f5", "::test_tun_icmp::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.005964082999994957, "status": "PASS", "discovered": ["tun::icmp::test_tun_icmp::independent_icmp_errors_validate_checksum_quote_direction_and_bounds", "tun::icmp::test_tun_icmp::old_udp_quote_cannot_adjust_new_flow_with_same_endpoints_and_body", "tun::icmp::test_tun_icmp::path_lifetime_and_ipv6_fragment_quote_are_bounded", "tun::icmp::test_tun_icmp::path_requires_recent_exact_quote_and_only_decreases"], "results": {"tun::icmp::test_tun_icmp::independent_icmp_errors_validate_checksum_quote_direction_and_bounds": "PASS", "tun::icmp::test_tun_icmp::old_udp_quote_cannot_adjust_new_flow_with_same_endpoints_and_body": "PASS", "tun::icmp::test_tun_icmp::path_lifetime_and_ipv6_fragment_quote_are_bounded": "PASS", "tun::icmp::test_tun_icmp::path_requires_recent_exact_quote_and_only_decreases": "PASS"}, "fingerprint": "95a77d0e822027d3d8d91dc72bd23cd1b197af94788923845e5c4d07153812fe", "time": "2026-10-21T05:14:07.529593+08:00", "attempt": 1, "suite": "test_tun_icmp", "file": "tests/test_tun_icmp.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/tun/icmp.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/private/tmp/fluxa-tcp-latest/target/debug/deps/libfluxa_core-185a33e4556c7e57 ::test_tun_icmp:: --test-threads=1`
-- 执行时间：2026-10-19T01:06:06.563948+08:00
-- 实际耗时：0.005574667000004752 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3381616e3625e0dd62ba1163ca1e1b228a00991", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`057cbe1b92439f32ccf6469b84b539fbd830dac34a9f1c7f81072ace804f370c`
+- 实际命令：`/private/tmp/fluxa-macos-team-storage/target/debug/deps/libfluxa_core-318794320ad432f5 ::test_tun_icmp:: --test-threads=1`
+- 执行时间：2026-10-21T05:14:07.529593+08:00
+- 实际耗时：0.005964082999994957 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "ca03dbe91d30381600e401e82a2cffa3a5d38c87", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`95a77d0e822027d3d8d91dc72bd23cd1b197af94788923845e5c4d07153812fe`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -49,7 +49,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-vpn-stack-final/test_tun_icmp.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-team-final-evidence/test_tun_icmp.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
