@@ -125,6 +125,12 @@ def package_slices(framework, directory):
         shutil.move(str(staging), directory)
 
 
+def build_platforms(requested=None):
+    """支持矩阵与当前构建范围分开：日常默认只编译 macOS。"""
+    names = requested or ('macos',)
+    return [row for row in PLATFORMS if row[0] in names]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', action='append', choices=[row[0] for row in PLATFORMS])
@@ -132,9 +138,10 @@ def main():
     parser.add_argument('--list', action='store_true', help='输出支持矩阵；不构建、不访问网络')
     parser.add_argument('--output', type=Path, default=ROOT / 'Vendor/FluxaEngine.xcframework')
     args = parser.parse_args()
-    selected = [row for row in PLATFORMS if not args.platform or row[0] in args.platform]
+    selected = build_platforms(args.platform)
     if args.list:
-        print(json.dumps([dict(name=r[0], target=r[1], sdk=r[2], minimum=r[4], variant=r[6]) for r in selected], ensure_ascii=False, indent=2))
+        supported = [row for row in PLATFORMS if not args.platform or row[0] in args.platform]
+        print(json.dumps([dict(name=r[0], target=r[1], sdk=r[2], minimum=r[4], variant=r[6]) for r in supported], ensure_ascii=False, indent=2))
         return
     build(selected, args.output)
     if args.package_dir:

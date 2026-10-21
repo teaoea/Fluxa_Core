@@ -1,7 +1,7 @@
 # 测试文件：tests/test_apple_platforms.py
 # 测试类型：单元测试、构建契约回归
 # 测试对象：Tools/build-apple.py；build-apple.sh；build-macos.sh；src/lib.rs
-# 测试内容：test_supported_matrix；test_excluded_targets_rejected_before_build；test_deployment_environment_isolated；test_existing_output_preserved；test_local_only_entrypoints；test_package_names_and_contents；test_packages_reject_excluded_architecture。
+# 测试内容：test_default_build_is_macos_only；test_supported_matrix；test_excluded_targets_rejected_before_build；test_deployment_environment_isolated；test_existing_output_preserved；test_local_only_entrypoints；test_package_names_and_contents；test_packages_reject_excluded_architecture。
 # 测试依据：用户 2026-10-21 最低系统矩阵；排除 Intel Mac、watchOS、visionOS；仅本地成品。
 # 前置条件：Python；测试使用临时文件及受控 SDK 查询，不执行网络上传或真实 Cargo 构建。
 import importlib.util
@@ -21,6 +21,10 @@ spec=importlib.util.spec_from_file_location('apple_builder', ROOT/'Tools/build-a
 builder=importlib.util.module_from_spec(spec); spec.loader.exec_module(builder)
 
 class ApplePlatformsTests(unittest.TestCase):
+    def test_default_build_is_macos_only(self):
+        self.assertEqual([row[0] for row in builder.build_platforms()],['macos'])
+        self.assertEqual([row[0] for row in builder.build_platforms(['ios','ios-simulator'])],['ios','ios-simulator'])
+        self.assertEqual(len(builder.PLATFORMS),5,'暂不构建不能删除系统支持矩阵')
     def test_supported_matrix(self):
         result=subprocess.run([sys.executable,str(ROOT/'Tools/build-apple.py'),'--list'],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
