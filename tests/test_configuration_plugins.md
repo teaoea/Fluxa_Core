@@ -1,6 +1,6 @@
 # 测试报告：test_configuration_plugins
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0", "::test_configuration_plugins::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 1.184671208000026, "status": "PASS", "discovered": ["configuration::plugins::test_configuration_plugins::automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot", "configuration::plugins::test_configuration_plugins::disabled_new_entry_and_read_only_reuse_never_download_or_write", "configuration::plugins::test_configuration_plugins::imports_namespaced_scripts_and_main_rewrites_win", "configuration::plugins::test_configuration_plugins::interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair", "configuration::plugins::test_configuration_plugins::invalid_plugin_or_abandoned_batch_preserves_old_resources", "configuration::plugins::test_configuration_plugins::main_mitm_bypass_and_master_switch_override_plugin_decryption", "configuration::plugins::test_configuration_plugins::missing_script_excludes_only_bad_rewrite_and_keeps_native_rules", "configuration::plugins::test_configuration_plugins::only_strict_plugin_fields_and_single_script_mapping_are_allowed", "configuration::plugins::test_configuration_plugins::recovery_journal_cannot_name_external_paths", "configuration::plugins::test_configuration_plugins::reordering_moves_ids_files_and_priority_without_redownload"], "results": {"configuration::plugins::test_configuration_plugins::automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot": "PASS", "configuration::plugins::test_configuration_plugins::disabled_new_entry_and_read_only_reuse_never_download_or_write": "PASS", "configuration::plugins::test_configuration_plugins::imports_namespaced_scripts_and_main_rewrites_win": "PASS", "configuration::plugins::test_configuration_plugins::interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair": "PASS", "configuration::plugins::test_configuration_plugins::invalid_plugin_or_abandoned_batch_preserves_old_resources": "PASS", "configuration::plugins::test_configuration_plugins::main_mitm_bypass_and_master_switch_override_plugin_decryption": "PASS", "configuration::plugins::test_configuration_plugins::missing_script_excludes_only_bad_rewrite_and_keeps_native_rules": "PASS", "configuration::plugins::test_configuration_plugins::only_strict_plugin_fields_and_single_script_mapping_are_allowed": "PASS", "configuration::plugins::test_configuration_plugins::recovery_journal_cannot_name_external_paths": "PASS", "configuration::plugins::test_configuration_plugins::reordering_moves_ids_files_and_priority_without_redownload": "PASS"}, "fingerprint": "195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b", "time": "2026-10-21T13:01:17.926949+08:00", "attempt": 1, "suite": "test_configuration_plugins", "file": "tests/test_configuration_plugins.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0", "::test_configuration_plugins::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.01980362499999444, "status": "PASS", "discovered": ["configuration::plugins::test_configuration_plugins::host_files_preserve_priority_and_script_namespaces", "configuration::plugins::test_configuration_plugins::invalid_plugin_preserves_host_files", "configuration::plugins::test_configuration_plugins::main_mitm_bypass_and_master_switch_override_plugin_decryption", "configuration::plugins::test_configuration_plugins::missing_script_excludes_only_script_rule", "configuration::plugins::test_configuration_plugins::only_strict_plugin_fields_and_single_script_mapping_are_allowed"], "results": {"configuration::plugins::test_configuration_plugins::host_files_preserve_priority_and_script_namespaces": "PASS", "configuration::plugins::test_configuration_plugins::invalid_plugin_preserves_host_files": "PASS", "configuration::plugins::test_configuration_plugins::main_mitm_bypass_and_master_switch_override_plugin_decryption": "PASS", "configuration::plugins::test_configuration_plugins::missing_script_excludes_only_script_rule": "PASS", "configuration::plugins::test_configuration_plugins::only_strict_plugin_fields_and_single_script_mapping_are_allowed": "PASS"}, "fingerprint": "23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243", "time": "2026-10-21T19:59:51.359405+08:00", "attempt": 1, "suite": "test_configuration_plugins", "file": "tests/test_configuration_plugins.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0 ::test_configuration_plugins:: --test-threads=1`
-- 执行时间：2026-10-21T13:01:17.926949+08:00
-- 实际耗时：1.184671208000026 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b`
+- 执行时间：2026-10-21T19:59:51.359405+08:00
+- 实际耗时：0.01980362499999444 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -20,22 +20,17 @@
 
 | 实际发现的用例 | 独立目标 | 状态 |
 | --- | --- | --- |
-| `configuration::plugins::test_configuration_plugins::automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::disabled_new_entry_and_read_only_reuse_never_download_or_write` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::imports_namespaced_scripts_and_main_rewrites_win` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::invalid_plugin_or_abandoned_batch_preserves_old_resources` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `configuration::plugins::test_configuration_plugins::host_files_preserve_priority_and_script_namespaces` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `configuration::plugins::test_configuration_plugins::invalid_plugin_preserves_host_files` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `configuration::plugins::test_configuration_plugins::main_mitm_bypass_and_master_switch_override_plugin_decryption` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::missing_script_excludes_only_bad_rewrite_and_keeps_native_rules` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `configuration::plugins::test_configuration_plugins::missing_script_excludes_only_script_rule` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `configuration::plugins::test_configuration_plugins::only_strict_plugin_fields_and_single_script_mapping_are_allowed` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::recovery_journal_cannot_name_external_paths` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `configuration::plugins::test_configuration_plugins::reordering_moves_ids_files_and_priority_without_redownload` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：10
-- 实际执行完成：10
-- 通过：10
+- 实际发现：5
+- 实际执行完成：5
+- 通过：5
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -55,7 +50,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-core-platform-formatted-20261021/test_configuration_plugins.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-readonly-main-policy-final/test_configuration_plugins.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

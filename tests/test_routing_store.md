@@ -1,6 +1,6 @@
 # 测试报告：test_routing_store
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0", "::test_routing_store::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.03743541699999753, "status": "PASS", "discovered": ["routing::store::test_routing_store::cache_path_tests::cache_failed_exclusive_creation_does_not_remove_existing_file", "routing::store::test_routing_store::cache_path_tests::cache_failed_exclusive_creation_does_not_remove_symlink", "routing::store::test_routing_store::cache_path_tests::cache_owned_file_roundtrip_preserves_document", "routing::store::test_routing_store::cache_path_tests::cache_regular_file_swap_is_rejected_by_identity", "routing::store::test_routing_store::cache_path_tests::cache_rejected_update_keeps_snapshot_old_file_and_symlink_target", "routing::store::test_routing_store::cache_path_tests::cache_symlink_swap_never_truncates_or_overwrites_target", "routing::store::test_routing_store::cache_path_tests::cache_write_rejects_nonempty_handle_without_truncation"], "results": {"routing::store::test_routing_store::cache_path_tests::cache_failed_exclusive_creation_does_not_remove_existing_file": "PASS", "routing::store::test_routing_store::cache_path_tests::cache_failed_exclusive_creation_does_not_remove_symlink": "PASS", "routing::store::test_routing_store::cache_path_tests::cache_owned_file_roundtrip_preserves_document": "PASS", "routing::store::test_routing_store::cache_path_tests::cache_regular_file_swap_is_rejected_by_identity": "PASS", "routing::store::test_routing_store::cache_path_tests::cache_rejected_update_keeps_snapshot_old_file_and_symlink_target": "PASS", "routing::store::test_routing_store::cache_path_tests::cache_symlink_swap_never_truncates_or_overwrites_target": "PASS", "routing::store::test_routing_store::cache_path_tests::cache_write_rejects_nonempty_handle_without_truncation": "PASS"}, "fingerprint": "195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b", "time": "2026-10-21T13:01:17.926949+08:00", "attempt": 1, "suite": "test_routing_store", "file": "tests/test_routing_store.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0", "::test_routing_store::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.006516042000001221, "status": "PASS", "discovered": ["routing::store::test_routing_store::cancelled_job_cannot_publish", "routing::store::test_routing_store::host_export_roundtrip_is_read_only", "routing::store::test_routing_store::invalid_file_is_not_repaired", "routing::store::test_routing_store::memory_updates_never_persist", "routing::store::test_routing_store::symlink_target_is_never_modified"], "results": {"routing::store::test_routing_store::cancelled_job_cannot_publish": "PASS", "routing::store::test_routing_store::host_export_roundtrip_is_read_only": "PASS", "routing::store::test_routing_store::invalid_file_is_not_repaired": "PASS", "routing::store::test_routing_store::memory_updates_never_persist": "PASS", "routing::store::test_routing_store::symlink_target_is_never_modified": "PASS"}, "fingerprint": "23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243", "time": "2026-10-21T19:59:51.359405+08:00", "attempt": 1, "suite": "test_routing_store", "file": "tests/test_routing_store.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0 ::test_routing_store:: --test-threads=1`
-- 执行时间：2026-10-21T13:01:17.926949+08:00
-- 实际耗时：0.03743541699999753 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b`
+- 执行时间：2026-10-21T19:59:51.359405+08:00
+- 实际耗时：0.006516042000001221 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -20,19 +20,17 @@
 
 | 实际发现的用例 | 独立目标 | 状态 |
 | --- | --- | --- |
-| `routing::store::test_routing_store::cache_path_tests::cache_failed_exclusive_creation_does_not_remove_existing_file` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `routing::store::test_routing_store::cache_path_tests::cache_failed_exclusive_creation_does_not_remove_symlink` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `routing::store::test_routing_store::cache_path_tests::cache_owned_file_roundtrip_preserves_document` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `routing::store::test_routing_store::cache_path_tests::cache_regular_file_swap_is_rejected_by_identity` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `routing::store::test_routing_store::cache_path_tests::cache_rejected_update_keeps_snapshot_old_file_and_symlink_target` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `routing::store::test_routing_store::cache_path_tests::cache_symlink_swap_never_truncates_or_overwrites_target` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `routing::store::test_routing_store::cache_path_tests::cache_write_rejects_nonempty_handle_without_truncation` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `routing::store::test_routing_store::cancelled_job_cannot_publish` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `routing::store::test_routing_store::host_export_roundtrip_is_read_only` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `routing::store::test_routing_store::invalid_file_is_not_repaired` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `routing::store::test_routing_store::memory_updates_never_persist` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `routing::store::test_routing_store::symlink_target_is_never_modified` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：7
-- 实际执行完成：7
-- 通过：7
+- 实际发现：5
+- 实际执行完成：5
+- 通过：5
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -52,7 +50,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-core-platform-formatted-20261021/test_routing_store.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-readonly-main-policy-final/test_routing_store.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
