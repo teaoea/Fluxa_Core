@@ -26,8 +26,7 @@
 use crate::test_fixture_https::dns as support;
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
-    use libfluxa_core::{
+    use fluxa_core::{
         error::Error,
         outbound::{Limits, Manager},
         routing::{Config, Policy, Router},
@@ -56,9 +55,7 @@ mod public_contract {
             .unwrap();
         manager
     }
-    async fn next(
-        session: &Session,
-    ) -> libfluxa_core::error::Result<libfluxa_core::tun::udp::Packet> {
+    async fn next(session: &Session) -> fluxa_core::error::Result<fluxa_core::tun::udp::Packet> {
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
                 if let Some(packet) = session.receive()? {
@@ -283,7 +280,7 @@ mod public_contract {
     use super::support;
     #[tokio::test]
     async fn fake_ip_requires_live_resolver_generation_and_never_dials_synthetic_address() {
-        use libfluxa_core::dns::{Config as DnsConfig, Query, Resolver, Server, fake_ip};
+        use fluxa_core::dns::{Config as DnsConfig, Query, Resolver, Server, fake_ip};
         let fixture = support::fixture().await;
         let resolver = Arc::new(
             Resolver::new(DnsConfig {

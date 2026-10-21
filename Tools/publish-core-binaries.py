@@ -11,7 +11,7 @@ import zipfile
 
 SOURCE = 'teaoea/Fluxa_Core'
 DESTINATION = 'teaoea/libfluxa-core'
-FILES = ('provenance.json', 'FluxaEngine.xcframework.zip', 'fluxa-test-fixture-macos-arm64.zip')
+FILES = ('provenance.json', 'fluxa-core-macos-arm64.zip', 'fluxa-core-fixture-macos-arm64.zip')
 LIMITS = dict(zip(FILES, (16384, 80 * 1024 * 1024, 20 * 1024 * 1024)))
 
 
@@ -122,7 +122,7 @@ def publish(source, version, run, writer, directory):
         raise ValueError('来源清单字段或不稳定标记无效；禁止公开任意配置')
     if (record['source_commit'], record['version'], record['tag'], record['verification_run']) != (source, version, tag, run):
         raise ValueError('来源证明不匹配本次门禁提交')
-    if record['platforms'] != ['macos-arm64'] or record['minimum_macos'] != '14.0':
+    if record['platforms'] != ['macos-arm64'] or record['minimum_macos'] != '13.0':
         raise ValueError('平台声明不匹配实际构建')
     repo = writer.api(f'repos/{DESTINATION}')
     if repo['full_name'] != DESTINATION or repo['private']:
@@ -174,8 +174,8 @@ def main():
     source = os.environ.get('FLUXA_DEV_SOURCE', '')
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     branch = subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()
-    if source != actual or branch != 'dev':
-        raise ValueError('只允许已检出的 dev 本机验证提交分发')
+    if source != actual or branch != 'main':
+        raise ValueError('只允许已检出的 main 本机验证提交分发')
     if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all']):
         raise ValueError('发布时源码不再干净，拒绝上传')
     version = re.search(r'^version = "([^"]+)"', Path('Cargo.toml').read_text(), re.M)[1]

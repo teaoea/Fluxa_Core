@@ -1,5 +1,5 @@
 //! 真实 UDP 首包纯裁决 + macOS OS 进程规则出站示例；仅本机回环，不接管 VPN。
-use libfluxa_core::{
+use fluxa_core::{
     configuration::Document,
     routing::{Policy, Target, Transport},
 };
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     #[cfg(target_os = "macos")]
     {
-        use libfluxa_core::outbound::{Family, Manager, RoutedTarget};
+        use fluxa_core::outbound::{Family, Manager, RoutedTarget};
         let name = std::env::current_exe()?
             .file_name()
             .ok_or("可执行文件名缺失")?

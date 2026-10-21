@@ -1,33 +1,11 @@
-# dev 不稳定测试附件
+# dev 本地产物与获准后的测试发布
 
-作者：可莉唯一的狗。
+默认只在本地构建、校验和保存，未经用户明确许可不上传二进制或配套文件，不创建远程发布草稿、标签。通过门禁、推送 dev 不构成发布授权；不使用 GitHub Actions 发布，不发布 crates.io，不合并 main。
 
-用户已要求 dev 每次提交同步发布不稳定测试版本。本流程在 dev 推送后执行；同一提交必须先通过
-Rust、报告/发布控制流回归、Linux 真实 TUN 及分片检查，随后构建并发布 GitHub Pre-release。
-不同提交的运行互不取消，避免后续提交取消已经开始的测试发布。
-
-- 基础内核版本为 `2.5.0-dev`；每个下载版本标签为 `v2.5.0-dev.<完整源码提交>`。
-- 标签的提交、框架构建提交及 provenance.json 的 source_commit 必须一致。
-- 每次版本单独保存 XCFramework、独立测试服务、SHA-256 与来源记录。框架的 Info.plist 也保存完整基础版本和源码。
-- 不移动正式 latest，不上传源码仓库中的大型二进制，不发布 crates.io，不持有 crates.io 凭据，不合并 main。
-- 已发布附件不可覆盖。重跑只核对已有来源、标签和下载 SHA-256；失败不伪报成功。
-- 构建后先显式创建并核验本提交 Git 标签；草稿不能充当标签已经存在的证明。
-- 上传时先建立本提交草稿；附件全部上传并重新下载校验成功后，才公开为 Pre-release。中断留下的本提交草稿允许重建。
-- 当前只有 macOS ARM64 切片，部署目标 14.0；最低系统运行、Intel、iOS/tvOS 及真实系统 VPN 不因附件发布而视为通过。
-- App 固定引用经验证的具体标签 URL 与 SHA-256，不使用 latest URL，不因后台出现新测试附件自动漂移。
-
-自动入口为 `.github/workflows/tests.yml` 的 dev-release 作业，执行 `Tools/dev-release.sh`。
-正式二进制工作流仅保留 main 手动入口；不能通过修改旧 Release.version 从 dev 触发正式发布。
-GitHub Token 只对测试附件作业临时提供 contents:write；普通测试作业仍为只读。
-
-离线控制流测试：
-
-```sh
-python3 Tools/test_reports.py --external test_dev_release -- python3 tests/test_dev_release.py
-```
-
-该测试使用本地 gh/cargo/打包桩，只证明拒绝条件、附件不可覆盖及草稿公开顺序。
-真实云端构建、上传、标签与公开下载必须另行核验，不能以离线桩通过冒充已经发布。
+- Apple 支持矩阵及五种 ARM64 切片见 [Apple 平台构建](Apple平台构建.md)。Mac 最低 13.0，仅 Apple Silicon，不支持 Intel、Mac Catalyst、watchOS 或 visionOS。
+- 既有 macOS 独立附件入口保留，来源清单只声明实际构建的 macOS ARM64。全平台本地产物不得使用该单平台清单冒充完整来源证明。
+- 只有获准上传后才执行 [本机手动发布](本机手动发布.md)；来源、版本、SHA-256、草稿下载校验、Pre-release 与稳定 latest 隔离继续强制。
+- 离线控制流回归由 python3 Tools/test_reports.py --external test_dev_release -- python3 tests/test_dev_release.py 执行；不证明真实上传或公开下载已完成。
 
 ## 打包许可回归
 

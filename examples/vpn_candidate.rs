@@ -1,5 +1,5 @@
 //! 仅准备本地规则候选并读取摘要；不下载提供者、不修改缓存或系统网络。
-use libfluxa_core::vpn::{Phase, Preparation};
+use fluxa_core::vpn::{Phase, Preparation};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let candidate =

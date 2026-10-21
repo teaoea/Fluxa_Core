@@ -1,5 +1,5 @@
 //! 只验证新复写声明；不访问共享目录、不执行 JS、不启动监听或解密。
-use libfluxa_core::configuration::Document;
+use fluxa_core::configuration::Document;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let yaml = r#"
 rules: ['final,reject']

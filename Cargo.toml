@@ -14,7 +14,7 @@ categories = ["network-programming"]
 include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/main-config-supported.yaml", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/example_config.yaml", "/rules.yaml", "/LICENSE", "/LICENSE.md", "/Documentation/**", "/AGENTS/**", "/Notices/**"]
 
 [lib]
-name = "libfluxa_core"
+name = "fluxa_core"
 crate-type = ["rlib", "staticlib"]
 
 [profile.release]
@@ -53,6 +53,10 @@ aho-corasick = "=1.1.4"
 # 固定公共后缀数据，关键词只匹配注册域名标签，查询不下载列表或创建堆索引。
 psl = "=2.1.238"
 maxminddb = { version = "=0.32.0", default-features = false }
+
+# 移动 Apple 平台与 Catalyst 没有 QuickJS 预生成绑定，按目标 SDK 生成。
+[target.'cfg(all(target_vendor = "apple", not(target_os = "macos")))'.dependencies]
+rquickjs = { version = "=0.14.0", default-features = false, features = ["bindgen"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # 复用已锁定的 Apple 安全框架与系统类型；仅平台边界需要 audit token 和签名验证。

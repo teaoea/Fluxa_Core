@@ -1,5 +1,5 @@
 //! 本地 Rust API 示例：正式规则校验、来源重算与临时调试覆盖，不声明配置调试字段。
-use libfluxa_core::routing::{
+use fluxa_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, ReportVerification, Snapshot, Source},
 };

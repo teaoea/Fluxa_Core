@@ -5,6 +5,8 @@ use crate::{
 };
 use std::net::SocketAddr;
 
+// 非 macOS 的归属查询明确 Unsupported；共享输入类型保留，暂不读取字段。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy)]
 pub(crate) struct Flow {
     pub local: SocketAddr,

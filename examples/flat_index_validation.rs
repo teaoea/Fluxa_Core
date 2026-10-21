@@ -1,6 +1,6 @@
 //! 六项索引缺陷修复的可运行示例：合法哈希碰撞、规则来源和缓存恢复。
 //! 仅创建独占临时规则目录，不监听网络，不接管 VPN，不修改用户配置。
-use libfluxa_core::routing::{
+use fluxa_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, Source},
     store::Store,

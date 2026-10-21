@@ -1,5 +1,5 @@
 //! 独立协议互通探针；测试凭据仅从指定临时文件读取，不输出凭据。
-use libfluxa_core::{
+use fluxa_core::{
     error::{Error, Result},
     protocol,
 };

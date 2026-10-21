@@ -13,7 +13,7 @@
 //!
 //! 执行状态：由同名 Markdown 报告记录，不在源码中固化通过结论。
 
-use libfluxa_core::{
+use fluxa_core::{
     error::Error,
     outbound::{Family, Limits, Manager, RoutedTarget},
     routing::{

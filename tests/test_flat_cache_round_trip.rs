@@ -4,7 +4,7 @@
 //! 测试内容：cache_round_trip_preserves_independent_policy_matrix：双栈互补网段、精确域名、后缀代理和未命中在缓存恢复前后保持明确策略与出口。
 //! 测试依据：合法前缀树及域名规则必须可持久化；DIRECT、PROXY、REJECT 与出口不得因加载校验或布局切换改变。
 //! 前置条件：仅独占临时目录，无系统 VPN、网络监听或外部服务。
-use libfluxa_core::routing::{
+use fluxa_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, Source},
     store::Store,

@@ -13,7 +13,7 @@
 
 // 配置与实际独立协议互通测试；对端只用于测试，不链接第三方代理内核。
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use libfluxa_core::{
+use fluxa_core::{
     error::Error,
     protocol::{self, config::Profile},
 };

@@ -22,7 +22,7 @@
 // 从真实 DNS 报文取得地址，再连接实际服务；禁止系统解析隐式回退。
 #[path = "test_fixture_dns.rs"]
 mod support;
-use libfluxa_core::{
+use fluxa_core::{
     dns::{Config, Resolver, Server},
     error::Error,
     outbound::{DomainTarget, Family, Manager},
@@ -172,7 +172,7 @@ async fn rejected_policy_synthetic_and_negative_answers_never_connect() {
             Err(Error::DnsResponse)
         ));
     }
-    cfg.fake_ip = Some(libfluxa_core::dns::fake_ip::Config {
+    cfg.fake_ip = Some(fluxa_core::dns::fake_ip::Config {
         ipv4_range: "198.18.0.0/16".into(),
         ipv6_range: "fd00:198:18::/64".into(),
         capacity: 16,
@@ -298,14 +298,14 @@ async fn established_connection_survives_dns_replacement() {
     );
     manager.configure_dns(Some(new.clone())).unwrap();
     assert!(matches!(
-        old.resolve(libfluxa_core::dns::Query {
+        old.resolve(fluxa_core::dns::Query {
             name: "example.test".into(),
             query_type: "A".into(),
         })
         .await,
         Err(Error::InvalidState)
     ));
-    new.resolve(libfluxa_core::dns::Query {
+    new.resolve(fluxa_core::dns::Query {
         name: "alias.connect.example.test".into(),
         query_type: "A".into(),
     })

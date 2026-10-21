@@ -36,17 +36,16 @@ use crate::test_fixture_dnssec as signed;
 use crate::test_fixture_https::dns as support;
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
     // 对实际 UDP/TCP 监听端口测试，不用模拟网络替代协议和停止行为。
     use super::signed;
     use super::support;
+    use fluxa_core::dns::{
+        Config, Resolver, Server,
+        service::{Config as ListenConfig, Service},
+    };
     use hickory_resolver::proto::{
         op::{Edns, Message, Query as WireQuery, ResponseCode},
         rr::{Name, RecordType},
-    };
-    use libfluxa_core::dns::{
-        Config, Resolver, Server,
-        service::{Config as ListenConfig, Service},
     };
     use std::{
         sync::{Arc, atomic::Ordering},
@@ -219,7 +218,7 @@ mod public_contract {
         assert_eq!(version.edns.unwrap().version(), 0);
         service.stop().await.unwrap();
         let mut settings = config(9);
-        settings.fake_ip = Some(libfluxa_core::dns::fake_ip::Config {
+        settings.fake_ip = Some(fluxa_core::dns::fake_ip::Config {
             ipv4_range: "198.18.0.0/24".into(),
             ipv6_range: "fd00:198:18::/64".into(),
             capacity: 2,
@@ -243,7 +242,7 @@ mod public_contract {
     async fn service_acl_rate_malformed_cancel_idle_and_ipv6() {
         let _gate = SERIAL.lock().await;
         let mut settings = config(9);
-        settings.fake_ip = Some(libfluxa_core::dns::fake_ip::Config {
+        settings.fake_ip = Some(fluxa_core::dns::fake_ip::Config {
             ipv4_range: "198.18.0.0/24".into(),
             ipv6_range: "fd00:198:18::/64".into(),
             capacity: 2,
@@ -355,7 +354,7 @@ mod public_contract {
         let resolver = Arc::new(Resolver::new(cfg).unwrap());
         assert!(matches!(
             resolver.clone().serve().await,
-            Err(libfluxa_core::error::Error::ResourceLimit)
+            Err(fluxa_core::error::Error::ResourceLimit)
         ));
         let dropped = services.pop().unwrap();
         let address = dropped.status().address;

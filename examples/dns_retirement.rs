@@ -1,14 +1,14 @@
 //! 本地可运行示例：DNS 解析中替换配置，已准入建连完成，旧引用不能发起新查询。
 //! 只使用回环 UDP/TCP，不访问外网、不修改系统 DNS、不接管 VPN。
-use hickory_resolver::proto::{
-    op::{Message, MessageType},
-    rr::{RData, Record, rdata::A},
-};
-use libfluxa_core::{
+use fluxa_core::{
     dns::{Config, Query, Resolver, Server},
     error::Error,
     outbound::{DomainTarget, Family, Manager},
     routing::{Policy, Transport},
+};
+use hickory_resolver::proto::{
+    op::{Message, MessageType},
+    rr::{RData, Record, rdata::A},
 };
 use std::{sync::Arc, time::Duration};
 use tokio::{

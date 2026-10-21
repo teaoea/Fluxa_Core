@@ -6,7 +6,7 @@
 //! 前置条件：仅临时回环端口；不接管系统 VPN、不修改代理和系统证书、不访问外网。
 #[path = "test_fixture_https.rs"]
 mod support;
-use libfluxa_core::{
+use fluxa_core::{
     error::Error,
     http::{self, Header},
     https::HttpsClient,

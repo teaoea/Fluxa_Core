@@ -1,6 +1,6 @@
 //! 规则提供者示例：默认仅验证本地正文，无网络或 HOME 副作用。
 //! 传入显式配置路径才提交；可选第二参数为刷新名称，* 表示刷新全部；最后由内核完成关闭。
-use libfluxa_core::{outbound::Manager, providers, routing::Policy};
+use fluxa_core::{outbound::Manager, providers, routing::Policy};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);

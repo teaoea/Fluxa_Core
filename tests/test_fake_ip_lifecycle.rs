@@ -11,7 +11,7 @@
 //! 执行状态：由同名 Markdown 报告记录，不在源码中固化通过结论。
 
 // H1 独立进程回归：避免其他测试的存活重叠池改变本案例前置条件。
-use libfluxa_core::{
+use fluxa_core::{
     dns::{Config, Resolver, Server, fake_ip},
     outbound::{Limits, Manager},
     tun::udp::{Options, Session},
@@ -57,7 +57,7 @@ async fn retired_fake_ip_range_can_expand_and_reopen_tun() {
     };
     let (manager, session) = setup_h1(old.clone());
     let old_ip = old
-        .allocate_fake_ip(libfluxa_core::dns::Query {
+        .allocate_fake_ip(fluxa_core::dns::Query {
             name: "retired-h1.test".into(),
             query_type: "A".into(),
         })
@@ -68,11 +68,11 @@ async fn retired_fake_ip_range_can_expand_and_reopen_tun() {
     // 关闭后故意长期保留所有旧引用；引用计数不能决定活动资源准入。
     let retained_snapshot = manager.network_snapshot().unwrap();
     assert!(matches!(
-        old.allocate_fake_ip(libfluxa_core::dns::Query {
+        old.allocate_fake_ip(fluxa_core::dns::Query {
             name: "stale.test".into(),
             query_type: "A".into()
         }),
-        Err(libfluxa_core::error::Error::InvalidState)
+        Err(fluxa_core::error::Error::InvalidState)
     ));
     assert!(matches!(
         retained_snapshot
@@ -80,11 +80,11 @@ async fn retired_fake_ip_range_can_expand_and_reopen_tun() {
             .as_ref()
             .unwrap()
             .reverse_fake_ip(&old_ip),
-        Err(libfluxa_core::error::Error::InvalidState)
+        Err(fluxa_core::error::Error::InvalidState)
     ));
     assert!(matches!(
         session.receive(),
-        Err(libfluxa_core::error::Error::InvalidState)
+        Err(fluxa_core::error::Error::InvalidState)
     ));
     // 同一 Manager 从只读元数据创建新解析器，调用方不负责恢复旧对象。
     let renewed = Session::new(
@@ -109,7 +109,7 @@ async fn retired_fake_ip_range_can_expand_and_reopen_tun() {
     let new = make("198.18.0.0/15");
     let (_manager, session) = setup_h1(new.clone());
     let current = new
-        .allocate_fake_ip(libfluxa_core::dns::Query {
+        .allocate_fake_ip(fluxa_core::dns::Query {
             name: "current-h1.test".into(),
             query_type: "A".into(),
         })
@@ -146,7 +146,7 @@ async fn retired_fake_ip_range_can_expand_and_reopen_tun() {
         b.unwrap();
         assert!(matches!(
             session.receive(),
-            Err(libfluxa_core::error::Error::InvalidState)
+            Err(fluxa_core::error::Error::InvalidState)
         ));
         retained.push((resolver, manager, session, snapshot));
     }
@@ -157,7 +157,7 @@ async fn retired_fake_ip_range_can_expand_and_reopen_tun() {
 
 /// 已绑定的真实 TCP/UDP 监听和正在等待上游的查询，由内核关闭并等待，不依赖 Service/Resolver 析构。
 async fn listeners_and_pending_query_close_with_retained_objects() {
-    use libfluxa_core::dns::{Query, service};
+    use fluxa_core::dns::{Query, service};
     use tokio::{
         net::{TcpListener, TcpStream, UdpSocket},
         time::{Duration, timeout},
@@ -225,7 +225,7 @@ async fn closed_metadata_stays_budgeted_until_actual_drop() {
     retained.close().await.unwrap();
     assert!(matches!(
         make(),
-        Err(libfluxa_core::error::Error::ResourceBudgetExceeded { .. })
+        Err(fluxa_core::error::Error::ResourceBudgetExceeded { .. })
     ));
     drop(retained);
     let replacement = Arc::new(make().unwrap());

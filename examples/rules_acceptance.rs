@@ -1,6 +1,6 @@
 //! 四档构建/更新/并发恢复验收：原始输入由调用方拥有，规则准入池不冒充进程 RSS 硬限制。
 //! cargo run --release --example rules_acceptance -- 10000 mixed
-use libfluxa_core::{
+use fluxa_core::{
     error::Error,
     routing::{
         Config, Match, Policy, Rule, Target, Transport,

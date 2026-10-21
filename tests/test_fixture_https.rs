@@ -11,7 +11,7 @@
 pub mod dns;
 #[path = "test_fixture_geoip.rs"]
 pub(crate) mod geoip_data;
-use libfluxa_core::http;
+use fluxa_core::http;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair, KeyUsagePurpose};
 use rustls::{ServerConfig, pki_types::PrivatePkcs8KeyDer};
 use std::sync::{
@@ -35,7 +35,7 @@ pub struct ProviderFixture {
 #[allow(dead_code)]
 pub struct Fixture {
     pub provider: Arc<ProviderFixture>,
-    pub network: Arc<libfluxa_core::outbound::Manager>,
+    pub network: Arc<fluxa_core::outbound::Manager>,
     _dns: dns::Fixture,
     pub port: u16,
     pub root: rustls::pki_types::CertificateDer<'static>,
@@ -205,7 +205,7 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(stream: S, provider: Arc<Pro
 // 同一支持模块被多个独立测试目标引用；HTTPS 专用目标不需要明文服务。
 #[allow(dead_code)]
 pub struct PlainFixture {
-    pub network: Arc<libfluxa_core::outbound::Manager>,
+    pub network: Arc<fluxa_core::outbound::Manager>,
     _dns: dns::Fixture,
     pub port: u16,
     task: JoinHandle<()>,
@@ -240,8 +240,8 @@ pub async fn plain_fixture() -> PlainFixture {
     }
 }
 
-async fn configured_network() -> (dns::Fixture, Arc<libfluxa_core::outbound::Manager>) {
-    use libfluxa_core::{
+async fn configured_network() -> (dns::Fixture, Arc<fluxa_core::outbound::Manager>) {
+    use fluxa_core::{
         dns::{Config, Resolver, Server},
         outbound::{Limits, Manager},
         routing::{Config as Routing, Mode, Router},

@@ -55,7 +55,7 @@
 // 固定的未分配版本作为独立非法输入；不把当前生产版本当作未知版本。
 const UNSUPPORTED_CACHE_VERSION: u32 = u32::MAX;
 
-use libfluxa_core::routing::{
+use fluxa_core::routing::{
     Config, Match, Mode, Policy, Rule, Target, Transport,
     runtime::{Layer, Snapshot, Source},
 };
@@ -411,7 +411,7 @@ fn strict_yaml_round_trip_unknown_duplicate_alias_and_depth() {
 }
 #[test]
 fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-runtime-store-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = Store::open(&path).unwrap();
@@ -564,7 +564,7 @@ fn source_precedes_type_but_exact_precedes_suffix_within_source() {
 
 #[test]
 fn pruned_index_agrees_with_unpruned_reference_including_original_origin() {
-    use libfluxa_core::routing::runtime::Reference;
+    use fluxa_core::routing::runtime::Reference;
     let settings = Config {
         fallback: Policy::Direct,
         ..Config::default()
@@ -698,7 +698,7 @@ fn domain_branch_skips_ip_and_respects_domain_type_and_source_priority() {
                     vec![rule(a_kind, a_value, Policy::Proxy)],
                 ),
             ];
-            let reference = libfluxa_core::routing::runtime::Reference::compile(
+            let reference = fluxa_core::routing::runtime::Reference::compile(
                 Config::default(),
                 sources.clone(),
                 1,
@@ -751,7 +751,7 @@ fn domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject() {
 
 #[test]
 fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
-    use libfluxa_core::subscription::parse_rules;
+    use fluxa_core::subscription::parse_rules;
     let input = "payload:\n - DOMAIN,WWW.Example.COM.\n - DOMAIN-SUFFIX,example.com\n - DOMAIN-KEYWORD,Example\n - IP-CIDR,192.0.2.0/24\n - IP-CIDR,2001:0DB8:0000:0000:0000:0000:0000:0000/32\n";
     let rows = parse_rules(input, Policy::Reject, None).unwrap();
     assert_eq!(
@@ -798,7 +798,7 @@ fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
 
 #[test]
 fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-binary-migration-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
@@ -830,7 +830,7 @@ fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
 
 #[test]
 fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     for mode in 0..6 {
         let path =
             std::env::temp_dir().join(format!("fluxa-binary-tamper-{}-{mode}", std::process::id()));
@@ -877,21 +877,21 @@ fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
 
 #[test]
 fn binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-legacy-sqlite-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     std::fs::write(path.join("runtime-rules.sqlite"), b"SQLite format 3\0").unwrap();
     assert!(matches!(
         Store::open(&path),
-        Err(libfluxa_core::error::Error::Unsupported)
+        Err(fluxa_core::error::Error::Unsupported)
     ));
     std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
 fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-flat-differential-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let inputs = vec![source(
@@ -949,7 +949,7 @@ fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
 
 #[test]
 fn generation_input_accepts_structured_and_clash_sources() {
-    use libfluxa_core::routing::runtime::GenerationInput;
+    use fluxa_core::routing::runtime::GenerationInput;
     let input = GenerationInput::from_yaml(
         "format_version: 1\nsettings: {mode: rules, fallback: direct}\nsources:\n  - id: local\n    layer: local\n    rules:\n      - {type: DOMAIN-KEYWORD, value: example, policy: direct}\n  - id: remote\n    layer: remote\n    policy: reject\n    payload_yaml: |\n      payload:\n        - DOMAIN,ads.example.com\n",
     );
@@ -969,8 +969,7 @@ fn empty_clash_payload_still_validates_outbound_metadata() {
         (Policy::Proxy, "invalid id"),
     ] {
         assert!(
-            libfluxa_core::subscription::parse_rules("payload: []", policy, Some(id.into()))
-                .is_err()
+            fluxa_core::subscription::parse_rules("payload: []", policy, Some(id.into())).is_err()
         );
     }
 }
@@ -998,7 +997,7 @@ fn audit_source_and_port_priority_matrix() {
                     vec![rule(kind, value, Policy::Proxy)],
                 ),
             ];
-            let reference = libfluxa_core::routing::runtime::Reference::compile(
+            let reference = fluxa_core::routing::runtime::Reference::compile(
                 Config::default(),
                 sources.clone(),
                 1,
@@ -1047,7 +1046,7 @@ fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
             disabled.enabled = false;
             assert!(matches!(
                 Snapshot::generate(Config::default(), vec![disabled], 1),
-                Err(libfluxa_core::error::Error::InvalidInput)
+                Err(fluxa_core::error::Error::InvalidInput)
             ));
 
             assert!(matches!(
@@ -1060,7 +1059,7 @@ fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
                     )],
                     1
                 ),
-                Err(libfluxa_core::error::Error::InvalidInput)
+                Err(fluxa_core::error::Error::InvalidInput)
             ));
         }
         let snapshot = build(
@@ -1084,7 +1083,7 @@ fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
 
 #[test]
 fn audit_document_trust_requires_original_sources() {
-    use libfluxa_core::routing::runtime::{RemovalReason, ReportVerification};
+    use fluxa_core::routing::runtime::{RemovalReason, ReportVerification};
     let sources = vec![source(
         "local",
         Layer::Local,
@@ -1204,7 +1203,7 @@ fn audit_dns_before_after_matrix() {
 
 #[test]
 fn audit_resource_limits_reject_before_index_expansion() {
-    use libfluxa_core::error::Error;
+    use fluxa_core::error::Error;
     let dense = (0..20_000)
         .map(|_| {
             rule(
@@ -1235,7 +1234,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
     ));
     let payload = "payload:\n".to_owned() + &" - DOMAIN,example.com\n".repeat(100_001);
     assert!(matches!(
-        libfluxa_core::subscription::parse_rules(&payload, Policy::Direct, None),
+        fluxa_core::subscription::parse_rules(&payload, Policy::Direct, None),
         Err(Error::ResourceLimit)
     ));
     for invalid in [
@@ -1243,7 +1242,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
         "x".repeat(8 * 1024 * 1024 + 1),
     ] {
         assert!(matches!(
-            libfluxa_core::subscription::parse_rules(&invalid, Policy::Direct, None),
+            fluxa_core::subscription::parse_rules(&invalid, Policy::Direct, None),
             Err(Error::ResourceLimit)
         ));
     }
@@ -1262,7 +1261,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
 
 #[test]
 fn audit_seeded_random_unpruned_differential_and_round_trip() {
-    use libfluxa_core::routing::runtime::Reference;
+    use fluxa_core::routing::runtime::Reference;
     let mut seed = 0x12_2026_1012u64;
     let mut next = || {
         seed ^= seed << 13;
@@ -1331,10 +1330,10 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
         let path =
             std::env::temp_dir().join(format!("fluxa-flat-random-{}-{batch}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
-        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
         store.update(settings.clone(), sources.clone()).unwrap();
         store.close().unwrap();
-        let store = libfluxa_core::routing::store::Store::open(&path).unwrap();
+        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
         let binary = store.snapshot().unwrap();
         let snapshot = Snapshot::generate(settings, sources, batch + 1).unwrap();
         let loaded = Snapshot::from_yaml(&snapshot.to_yaml().unwrap()).unwrap();
@@ -1382,7 +1381,7 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
 
 #[test]
 fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-flat-fault-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = Store::open(&path).unwrap();
@@ -1555,7 +1554,7 @@ fn scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rul
 
 #[test]
 fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-scoped-cache-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let mut tcp = rule(Match::Domain, "example.com", Policy::Direct);
@@ -1601,7 +1600,7 @@ fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
 fn both_complete_yaml_examples_strictly_compile_formal_rules() {
     // macOS 已接入 OS 真实进程归属；其他非移动平台不得将未实现的进程规则假装可用。
     let result =
-        libfluxa_core::configuration::Document::from_yaml(include_str!("../example_config.yaml"))
+        fluxa_core::configuration::Document::from_yaml(include_str!("../example_config.yaml"))
             .unwrap()
             .compile_local_rules(1);
     if cfg!(target_os = "macos") {
@@ -1614,10 +1613,7 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
                 .any(|row| row.rule.r#type == Match::ProcessName)
         );
     } else if !cfg!(any(target_os = "ios", target_os = "tvos")) {
-        assert!(matches!(
-            result,
-            Err(libfluxa_core::error::Error::Unsupported)
-        ));
+        assert!(matches!(result, Err(fluxa_core::error::Error::Unsupported)));
     } else {
         assert!(
             !result
@@ -1630,7 +1626,7 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
     }
     {
         let full = include_str!("fixtures/main-config-supported.yaml");
-        let snapshot = libfluxa_core::configuration::Document::from_yaml(full)
+        let snapshot = fluxa_core::configuration::Document::from_yaml(full)
             .unwrap()
             .compile_local_rules(1)
             .unwrap();
@@ -1677,7 +1673,7 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
 
 #[test]
 fn duplicate_vec_capacity_is_accounted_without_false_rejection() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path =
         std::env::temp_dir().join(format!("fluxa-duplicate-capacity-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
@@ -1821,7 +1817,7 @@ fn ignored_domain_rules_in_global_direct_do_not_hide_ip_reject() {
 }
 #[test]
 fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
-    use libfluxa_core::routing::store::Store;
+    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-plugin-source-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = Store::open(&path).unwrap();

@@ -1,6 +1,6 @@
 # 测试报告：test_tun
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-00177ba80b5d6f22", "::test_tun::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.41630037500002004, "status": "PASS", "discovered": ["tun::test_tun::tests::arbitrary_bounded_bytes_never_panic", "tun::test_tun::tests::counter_overflow_is_atomic", "tun::test_tun::tests::every_truncation_and_checksum_corruption_is_rejected", "tun::test_tun::tests::fragments_options_extensions_and_unknown_protocols_are_rejected", "tun::test_tun::tests::invalid_transport_lengths_and_ip_headers_are_rejected", "tun::test_tun::tests::ipv4_ipv6_tcp_udp_and_odd_payloads", "tun::test_tun::tests::session_bounds_close_and_rejection_do_not_change_counters", "tun::test_tun::tests::udp_checksum_omission_only_allowed_for_ipv4"], "results": {"tun::test_tun::tests::arbitrary_bounded_bytes_never_panic": "PASS", "tun::test_tun::tests::counter_overflow_is_atomic": "PASS", "tun::test_tun::tests::every_truncation_and_checksum_corruption_is_rejected": "PASS", "tun::test_tun::tests::fragments_options_extensions_and_unknown_protocols_are_rejected": "PASS", "tun::test_tun::tests::invalid_transport_lengths_and_ip_headers_are_rejected": "PASS", "tun::test_tun::tests::ipv4_ipv6_tcp_udp_and_odd_payloads": "PASS", "tun::test_tun::tests::session_bounds_close_and_rejection_do_not_change_counters": "PASS", "tun::test_tun::tests::udp_checksum_omission_only_allowed_for_ipv4": "PASS"}, "fingerprint": "8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8", "time": "2026-10-21T05:33:11.104801+08:00", "attempt": 1, "suite": "test_tun", "file": "tests/test_tun.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": false, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0", "::test_tun::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.368030791999999, "status": "PASS", "discovered": ["tun::test_tun::tests::arbitrary_bounded_bytes_never_panic", "tun::test_tun::tests::counter_overflow_is_atomic", "tun::test_tun::tests::every_truncation_and_checksum_corruption_is_rejected", "tun::test_tun::tests::fragments_options_extensions_and_unknown_protocols_are_rejected", "tun::test_tun::tests::invalid_transport_lengths_and_ip_headers_are_rejected", "tun::test_tun::tests::ipv4_ipv6_tcp_udp_and_odd_payloads", "tun::test_tun::tests::session_bounds_close_and_rejection_do_not_change_counters", "tun::test_tun::tests::udp_checksum_omission_only_allowed_for_ipv4"], "results": {"tun::test_tun::tests::arbitrary_bounded_bytes_never_panic": "PASS", "tun::test_tun::tests::counter_overflow_is_atomic": "PASS", "tun::test_tun::tests::every_truncation_and_checksum_corruption_is_rejected": "PASS", "tun::test_tun::tests::fragments_options_extensions_and_unknown_protocols_are_rejected": "PASS", "tun::test_tun::tests::invalid_transport_lengths_and_ip_headers_are_rejected": "PASS", "tun::test_tun::tests::ipv4_ipv6_tcp_udp_and_odd_payloads": "PASS", "tun::test_tun::tests::session_bounds_close_and_rejection_do_not_change_counters": "PASS", "tun::test_tun::tests::udp_checksum_omission_only_allowed_for_ipv4": "PASS"}, "fingerprint": "195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b", "time": "2026-10-21T13:01:17.926949+08:00", "attempt": 1, "suite": "test_tun", "file": "tests/test_tun.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/tun.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/libfluxa_core-00177ba80b5d6f22 ::test_tun:: --test-threads=1`
-- 执行时间：2026-10-21T05:33:11.104801+08:00
-- 实际耗时：0.41630037500002004 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": false, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/fluxa_core-87939ed5fdf85bf0 ::test_tun:: --test-threads=1`
+- 执行时间：2026-10-21T13:01:17.926949+08:00
+- 实际耗时：0.368030791999999 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -53,7 +53,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-core-2.8-evidence/rust/test_tun.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-core-platform-formatted-20261021/test_tun.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

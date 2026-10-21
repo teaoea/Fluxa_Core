@@ -1,6 +1,6 @@
 //! H1 可运行示例：旧引用仍保留时关闭会话并变更池范围，重新绑定且不复用历史地址。
 //! 仅验证 Rust 会话与映射，不开启系统 VPN，不请求 DNS 上游。
-use libfluxa_core::{
+use fluxa_core::{
     dns::{Config, Query, Resolver, Server, fake_ip},
     outbound::{Limits, Manager},
     tun::udp::{Options, Session},

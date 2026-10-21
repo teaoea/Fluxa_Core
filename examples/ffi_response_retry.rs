@@ -1,7 +1,7 @@
 //! 演示 FFI 响应句柄耗尽时，TCP 数据不会消费；只使用本地回环服务。
 //! 运行：cargo run --example ffi_response_retry；不需要节点、证书或系统隧道。
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use libfluxa_core::ffi;
+use fluxa_core::ffi;
 use serde_json::{Value, json};
 use std::{io::Write, net::TcpListener};
 #[allow(unsafe_code)]

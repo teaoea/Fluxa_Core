@@ -16,8 +16,7 @@
 
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
-    use libfluxa_core::{
+    use fluxa_core::{
         error::Error,
         outbound::{Family, Limits, Manager, RoutedTarget},
         routing::{Config, Mode, Policy, Router, Target, Transport},
@@ -257,11 +256,11 @@ mod public_contract {
 
     #[tokio::test]
     async fn in_flight_dns_retains_original_network_snapshot() {
+        use fluxa_core::dns::{Config as DNSConfig, Resolver, Server};
         use hickory_resolver::proto::{
             op::{Message, MessageType},
             rr::{RData, Record, rdata::A},
         };
-        use libfluxa_core::dns::{Config as DNSConfig, Resolver, Server};
         let upstream = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let dns = Arc::new(
             Resolver::new(DNSConfig {

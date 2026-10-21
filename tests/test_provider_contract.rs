@@ -7,7 +7,7 @@
 //!
 //! 测试依据：正文只含条件、无 Debug 能力、配置事务先校验后副作用。
 //! 前置条件：无外网，不修改 HOME 或系统网络。
-use libfluxa_core::{outbound::Manager, providers, routing::Policy};
+use fluxa_core::{outbound::Manager, providers, routing::Policy};
 #[test]
 fn remote_conditions_cannot_supply_policy_or_debug_authority() {
     let result=providers::validate_rules("rules: ['domain,one.example', 'domain,one.example,direct', 'debug,one.example', 'protocol,udp,direct', 'domain-suffix,wide.example', 'process-name,WeChat']",Policy::Reject,None).unwrap();

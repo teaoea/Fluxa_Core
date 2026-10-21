@@ -1,5 +1,5 @@
 //! 只演示已编译 URL 匹配，不执行复写动作、不访问网络或脚本文件。
-use libfluxa_core::rewrite::UrlPattern;
+use fluxa_core::rewrite::UrlPattern;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let one = UrlPattern::compile("https://example.com/api/*")?;
     let many = UrlPattern::compile("https://example.com/api/**")?;

@@ -1,5 +1,5 @@
 //! 编译主配置本地候选并查询示例目标；不下载提供者、不切换运行配置、不创建连接。
-use libfluxa_core::{
+use fluxa_core::{
     configuration::{Document, MAX_CONFIG_BYTES},
     routing::{Target, Transport},
 };

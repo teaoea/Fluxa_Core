@@ -22,3 +22,5 @@ VLESS/REALITY/Vision 由自有 Rust 代码实现；ring 0.17.14、x25519-dalek 2
 ## macOS 进程归属
 
 固定 `libproc = 0.14.11`（MIT）仅用于 macOS 系统 Socket 结构与联合体判别类型；平台模块调用既有 libc，核对返回记录完整长度，不依赖上游字符串错误。新增构建依赖由 Cargo.lock 固定，实际协议登记于 LICENSE.md，声明保留于 Notices。用途不是引入代理内核。上游构建使用 bindgen/libclang 与 Apple SDK；本机 Command Line Tools SDK 已构建验证，其他 Xcode-only、交叉编译环境尚未验证。查询固定 PID/FD 数量、总检查次数、1 秒截止和最多两次并发 64 KiB 扫描，超限返回资源错误而不是假装未知。
+
+Apple 移动端构建启用 rquickjs 的 bindgen 功能，按固定目标 SDK 生成 QuickJS C 绑定；新增构建依赖由 Cargo.lock 锁定，不改变同步解释器、关闭 JIT 及脚本运行权限。跨平台构建通过不代表传递依赖许可审计完成。

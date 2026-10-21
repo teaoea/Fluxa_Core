@@ -287,7 +287,7 @@ mod dns_geoip_contract {
     //!
     //! 前置条件：本地临时 UDP/TCP/TLS；不访问公网、不写真实用户缓存、不更改系统代理/VPN。
     use crate::test_fixture_https as support;
-    use libfluxa_core::{
+    use fluxa_core::{
         dns::Query,
         error::Error,
         https::HttpsClient,

@@ -13,7 +13,7 @@ bash ./build-macos.sh
 bash ../Fluxa/Scripts/check.sh
 ```
 
-当前构建器仅打包本机 macOS 架构，最低部署版本 14.0。Swift package 自动链接现有切片；App/Network Extension 后续通过同一包接入，但移动平台、其他架构切片与真实隧道尚未交付。缺少对应原生库时门面报错，不能宣称跨平台运行已验收。生成文件位于本仓库 ./Vendor/，不提交 GitHub；完整检查重新生成原生库，避免使用旧缓存。
+旧版本构建器仅打包本机 macOS 架构，部署目标为 14.0；当前 ARM64 多平台构建入口及最低系统以 [Apple 平台构建](Apple平台构建.md) 为准。Swift package 自动链接现有切片；App/Network Extension 后续通过同一包接入，但移动平台、其他架构切片与真实隧道尚未交付。缺少对应原生库时门面报错，不能宣称跨平台运行已验收。生成文件位于本仓库 ./Vendor/，不提交 GitHub；完整检查重新生成原生库，避免使用旧缓存。
 
 ## 请求与代理
 

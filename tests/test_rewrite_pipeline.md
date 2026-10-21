@@ -1,6 +1,6 @@
 # 测试报告：test_rewrite_pipeline
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_rewrite_pipeline-950905a211a0ebe2", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.07900133299997947, "status": "PASS", "discovered": ["direct_overrides_formal_reject", "https_rewrites_after_verified_tls", "local_actions_never_dial", "named_proxy_dials_only_selected_node", "request_and_response_use_real_wire_data", "response_rules_wait_for_upstream", "stopped_manager_cannot_construct_responses"], "results": {"direct_overrides_formal_reject": "PASS", "https_rewrites_after_verified_tls": "PASS", "local_actions_never_dial": "PASS", "named_proxy_dials_only_selected_node": "PASS", "request_and_response_use_real_wire_data": "PASS", "response_rules_wait_for_upstream": "PASS", "stopped_manager_cannot_construct_responses": "PASS"}, "fingerprint": "8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8", "time": "2026-10-21T05:33:11.104801+08:00", "attempt": 1, "suite": "test_rewrite_pipeline", "file": "tests/test_rewrite_pipeline.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": false, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_rewrite_pipeline-ef4cc35e78c7a2c9", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.0675853329999967, "status": "PASS", "discovered": ["direct_overrides_formal_reject", "https_rewrites_after_verified_tls", "local_actions_never_dial", "named_proxy_dials_only_selected_node", "request_and_response_use_real_wire_data", "response_rules_wait_for_upstream", "stopped_manager_cannot_construct_responses"], "results": {"direct_overrides_formal_reject": "PASS", "https_rewrites_after_verified_tls": "PASS", "local_actions_never_dial": "PASS", "named_proxy_dials_only_selected_node": "PASS", "request_and_response_use_real_wire_data": "PASS", "response_rules_wait_for_upstream": "PASS", "stopped_manager_cannot_construct_responses": "PASS"}, "fingerprint": "195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b", "time": "2026-10-21T13:01:17.926949+08:00", "attempt": 1, "suite": "test_rewrite_pipeline", "file": "tests/test_rewrite_pipeline.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/configuration.rs、src/configuration/rewrites.rs、src/configuration/rewrites/execution.rs、src/https.rs、src/outbound/stream.rs、src/routing.rs
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_rewrite_pipeline-950905a211a0ebe2 --test-threads=1`
-- 执行时间：2026-10-21T05:33:11.104801+08:00
-- 实际耗时：0.07900133299997947 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": false, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8`
+- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_rewrite_pipeline-ef4cc35e78c7a2c9 --test-threads=1`
+- 执行时间：2026-10-21T13:01:17.926949+08:00
+- 实际耗时：0.0675853329999967 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -52,7 +52,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-core-2.8-evidence/rust/test_rewrite_pipeline.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-core-platform-formatted-20261021/test_rewrite_pipeline.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

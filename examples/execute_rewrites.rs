@@ -1,5 +1,5 @@
 //! 本地去广告响应示例：不触网，不读取脚本，不启动系统代理或 VPN。
-use libfluxa_core::{https::HttpsClient, outbound::Manager};
+use fluxa_core::{https::HttpsClient, outbound::Manager};
 use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

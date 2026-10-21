@@ -78,8 +78,7 @@ mod classification_tests {
 use crate::test_fixture_https as support;
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
-    use libfluxa_core::{error::Error, geoip::Database};
+    use fluxa_core::{error::Error, geoip::Database};
     use support::geoip_data as fixture;
     #[test]
     fn offline_ipv4_ipv6_missing_invalid_and_file_limits() {
@@ -124,8 +123,8 @@ mod public_contract {
     }
 
     use super::support;
-    use libfluxa_core::error::ErrorCode;
-    use libfluxa_core::geoip::{Config, Service};
+    use fluxa_core::error::ErrorCode;
+    use fluxa_core::geoip::{Config, Service};
 
     #[test]
     fn configured_url_is_strict_and_never_defaults() {
@@ -193,7 +192,7 @@ mod public_contract {
         let fixture = support::fixture().await;
         let mut roots = rustls::RootCertStore::empty();
         roots.add(fixture.root.clone()).unwrap();
-        let client = libfluxa_core::https::HttpsClient::with_roots(roots)
+        let client = fluxa_core::https::HttpsClient::with_roots(roots)
             .unwrap()
             .with_network(fixture.network.clone());
         let url = |path: &str| Config {
@@ -289,7 +288,7 @@ mod public_contract {
             let info = error.public_info();
             let bytes = serde_json::to_vec(&info).unwrap();
             assert_eq!(
-                libfluxa_core::error::ErrorInfo::from_json(&bytes).unwrap(),
+                fluxa_core::error::ErrorInfo::from_json(&bytes).unwrap(),
                 info
             );
         }

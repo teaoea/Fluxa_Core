@@ -19,8 +19,7 @@
 
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
-    use libfluxa_core::{
+    use fluxa_core::{
         error::Error,
         outbound::{MAX_BUFFER, Manager, endpoint},
         routing::{Policy, Transport},

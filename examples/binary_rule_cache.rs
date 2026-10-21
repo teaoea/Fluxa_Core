@@ -1,5 +1,5 @@
 //! 可运行的缓存生成、重新加载及旧快照示例；不建立网络连接，不写入真实用户配置。
-use libfluxa_core::routing::{
+use fluxa_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, Source},
     store::Store,

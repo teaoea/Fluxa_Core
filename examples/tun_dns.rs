@@ -1,9 +1,5 @@
 //! 可运行的 TUN DNS 合成响应示例；不创建系统隧道，合成查询不访问上游。
-use hickory_resolver::proto::{
-    op::{Message, Query},
-    rr::{Name, RecordType},
-};
-use libfluxa_core::{
+use fluxa_core::{
     dns::{Config, Resolver, Server, fake_ip},
     outbound::{Limits, Manager},
     routing::{Config as Routing, Policy, Router},
@@ -11,6 +7,10 @@ use libfluxa_core::{
         parse,
         udp::{Options, Session, encode},
     },
+};
+use hickory_resolver::proto::{
+    op::{Message, Query},
+    rr::{Name, RecordType},
 };
 use std::sync::Arc;
 #[tokio::main]

@@ -19,10 +19,9 @@
 use crate::test_fixture_https as support;
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
     // 真实 TLS 集成验证；不关闭证书验证，不使用外网或保存私钥。
     use super::support;
-    use libfluxa_core::{error::Error, http::Header, https::HttpsClient};
+    use fluxa_core::{error::Error, http::Header, https::HttpsClient};
     use rustls::RootCertStore;
 
     fn client(fixture: &support::Fixture) -> HttpsClient {

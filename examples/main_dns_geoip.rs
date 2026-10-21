@@ -1,6 +1,6 @@
 //! 默认仅使用 hosts，不下载、不改系统设置或真实用户缓存。
 //! 显式传入配置路径后，才按该配置启用 DNS、GeoIP 和提供者下载。
-use libfluxa_core::{configuration::MAX_CONFIG_BYTES, dns::Query, outbound::Manager};
+use fluxa_core::{configuration::MAX_CONFIG_BYTES, dns::Query, outbound::Manager};
 use std::{io::Read, sync::Arc};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

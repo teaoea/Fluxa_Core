@@ -1,5 +1,5 @@
 //! 正式域名 + 传输协议 AND 示例；只执行决策，不建立真实连接。
-use libfluxa_core::routing::{Config, Policy, Router, Rule, Target, Transport};
+use fluxa_core::routing::{Config, Policy, Router, Rule, Target, Transport};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 既有 JSON / YAML 没有 protocol 时保持原行为；新增字段仅允许 tcp、udp。
     let rules: Vec<Rule> = serde_json::from_str(

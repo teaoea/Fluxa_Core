@@ -22,3 +22,5 @@
 
 
 2.8.0-dev 本轮新增原生条件复写、声明式插件及命名 JS 管线，`scripts.name: response` 可由 `js: response` 精确引用，不要求 .js 后缀。主配置优先、数字 ID 目录、真实共享容器绑定及缓存清理约束见 [插件与脚本](Documentation/插件与脚本.md)；本机 TLS 与测试夹具不代表系统 VPN 或完整主配置 MITM 启动验收。
+
+Apple 平台最低版本、ARM64 架构与本地构建入口见 [Apple 平台构建](Documentation/Apple平台构建.md)；强制约束见 [全平台系统支持的最低版本](AGENTS/全平台系统支持的最低版本.md)。不支持 Intel Mac、Mac Catalyst、watchOS 和 visionOS；产物不自动上传。

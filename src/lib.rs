@@ -1,6 +1,17 @@
 //! Fluxa 跨平台网络引擎；业务模块拒绝不安全代码。
 //! HTTPS、MITM 与脚本运行时复用资源管理；代理协议分阶段实现。
 
+// 支持范围由强制平台规范定义；不能借助手动 Cargo 调用生成被排除的 Apple 产物。
+#[cfg(all(target_vendor = "apple", not(target_arch = "aarch64")))]
+compile_error!("Fluxa Core 的 Apple 平台仅支持 ARM64，不支持 Intel Mac 或 x86 模拟器");
+#[cfg(any(
+    target_os = "watchos",
+    target_os = "visionos",
+    target_env = "macabi",
+    target_abi = "macabi"
+))]
+compile_error!("Fluxa Core 不支持 Mac Catalyst、watchOS 或 visionOS");
+
 mod budget;
 pub mod configuration;
 pub mod dns;
@@ -36,7 +47,7 @@ pub mod ffi;
 
 // 外置单元测试复用既有公开契约夹具，不扩大任何生产 API。
 #[cfg(test)]
-extern crate self as libfluxa_core;
+extern crate self as fluxa_core;
 
 // 共用夹具每个测试 crate 只加载一次，避免迁移后重复模块及重复类型。
 #[cfg(test)]

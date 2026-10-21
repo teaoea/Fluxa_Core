@@ -71,10 +71,10 @@ class DevReleaseTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='fluxa-publish-contract-')
         self.addCleanup(self.tmp.cleanup); self.home = Path(self.tmp.name)
         self.assets = self.home/'assets'; self.assets.mkdir()
-        for name, member in [(publisher.FILES[1], 'FluxaEngine.xcframework/macos-arm64/libfluxa_core.framework/libfluxa_core'), (publisher.FILES[2], 'fluxa-test-fixture')]:
+        for name, member in [(publisher.FILES[1], 'FluxaEngine.xcframework/macos-arm64/fluxa_core.framework/fluxa_core'), (publisher.FILES[2], 'fluxa-test-fixture')]:
             with zipfile.ZipFile(self.assets/name, 'w') as archive: archive.writestr(member, b'fixed binary fixture')
         self.record = {'version':VERSION,'tag':'v'+VERSION+'.'+SOURCE,'source_commit':SOURCE,
-            'unstable':True,'platforms':['macos-arm64'],'minimum_macos':'14.0',
+            'unstable':True,'platforms':['macos-arm64'],'minimum_macos':'13.0',
             'framework_sha256':publisher.digest(self.assets/publisher.FILES[1]),
             'fixture_sha256':publisher.digest(self.assets/publisher.FILES[2]),'verification_run':RUN}
         self.save_record(); self.remote = Remote(self.assets)
@@ -187,6 +187,7 @@ class DevReleaseTests(unittest.TestCase):
     def test_framework_preserves_current_license_files(self):
         # 运行真实打包脚本，仅替换耗时的工具；文件复制不打桩，能检出许可文件改名遗漏。
         shutil.copyfile(ROOT/'build-macos.sh',self.repo/'build-macos.sh')
+        shutil.copyfile(ROOT/'Tools/build-apple.py',self.repo/'Tools/build-apple.py')
         for name in ['LICENSE','LICENSE.md']:
             shutil.copyfile(ROOT/name,self.repo/name)
         (self.repo/'Notices').mkdir();(self.repo/'Notices/third-party').write_text('第三方声明')
@@ -194,9 +195,9 @@ class DevReleaseTests(unittest.TestCase):
         for name in ['fluxa_engine.h','fluxa_debug_ipc.h','module.modulemap']:
             shutil.copyfile(ROOT/'include'/name,self.repo/'include'/name)
         scripts={
-            'cargo': "#!/bin/sh\nset -eu\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --target-dir ]; then shift; directory=$1; fi; shift; done\nmkdir -p \"$directory/release\"\nprintf archive > \"$directory/release/liblibfluxa_core.a\"\n",
-            'plutil': '#!/bin/sh\nexit 0\n',
-            'xcodebuild': "#!/bin/sh\nset -eu\ncp -R \"$3\" \"$5\"\n"
+            'cargo': '#!/bin/sh\nset -eu\nwhile [ $# -gt 0 ]; do if [ "$1" = --target-dir ]; then shift; directory=$1; fi; shift; done\nmkdir -p "$directory/aarch64-apple-darwin/release"\nprintf archive > "$directory/aarch64-apple-darwin/release/libfluxa_core.a"\n',
+            'xcrun': '#!/bin/sh\nprintf /offline-sdk\n',
+            'xcodebuild': '#!/bin/sh\nset -eu\ncp -R "$3" "$5"\n'
         }
         for name,script in scripts.items():
             target=self.home/'bin'/name;target.write_text(script);target.chmod(0o755)

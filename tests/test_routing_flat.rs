@@ -32,7 +32,6 @@
 
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use crate as libfluxa_core;
     // # 平铺索引与规则缓存测试
     //
     // ## 测试类型
@@ -45,9 +44,9 @@ mod public_contract {
     // - `src/routing/store.rs`：`Store::open` / `update` / `snapshot` / `close`。
     // - `src/routing/runtime.rs`：`Snapshot::generate` / `Snapshot::evaluate` / `memory_usage`。
     //
-    // 公开接口：`libfluxa_core::routing::{Config, Match, Policy, Rule, Target, Transport}`、
-    // `libfluxa_core::routing::runtime::{Layer, Snapshot, Source, memory_usage}`、
-    // `libfluxa_core::routing::store::Store`、`libfluxa_core::error::Error`。
+    // 公开接口：`fluxa_core::routing::{Config, Match, Policy, Rule, Target, Transport}`、
+    // `fluxa_core::routing::runtime::{Layer, Snapshot, Source, memory_usage}`、
+    // `fluxa_core::routing::store::Store`、`fluxa_core::error::Error`。
     //
     // ## 测试内容
     // 场景用例（函数名即断言目标）：
@@ -88,8 +87,8 @@ mod public_contract {
     //
     // 原六项失败的历史证据保留在 Git 历史和报告中；本次结果仅见同名报告。
 
-    use libfluxa_core::error::Error;
-    use libfluxa_core::routing::{
+    use fluxa_core::error::Error;
+    use fluxa_core::routing::{
         Config, Match, Policy, Rule, Target, Transport,
         runtime::{Layer, Snapshot, Source, memory_usage},
         store::Store,
@@ -641,7 +640,7 @@ mod public_contract {
 
     // ---------------------------------------------------------------- 场景 06
 
-    fn keyword_decision(rules: Vec<Rule>, domain: &str) -> libfluxa_core::routing::Decision {
+    fn keyword_decision(rules: Vec<Rule>, domain: &str) -> fluxa_core::routing::Decision {
         let dir = temp_dir("keyword");
         let snapshot = flat_snapshot(&dir, rules);
         snapshot

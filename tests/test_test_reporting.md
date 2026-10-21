@@ -1,6 +1,6 @@
 # 测试报告：test_test_reporting
 
-<!-- fluxa-test-report:{"command": ["python3", "tests/test_test_reporting.py", "-v", "-b"], "exit_code": 0, "duration_seconds": 0.15719108299999995, "status": "PASS", "discovered": ["test_nonzero_is_never_pass", "test_missing_and_ignored_are_not_full_pass", "test_exact_case_ownership", "test_timeout_retains_child_status", "test_compile_failure_and_report_failure_keep_nonzero", "test_signaled_external_process_never_returns_success", "test_unrun_collection_cannot_overwrite_actual_external_result", "test_support_fixture_cannot_be_counted_as_passing_suite", "test_named_external_suites_require_actual_cases"], "results": {"test_nonzero_is_never_pass": "PASS", "test_missing_and_ignored_are_not_full_pass": "PASS", "test_exact_case_ownership": "PASS", "test_timeout_retains_child_status": "PASS", "test_compile_failure_and_report_failure_keep_nonzero": "PASS", "test_signaled_external_process_never_returns_success": "PASS", "test_unrun_collection_cannot_overwrite_actual_external_result": "PASS", "test_support_fixture_cannot_be_counted_as_passing_suite": "PASS", "test_named_external_suites_require_actual_cases": "PASS"}, "fingerprint": "8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8", "time": "2026-10-21T05:38:33.894553+08:00", "scope": "逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_test_reporting", "file": "tests/test_test_reporting.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- fluxa-test-report:{"command": ["python3", "tests/test_test_reporting.py", "-v", "-b"], "exit_code": 0, "duration_seconds": 0.12561166699999998, "status": "PASS", "discovered": ["test_nonzero_is_never_pass", "test_missing_and_ignored_are_not_full_pass", "test_exact_case_ownership", "test_timeout_retains_child_status", "test_compile_failure_and_report_failure_keep_nonzero", "test_signaled_external_process_never_returns_success", "test_unrun_collection_cannot_overwrite_actual_external_result", "test_support_fixture_cannot_be_counted_as_passing_suite", "test_named_external_suites_require_actual_cases"], "results": {"test_nonzero_is_never_pass": "PASS", "test_missing_and_ignored_are_not_full_pass": "PASS", "test_exact_case_ownership": "PASS", "test_timeout_retains_child_status": "PASS", "test_compile_failure_and_report_failure_keep_nonzero": "PASS", "test_signaled_external_process_never_returns_success": "PASS", "test_unrun_collection_cannot_overwrite_actual_external_result": "PASS", "test_support_fixture_cannot_be_counted_as_passing_suite": "PASS", "test_named_external_suites_require_actual_cases": "PASS"}, "fingerprint": "195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b", "time": "2026-10-21T13:02:28.494135+08:00", "scope": "逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_test_reporting", "file": "tests/test_test_reporting.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：python_unit
 - 测试范围：逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。
 - 实际命令：`python3 tests/test_test_reporting.py -v -b`
-- 执行时间：2026-10-21T05:38:33.894553+08:00
-- 实际耗时：0.15719108299999995 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "a25d89ca8b52adfe4a1f94703b242fe1e4c44e4c", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`8160ed086f1f4735b68e69bd474ca8bf413613da306a90bdbb09472d087b13d8`
+- 执行时间：2026-10-21T13:02:28.494135+08:00
+- 实际耗时：0.12561166699999998 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b17fa48772345e5ef38f042c1aa1b88d4555dbc", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`195b9d9bf4f4f354ce9a8ad08fd3ffd134d1d1c9f76083014646048b21a9d89b`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -54,7 +54,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/var/folders/jt/73g_dh311h58pwwk_cmw6s8r0000gn/T/fluxa-test-evidence-j3j0c7ae/test_test_reporting.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/fluxa-core-platform-formatted-python-20261021/test_test_reporting.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
