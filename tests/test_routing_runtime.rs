@@ -56,7 +56,7 @@ mod validation_tests {
     #[test]
     fn audit_migration_and_input_leases_are_bounded() {
         assert!(matches!(
-            Snapshot::migrate_yaml(&"x".repeat(yaml::MAX_BYTES + 1)),
+            Snapshot::from_yaml(&"x".repeat(yaml::MAX_BYTES + 1)),
             Err(Error::ResourceLimit)
         ));
         assert!(matches!(
@@ -106,25 +106,11 @@ mod validation_tests {
             Index::default().flatten(&[]),
             Err(Error::ResourceBudgetExceeded { .. })
         ));
-        // 安全创建的文件也必须先通过共享预算准入；超限时不能写入任何字节。
-        let path = std::env::temp_dir().join(format!(
-            "fluxa-cache-budget-{}-{}",
-            std::process::id(),
-            crate::lifecycle::identifier().unwrap()
-        ));
-        let mut file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .unwrap();
+        // 内存导出同样需要共享预算；宿主自行决定是否落盘。
         assert!(matches!(
-            crate::routing::cache::write(&mut file, &snapshot),
+            snapshot.to_binary(),
             Err(Error::ResourceBudgetExceeded { .. })
         ));
-        assert_eq!(file.metadata().unwrap().len(), 0);
-        drop(file);
-        std::fs::remove_file(path).unwrap();
         drop(occupied);
         assert_eq!(memory_usage().reserved_bytes, retained);
         drop(snapshot);

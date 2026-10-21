@@ -19,7 +19,11 @@ pub(super) fn domain(value: &str) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn validate(rules: &[String], nodes: &HashSet<&str>) -> Result<()> {
+pub(super) fn validate_at(
+    rules: &[String],
+    nodes: &HashSet<&str>,
+    current: &mut usize,
+) -> Result<()> {
     if rules.is_empty() {
         return Err(Error::InvalidInput);
     }
@@ -28,6 +32,7 @@ pub(super) fn validate(rules: &[String], nodes: &HashSet<&str>) -> Result<()> {
     }
     let mut final_seen = false;
     for (index, rule) in rules.iter().enumerate() {
+        *current = index;
         let (parts, count) = fields(rule)?;
         policy(parts[count - 1], nodes)?;
         match parts[0] {

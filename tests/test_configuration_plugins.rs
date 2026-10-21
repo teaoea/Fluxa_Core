@@ -1,43 +1,33 @@
-//! recovery_journal_cannot_name_external_paths：验证受控资源事务恢复。
-//!
-//! interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair：验证受控资源事务恢复。
-//!
-//! automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot：验证同名业务契约。
-//!
-//! disabled_new_entry_and_read_only_reuse_never_download_or_write：验证同名业务契约。
-//!
-//! - only_strict_plugin_fields_and_single_script_mapping_are_allowed：验证同名业务契约。
-//! - main_mitm_bypass_and_master_switch_override_plugin_decryption：验证同名业务契约。
-//! - imports_namespaced_scripts_and_main_rewrites_win：验证同名业务契约。
-//! - reordering_moves_ids_files_and_priority_without_redownload：验证同名业务契约。
-//! - invalid_plugin_or_abandoned_batch_preserves_old_resources：验证同名业务契约。
-//! - missing_script_excludes_only_bad_rewrite_and_keeps_native_rules：验证同名业务契约。
-//!
 //! 测试文件：tests/test_configuration_plugins.rs
-//! 测试类型：单元测试、真实 HTTPS、目录事务和业务优先级集成测试。
-//! 测试对象：src/configuration/plugins.rs、src/configuration/rewrites/execution.rs、src/script/worker.rs。
-//! 测试内容：见各同名测试；覆盖严格插件格式、单对象命名引用、优先级、换序、回滚及脚本隔离。
-//! 测试依据：用户 2026-10-20 插件/主配置优先、脚本存储和执行契约。
-//! 前置条件：内部私有临时目录及本机自签根 TLS 夹具；不冒充系统 App Group，不改变 VPN/系统信任。
+//! 测试类型：单元测试、只读文件及真实 JS 执行测试。
+//! 测试对象：src/configuration/plugins.rs、src/script/worker.rs。
+//! 测试内容：only_strict_plugin_fields_and_single_script_mapping_are_allowed、main_mitm_bypass_and_master_switch_override_plugin_decryption、host_files_preserve_priority_and_script_namespaces、invalid_plugin_preserves_host_files、missing_script_excludes_only_script_rule。
+//! 测试依据：主配置优先；宿主授权资源；Core 不下载和落盘；缺失 JS 排除对应复写。
+//! 前置条件：测试宿主准备临时文件，不访问网络或真实共享容器。
 use super::*;
 use crate::configuration::rewrites::execution::{Message, Outcome};
+use crate::storage::{NamedFile, PluginFiles, Resources};
 use serde_json::json;
-use std::borrow::Cow;
+use std::{borrow::Cow, path::PathBuf};
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "fluxa-plugin-{}-{}",
-            std::process::id(),
+            "fluxa-plugin-{}",
             crate::lifecycle::identifier().unwrap()
         ));
-        fs::create_dir(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
         Self(path)
+    }
+    fn write(&self, name: &str, text: &str) -> PathBuf {
+        let path = self.0.join(name);
+        std::fs::write(&path, text).unwrap();
+        path
     }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
+        std::fs::remove_dir_all(&self.0).unwrap();
     }
 }
 fn document() -> Arc<Document> {
@@ -51,36 +41,8 @@ fn request() -> Message<'static> {
         body: Cow::Borrowed(&[]),
     }
 }
-fn client(f: &crate::test_fixture_https::Fixture) -> crate::https::HttpsClient {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.add(f.root.clone()).unwrap();
-    let manager = Arc::new(crate::outbound::Manager::default());
-    manager
-        .apply_configuration("rules: ['final,direct']")
-        .unwrap();
-    crate::https::HttpsClient::with_roots(roots)
-        .unwrap()
-        .with_network(manager)
-}
-fn configured(
-    f: &crate::test_fixture_https::Fixture,
-    order: &[&str],
-    main_rules: serde_json::Value,
-) -> Arc<Document> {
-    let providers=order.iter().map(|name|json!({"name":name,"category":"test","url":format!("https://localhost:{}/provider-{name}",f.port),"enabled":true})).collect::<Vec<_>>();
-    Arc::new(
-        Document::from_yaml(
-            &json!({"rules":["final,direct"],"plugin-providers":providers,"rewrites":main_rules})
-                .to_string(),
-        )
-        .unwrap(),
-    )
-}
-fn plugin_body(f: &crate::test_fixture_https::Fixture, name: &str, status: u16) -> String {
-    format!(
-        "mitm: {{enabled: true, hosts: ['ads.example']}}\nrewrites:\n  - {{url: 'https://ads.example/**', action: reject, status: {status}}}\n  - {{url: 'https://data.example/**', phase: response, action: script, js: response}}\nscripts:\n  name: response\n  url: https://localhost:{}/provider-script-{name}.js\n",
-        f.port
-    )
+fn configured(main: bool) -> Arc<Document> {
+    Arc::new(Document::from_yaml(&json!({"rules":["final,direct"],"plugin-providers":[{"name":"a","category":"test","url":"https://example.com/a","enabled":true},{"name":"b","category":"test","url":"https://example.com/b","enabled":true}],"rewrites":if main {json!([{"url":"https://ads.example/**","action":"reject","status":403}])} else {json!([])}}).to_string()).unwrap())
 }
 #[test]
 fn only_strict_plugin_fields_and_single_script_mapping_are_allowed() {
@@ -129,28 +91,43 @@ fn main_mitm_bypass_and_master_switch_override_plugin_decryption() {
     assert!(!bundle.decrypts(&main, "a.blocked.example"));
     assert!(!bundle.decrypts(&document(), "api.plugin.example"));
 }
+
 #[tokio::test]
-async fn imports_namespaced_scripts_and_main_rewrites_win() {
-    let f = crate::test_fixture_https::fixture().await;
+async fn host_files_preserve_priority_and_script_namespaces() {
     let root = Fixture::new();
-    {
-        let mut bodies = f.provider.bodies.lock().unwrap();
-        for (name, status) in [("a", 401), ("b", 402)] {
-            bodies.insert(format!("/provider-{name}"), plugin_body(&f, name, status));
-            bodies.insert(
-                format!("/provider-script-{name}.js"),
-                format!("() => ({{body: '{name}'}})"),
-            );
-        }
+    let mut files = Resources::default();
+    for (id, name, status) in [(1, "a", 401), (2, "b", 402)] {
+        let path=root.write(&format!("{name}.yaml"),&format!("rewrites: [{{url: 'https://ads.example/**', action: reject, status: {status}}}, {{url: 'https://data.example/**', phase: response, action: script, js: response}}]\nscripts: {{name: response}}"));
+        let script = root.write(&format!("{name}.js"), &format!("() => '{name}'"));
+        files.plugins.push(PluginFiles {
+            name: name.into(),
+            id,
+            path,
+            script: Some(NamedFile {
+                name: "response".into(),
+                path: script,
+            }),
+        });
     }
-    let doc = configured(
-        &f,
-        &["a", "b"],
-        json!([{ "url":"https://ads.example/**","action":"reject","status":403}]),
+    let before: Vec<_> = files
+        .plugins
+        .iter()
+        .map(|p| std::fs::read(&p.path).unwrap())
+        .collect();
+    let main = configured(true);
+    let assets = load_local(&main, &files).unwrap();
+    let req = request();
+    let mut output = req.clone();
+    assert!(
+        matches!(main.rewrite_request_bound(&req,&mut output,Some(&assets.scripts),&assets.bundle).unwrap(),Outcome::Response(v) if v.status==403)
     );
-    let mut batch = load_in(&doc, &client(&f), &root.0, false).await.unwrap();
+    let plain = configured(false);
+    let assets = load_local(&plain, &files).unwrap();
+    assert!(
+        matches!(plain.rewrite_request_bound(&req,&mut output,Some(&assets.scripts),&assets.bundle).unwrap(),Outcome::Response(v) if v.status==401)
+    );
     assert_eq!(
-        batch
+        assets
             .bundle
             .plugins
             .iter()
@@ -158,258 +135,102 @@ async fn imports_namespaced_scripts_and_main_rewrites_win() {
             .collect::<Vec<_>>(),
         vec![1, 2]
     );
-    let main = Bindings::default();
-    let req = request();
-    let mut out = req.clone();
-    assert!(
-        matches!(doc.rewrite_request_bound(&req,&mut out,Some(&main),&batch.bundle).unwrap(),Outcome::Response(v) if v.status==403)
-    );
-    batch.commit().unwrap();
-    batch.accept();
-    for (index, name) in [(1, "a"), (2, "b")] {
-        assert!(
-            fs::read_to_string(root.0.join(format!("plugin/{index}/response")))
-                .unwrap()
-                .contains(name)
-        );
-        let binding = batch.bundle.plugins[index - 1]
+    for (index, name) in ["a", "b"].iter().enumerate() {
+        let cache = Arc::new(crate::script::worker::Cache::default());
+        let binding = assets.bundle.plugins[index]
             .bindings
             .get("response", 3600)
             .unwrap();
         assert_eq!(
-            binding.path,
-            root.0.join(format!("plugin/{index}/response"))
-        );
-        let cache = Arc::new(crate::script::worker::Cache::default());
-        assert_eq!(
             cache.execute(binding, json!({})).await.unwrap(),
-            json!({"body":name})
+            json!(name)
         );
         cache.close().unwrap();
+        assert_eq!(
+            std::fs::read(&files.plugins[index].path).unwrap(),
+            before[index]
+        );
     }
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 4);
+    // 顺序/编号由宿主显式提供；Core 不重命名文件。
+    files.plugins.swap(0, 1);
+    files.plugins[0].id = 1;
+    files.plugins[1].id = 2;
+    let reordered = load_local(&plain, &files).unwrap();
+    assert_eq!(
+        reordered
+            .bundle
+            .plugins
+            .iter()
+            .map(|p| p.id)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert!(
+        matches!(plain.rewrite_request_bound(&req,&mut output,Some(&reordered.scripts),&reordered.bundle).unwrap(),Outcome::Response(v) if v.status==402)
+    );
 }
-#[tokio::test]
-async fn reordering_moves_ids_files_and_priority_without_redownload() {
-    use std::sync::atomic::Ordering;
-    let f = crate::test_fixture_https::fixture().await;
+#[test]
+fn invalid_plugin_preserves_host_files() {
     let root = Fixture::new();
-    {
-        let mut bodies = f.provider.bodies.lock().unwrap();
-        for (name, status) in [("a", 401), ("b", 402)] {
-            bodies.insert(format!("/provider-{name}"), plugin_body(&f, name, status));
-            bodies.insert(
-                format!("/provider-script-{name}.js"),
-                format!("() => '{name}'"),
-            );
-        }
-    }
-    let doc = configured(&f, &["a", "b"], json!([]));
-    let mut first = load_in(&doc, &client(&f), &root.0, false).await.unwrap();
-    first.commit().unwrap();
-    first.accept();
-    let old = first.bundle.clone();
-    drop(first);
-    assert_eq!(f.provider.requests.load(Ordering::SeqCst), 4);
-    drop(Batch::new(&root.0).expect("重启时应能安全复制已发布资源"));
-    catalog(&root.0, false).expect("已发布目录的插件目录表应能严格回读");
-    let doc = configured(&f, &["b", "a"], json!([]));
-    let mut second = load_in(&doc, &client(&f), &root.0, false).await.unwrap();
+    let path = root.write("a.yaml", "rules: ['final,direct']");
+    let b = root.write("b.yaml", "rewrites: []");
+    let resources = Resources {
+        plugins: vec![
+            PluginFiles {
+                name: "a".into(),
+                id: 1,
+                path: path.clone(),
+                script: None,
+            },
+            PluginFiles {
+                name: "b".into(),
+                id: 2,
+                path: b,
+                script: None,
+            },
+        ],
+        ..Default::default()
+    };
+    assert!(load_local(&configured(false), &resources).is_err());
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "rules: ['final,direct']"
+    );
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 2);
+}
+#[test]
+fn missing_script_excludes_only_script_rule() {
+    let root = Fixture::new();
+    let a=root.write("a.yaml","rewrites: [{url: 'https://ads.example/**', action: reject, status: 404}, {url: 'https://data.example/**', phase: response, action: script, js: response}]\nscripts: {name: response}");
+    let b = root.write("b.yaml", "rewrites: []");
+    let resources = Resources {
+        plugins: vec![
+            PluginFiles {
+                name: "a".into(),
+                id: 1,
+                path: a,
+                script: Some(NamedFile {
+                    name: "response".into(),
+                    path: root.0.join("missing.js"),
+                }),
+            },
+            PluginFiles {
+                name: "b".into(),
+                id: 2,
+                path: b,
+                script: None,
+            },
+        ],
+        ..Default::default()
+    };
+    let doc = configured(false);
+    let assets = load_local(&doc, &resources).unwrap();
+    assert!(!assets.bundle.plugins[0].bindings.contains("response", 3600));
     let req = request();
-    let mut out = req.clone();
+    let mut output = req.clone();
     assert!(
-        matches!(doc.rewrite_request_bound(&req,&mut out,Some(&Bindings::default()),&second.bundle).unwrap(),Outcome::Response(v) if v.status==402)
+        matches!(doc.rewrite_request_bound(&req,&mut output,Some(&assets.scripts),&assets.bundle).unwrap(),Outcome::Response(v) if v.status==404)
     );
-    second.commit().unwrap();
-    second.accept();
-    drop(second);
-    assert_eq!(f.provider.requests.load(Ordering::SeqCst), 4);
-    assert!(
-        fs::read_to_string(root.0.join("plugin/1/response"))
-            .unwrap()
-            .contains("'b'")
-    );
-    assert!(
-        fs::read_to_string(root.0.join("plugin/2/response"))
-            .unwrap()
-            .contains("'a'")
-    );
-    // 目录交换清理后，已开始旧快照仍可懒加载原插件，不能被换序重新解释为 b。
-    let cache = Arc::new(crate::script::worker::Cache::default());
-    assert_eq!(
-        cache
-            .execute(
-                old.plugins[0].bindings.get("response", 3600).unwrap(),
-                json!(null)
-            )
-            .await
-            .unwrap(),
-        json!("a")
-    );
-    cache.close().unwrap();
-}
-#[tokio::test]
-async fn invalid_plugin_or_abandoned_batch_preserves_old_resources() {
-    let f = crate::test_fixture_https::fixture().await;
-    let root = Fixture::new();
-    f.provider.bodies.lock().unwrap().insert(
-        "/provider-a".into(),
-        "rewrites: [{url: 'https://ads.example/**', action: reject, status: 403}]".into(),
-    );
-    let doc = configured(&f, &["a"], json!([]));
-    let mut first = load_in(&doc, &client(&f), &root.0, false).await.unwrap();
-    first.commit().unwrap();
-    first.accept();
-    drop(first);
-    let original = fs::read(root.0.join("plugin/1/.plugin.yaml")).unwrap();
-    f.provider
-        .bodies
-        .lock()
-        .unwrap()
-        .insert("/provider-a".into(), "unknown: true".into());
-    assert!(load_in(&doc, &client(&f), &root.0, true).await.is_err());
-    assert_eq!(
-        fs::read(root.0.join("plugin/1/.plugin.yaml")).unwrap(),
-        original
-    );
-    f.provider
-        .bodies
-        .lock()
-        .unwrap()
-        .insert("/provider-a".into(), "rewrites: []".into());
-    {
-        let mut candidate = load_in(&doc, &client(&f), &root.0, true).await.unwrap();
-        candidate.commit().unwrap();
-        candidate.rollback().unwrap();
-    }
-    assert_eq!(
-        fs::read(root.0.join("plugin/1/.plugin.yaml")).unwrap(),
-        original
-    );
-}
-#[tokio::test]
-async fn missing_script_excludes_only_bad_rewrite_and_keeps_native_rules() {
-    let f = crate::test_fixture_https::fixture().await;
-    let root = Fixture::new();
-    f.provider.bodies.lock().unwrap().insert("/provider-a".into(),"scripts: {name: response}\nrewrites:\n - {url: 'https://ads.example/**', action: script, phase: request, js: response}\n - {url: 'https://ads.example/**', action: reject, status: 418}".into());
-    let doc = configured(&f, &["a"], json!([]));
-    let batch = load_in(&doc, &client(&f), &root.0, false).await.unwrap();
-    assert!(!batch.bundle.plugins[0].bindings.contains("response", 3600));
-    let req = request();
-    let mut out = req.clone();
-    assert!(
-        matches!(doc.rewrite_request_bound(&req,&mut out,Some(&Bindings::default()),&batch.bundle).unwrap(),Outcome::Response(v) if v.status==418)
-    );
-}
-
-#[tokio::test]
-async fn disabled_new_entry_and_read_only_reuse_never_download_or_write() {
-    use std::sync::atomic::Ordering;
-    let f = crate::test_fixture_https::fixture().await;
-    let root = Fixture::new();
-    let yaml = json!({"rules":["final,direct"],"plugin-providers":[{"name":"off","category":"test","url":format!("https://localhost:{}/provider-off",f.port),"enabled":false}]});
-    let doc = Arc::new(Document::from_yaml(&yaml.to_string()).unwrap());
-    let mut batch = load_in(&doc, &client(&f), &root.0, false).await.unwrap();
-    batch.commit().unwrap();
-    batch.accept();
-    drop(batch);
-    assert_eq!(f.provider.requests.load(Ordering::SeqCst), 0);
-    assert!(catalog(&root.0, false).is_ok());
-    let before = fs::read(root.0.join("plugin/.catalog.json")).unwrap();
-    let assets = read_only(&doc, &root.0).unwrap();
-    assert!(assets.bundle.plugins.is_empty());
-    assert_eq!(
-        fs::read(root.0.join("plugin/.catalog.json")).unwrap(),
-        before
-    );
-    assert_eq!(f.provider.requests.load(Ordering::SeqCst), 0);
-}
-
-#[test]
-fn automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot() {
-    let configuration=Document::from_yaml("rules: ['final,direct']\nplugin-providers: [{name: daily, category: test, url: 'https://example.com/plugin.yaml', enabled: true, update-time: '00:00'}]").unwrap();
-    let at = crate::providers::now().unwrap();
-    let slot = crate::providers::slot(Some("00:00"), at).unwrap();
-    let mut seen = std::collections::BTreeMap::new();
-    assert!(configuration.assets_due(&seen, at).unwrap());
-    seen.insert("daily".into(), slot);
-    assert!(!configuration.assets_due(&seen, at).unwrap());
-    let no_schedule=Document::from_yaml("rules: ['final,direct']\nplugin-providers: [{name: once, category: test, url: 'https://example.com/plugin.yaml', enabled: true}]").unwrap();
-    assert!(!no_schedule.assets_due(&Default::default(), at).unwrap());
-}
-
-#[test]
-fn interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair() {
-    for complete in [false, true] {
-        let root = Fixture::new();
-        let generation = ".assets-stage-0123456789abcdef0123456789abcdef";
-        Directory::open(&root.0, ".assets-lock", true).unwrap();
-        let _lock = Directory::open(&root.0, ".assets-lock", false)
-            .unwrap()
-            .lock()
-            .unwrap();
-        for child in ["plugin", "js"] {
-            let target = Directory::open(&root.0, child, true).unwrap();
-            let candidate =
-                Directory::open(&root.0, &format!("{generation}.{child}"), true).unwrap();
-            let target_new = child == "plugin" || complete;
-            target
-                .write(
-                    ".generation",
-                    if target_new {
-                        generation.as_bytes()
-                    } else {
-                        b"old-generation"
-                    },
-                    false,
-                )
-                .unwrap();
-            target
-                .write("value", if target_new { b"new" } else { b"old" }, false)
-                .unwrap();
-            candidate
-                .write("value", if target_new { b"old" } else { b"new" }, false)
-                .unwrap();
-            candidate
-                .write(
-                    ".generation",
-                    if target_new {
-                        b"old-generation"
-                    } else {
-                        generation.as_bytes()
-                    },
-                    false,
-                )
-                .unwrap();
-        }
-        Directory::open(&root.0, ".assets-lock", false)
-            .unwrap()
-            .write(
-                "transaction.json",
-                &serde_json::to_vec(&Transaction {
-                    stage: generation.into(),
-                })
-                .unwrap(),
-                false,
-            )
-            .unwrap();
-        recover(&root.0).unwrap();
-        for child in ["plugin", "js"] {
-            assert_eq!(
-                fs::read(root.0.join(child).join("value")).unwrap(),
-                if complete { b"new" } else { b"old" }
-            );
-            assert!(!root.0.join(format!("{generation}.{child}")).exists());
-        }
-        assert!(!root.0.join(".assets-lock/transaction.json").exists());
-    }
-}
-#[test]
-fn recovery_journal_cannot_name_external_paths() {
-    let root = Fixture::new();
-    let directory = Directory::open(&root.0, ".assets-lock", true).unwrap();
-    let _lock = directory.lock().unwrap();
-    directory
-        .write("transaction.json", br#"{"stage":"../escape"}"#, false)
-        .unwrap();
-    assert!(matches!(recover(&root.0), Err(Error::InvalidInput)));
+    assert!(!root.0.join("missing.js").exists());
 }

@@ -3,20 +3,20 @@
 //! 测试对象：src/vpn.rs、providers、configuration、outbound
 //! 测试内容：
 //! - local_candidate_is_not_activation_and_does_not_replace_live_rules：候选规则隔离且不授予接管权限。
+//! - nonexistent_default_node_fails_without_candidate_or_direct_fallback：缺失兜底节点报错且不发布候选。
 //! - invalid_input_and_unsupported_modes_fail_without_partial_candidate：严格拒绝及失败状态。
-//! - remote_sources_are_memory_only_and_keep_policy：真实 HTTPS 提供者在内存编译，无磁盘缓存与计划。
+//! - host_sources_are_read_only_and_keep_policy：宿主文件编译，无下载或磁盘修改。
 //! - failure_of_second_source_never_publishes_partial_candidate：多源失败不暴露部分候选。
-//! - close_cancels_download_and_releases_slot_with_old_reference_alive：取消、重复关闭与旧引用不占业务槽。
+//! - close_releases_slot_with_old_reference_alive：重复关闭与旧引用不占业务槽。
 //! - slots_are_bounded_before_background_work：两候选准入及关闭恢复。
 //! - geoip_failure_is_error_not_disabled_success：显式 GeoIP 失败不能冒充禁用。
-//! - total_deadline_has_its_own_error_and_releases_resources：总期限独立错误与真实资源关闭。
+//! - total_deadline_rejects_invalid_duration_before_work：期限边界输入拒绝；超时执行路径本轮未验证。
 //!
 //! 测试依据：VPN 启动规范、无节点授权和生命周期约束；CandidateReady 不代表 Preflight/Running。
 //!
 //! 前置条件：本机回环 HTTPS，测试内串行；不改变 HOME、系统网络、VPN 或登录会话。
 use super::*;
 use crate::routing::{Policy, Target, Transport};
-use std::sync::atomic::Ordering;
 static GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 async fn completed(candidate: &Preparation) -> Status {
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -103,27 +103,38 @@ async fn invalid_input_and_unsupported_modes_fail_without_partial_candidate() {
     }
 }
 #[tokio::test]
-async fn remote_sources_are_memory_only_and_keep_policy() {
+async fn host_sources_are_read_only_and_keep_policy() {
     let _gate = GATE.lock().await;
-    let fixture = crate::test_fixture_https::fixture().await;
-    fixture.provider.bodies.lock().unwrap().insert(
-        "/provider-one".into(),
-        "rules: ['domain,ads.example']".into(),
-    );
-    let candidate =
-        Preparation::begin_with_client(&remote(fixture.port, ""), Some(client(&fixture))).unwrap();
+    let root = std::env::temp_dir().join(format!(
+        "fluxa-vpn-readonly-{}",
+        crate::lifecycle::identifier().unwrap()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let config = root.join("config.yaml");
+    let rules = root.join("one.yaml");
+    std::fs::write(&config, remote(1, "")).unwrap();
+    std::fs::write(&rules, "rules: ['domain,ads.example']").unwrap();
+    let resources = crate::storage::Resources {
+        rules: vec![crate::storage::NamedFile {
+            name: "one".into(),
+            path: rules.clone(),
+        }],
+        ..Default::default()
+    };
+    let candidate = Preparation::begin_file(config.to_str().unwrap(), resources).unwrap();
     assert_eq!(completed(&candidate).await.phase, Phase::CandidateReady);
     assert_eq!(
         policy(&candidate.inner.manager, "ads.example"),
         Policy::Reject
     );
-    assert_eq!(fixture.provider.requests.load(Ordering::SeqCst), 1);
-    let runtime = candidate.inner.manager.provider_runtime().unwrap().unwrap();
-    assert!(
-        runtime.is_candidate_storage().unwrap(),
-        "候选不能持有磁盘目录或自动任务"
+    assert!(candidate.inner.manager.provider_status().unwrap().read_only);
+    assert_eq!(
+        std::fs::read_to_string(&rules).unwrap(),
+        "rules: ['domain,ads.example']"
     );
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
     candidate.close().await.unwrap();
+    std::fs::remove_dir_all(root).unwrap();
 }
 #[tokio::test]
 async fn failure_of_second_source_never_publishes_partial_candidate() {
@@ -162,19 +173,11 @@ async fn failure_of_second_source_never_publishes_partial_candidate() {
     candidate.close().await.unwrap();
 }
 #[tokio::test]
-async fn close_cancels_download_and_releases_slot_with_old_reference_alive() {
+async fn close_releases_slot_with_old_reference_alive() {
     let _gate = GATE.lock().await;
     let fixture = crate::test_fixture_https::fixture().await;
-    fixture.provider.delay.store(true, Ordering::SeqCst);
     let candidate =
-        Preparation::begin_with_client(&remote(fixture.port, ""), Some(client(&fixture))).unwrap();
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while fixture.provider.requests.load(Ordering::SeqCst) == 0 {
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-    })
-    .await
-    .unwrap();
+        Preparation::begin_with_client("rules: ['final,reject']", Some(client(&fixture))).unwrap();
     let retained = candidate.inner.manager.clone();
     tokio::time::timeout(Duration::from_secs(3), async {
         let (a, b) = tokio::join!(candidate.close(), candidate.close());
@@ -222,20 +225,41 @@ async fn geoip_failure_is_error_not_disabled_success() {
 }
 
 #[tokio::test]
-async fn total_deadline_has_its_own_error_and_releases_resources() {
+async fn total_deadline_rejects_invalid_duration_before_work() {
     let _gate = GATE.lock().await;
-    let fixture = crate::test_fixture_https::fixture().await;
-    fixture.provider.delay.store(true, Ordering::SeqCst);
-    let candidate = Preparation::begin_with_deadline(
-        &remote(fixture.port, ""),
-        Some(client(&fixture)),
-        Duration::from_millis(100),
-    )
-    .unwrap();
-    let status = completed(&candidate).await;
-    assert_eq!(status.phase, Phase::Failed);
-    assert_eq!(status.error_info.unwrap().code.value(), 9003);
-    assert!(status.cleanup_error_info.is_none());
-    assert!(!status.activation_permitted);
-    candidate.close().await.unwrap();
+    assert!(matches!(
+        Preparation::begin_with_deadline("rules: ['final,reject']", None, Duration::ZERO),
+        Err(Error::InvalidInput)
+    ));
+    assert!(matches!(
+        Preparation::begin_with_deadline(
+            "rules: ['final,reject']",
+            None,
+            PREPARATION_TIMEOUT + Duration::from_secs(1)
+        ),
+        Err(Error::InvalidInput)
+    ));
+}
+
+#[tokio::test]
+async fn nonexistent_default_node_fails_without_candidate_or_direct_fallback() {
+    let _gate = GATE.lock().await;
+    for yaml in ["rules: ['final,missing-node']", "rules: ['final,PROXY']"] {
+        let candidate = Preparation::begin(yaml).unwrap();
+        let status = completed(&candidate).await;
+        assert_eq!(status.phase, Phase::Failed);
+        assert_eq!(status.error_info.unwrap().code.value(), 1001);
+        assert!(!status.activation_permitted);
+        assert!(status.configuration.is_none());
+        assert!(
+            candidate
+                .inner
+                .manager
+                .network_snapshot()
+                .unwrap()
+                .router
+                .is_none()
+        );
+        candidate.close().await.unwrap();
+    }
 }

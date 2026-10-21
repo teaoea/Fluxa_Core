@@ -8,19 +8,21 @@
 
 当前未完成事项及暂停状态统一见 [TODO](Documentation/TODO.md)。
 
-主配置规则提供者使用小写 `rules` 正文，Rust 负责设备本地更新时间、缓存和事务；接口、示例及尚未接入的范围见 [规则提供者生命周期](Documentation/Subscriptions.md)。
+主配置规则提供者使用小写 `rules` 正文，宿主负责更新时间与磁盘文件，Rust 负责只读校验、编译和内存发布；接口、示例及尚未接入的范围见 [规则提供者生命周期](Documentation/Subscriptions.md)。
 
-主配置 DNS 与 GeoIP 已接入内核异步事务：逐上游独立期限、专用 DNS 出站、地址族选择、Ready 数据库编译及同目录原子缓存。接口、示例和真实验证边界见 [DNS/GeoIP 编排](Documentation/DNSGeoIP编排.md)。系统代理、局域网共享及文件日志执行仍暂存 TODO。
+主配置 DNS 与 GeoIP 已接入内核异步事务：逐上游独立期限、专用 DNS 出站、地址族选择、只读 Ready 数据库编译及内存原子发布。接口、示例和真实验证边界见 [DNS/GeoIP 编排](Documentation/DNSGeoIP编排.md)。系统代理、局域网共享及文件日志执行仍暂存 TODO。
 
 ## VPN 隔离候选准备（开发接口）
 
 2.6.0-dev 提供有界、可取消的候选资产准备，复用配置、DNS/GeoIP 与提供者规则编译，不发布到当前管理器、不改写正式缓存。候选就绪不等于必要链路可用、前置检查通过、用户授权或系统 VPN 启动。参见 [候选准备说明](Documentation/VPN候选准备.md) 和 examples/vpn_candidate.rs。
 
-共享容器与默认主配置由 Core 管理，固定 App Group、扩展只读及真实验证边界见 [共享存储](Documentation/共享存储.md)。
+共享容器、目录、文件和默认配置创建由 App／宿主管理，Core 只提供模板和只读消费；职责、扩展只读及真实验证边界见 [共享存储](Documentation/共享存储.md)。
 
 内核二进制使用[本机手动发布流程](Documentation/本机手动发布.md)，不依赖 GitHub Actions 发布。
 
 
-2.8.0-dev 本轮新增原生条件复写、声明式插件及命名 JS 管线，`scripts.name: response` 可由 `js: response` 精确引用，不要求 .js 后缀。主配置优先、数字 ID 目录、真实共享容器绑定及缓存清理约束见 [插件与脚本](Documentation/插件与脚本.md)；本机 TLS 与测试夹具不代表系统 VPN 或完整主配置 MITM 启动验收。
+2.8.0-dev 本轮新增原生条件复写、声明式插件及命名 JS 管线，`scripts.name: response` 可由 `js: response` 精确引用，不要求 .js 后缀。主配置优先、数字 ID 优先级、宿主授权只读绑定及缓存清理约束见 [插件与脚本](Documentation/插件与脚本.md)；本机 TLS 与测试夹具不代表系统 VPN 或完整主配置 MITM 启动验收。
 
 Apple 平台最低版本、ARM64 架构与本地构建入口见 [Apple 平台构建](Documentation/Apple平台构建.md)；强制约束见 [全平台系统支持的最低版本](AGENTS/全平台系统支持的最低版本.md)。不支持 Intel Mac、Mac Catalyst、watchOS 和 visionOS；产物不自动上传。
+
+配置文件字段、错误代码和编辑器行号定位见 [配置检查 API](Documentation/API/配置文件检查.md)。

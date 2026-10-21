@@ -3,7 +3,6 @@ use super::{MAX_DATA, MAX_SOURCE, execute_cancellable};
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
-    platform::storage::Directory,
 };
 use serde_json::Value;
 use std::{
@@ -20,32 +19,27 @@ use std::{
 static WORKERS: ByteBudget = ByteBudget::new(4);
 static SOURCES: ByteBudget = ByteBudget::new(4 * (2 * MAX_SOURCE + 8193));
 static JOBS: ByteBudget = ByteBudget::new(64 * MAX_DATA);
-/// 编译时仅绑定目录描述符及绝对路径，不读取或保存 JS 内容。
+/// 编译时仅绑定宿主授权的只读文件描述符及绝对路径，不读取或保存 JS 内容。
 pub(crate) struct Binding {
     pub(crate) id: u64,
     pub(crate) path: PathBuf,
-    pub(crate) directory: Directory,
-    pub(crate) filename: String,
     pub(crate) ttl: u32,
-    resource: Mutex<Option<crate::platform::storage::Resource>>,
+    resource: Mutex<Option<Arc<crate::storage::ReadOnlyFile>>>,
+    loaded: AtomicBool,
 }
 impl Binding {
-    pub(crate) fn new(
-        directory: Directory,
-        path: PathBuf,
-        filename: String,
-        ttl: u32,
-    ) -> Result<Arc<Self>> {
+    pub(crate) fn new(path: PathBuf, ttl: u32) -> Result<Arc<Self>> {
         if ttl == 0 || !path.is_absolute() {
             return Err(Error::InvalidInput);
         }
+        let resource = crate::storage::ReadOnlyFile::open(&path)?;
+        resource.check_size(MAX_SOURCE)?;
         Ok(Arc::new(Self {
             id: crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?,
             path,
-            directory,
-            filename,
             ttl,
-            resource: Mutex::new(None),
+            resource: Mutex::new(Some(resource)),
+            loaded: AtomicBool::new(false),
         }))
     }
 }
@@ -81,23 +75,21 @@ impl Worker {
         }
         let worker = WORKERS.reserve(1)?;
         let source_memory = SOURCES.reserve(2 * MAX_SOURCE + 8193)?;
-        let source = if binding
-            .directory
-            .is_current(binding.path.parent().ok_or(Error::InvalidInput)?)?
-        {
-            let file = binding.directory.resource(&binding.filename, MAX_SOURCE)?;
-            let text = file.read(MAX_SOURCE)?;
-            *binding.resource.lock().map_err(|_| Error::Internal)? = Some(file);
-            text
-        } else {
+        // 初次使用已固定描述符；显式清理或 TTL 后再次运行才重新打开宿主的同一授权路径。
+        let file = if !binding.loaded.swap(true, Ordering::AcqRel) {
             binding
                 .resource
                 .lock()
                 .map_err(|_| Error::Internal)?
                 .as_ref()
+                .cloned()
                 .ok_or(Error::InvalidState)?
-                .read(MAX_SOURCE)?
+        } else {
+            crate::storage::ReadOnlyFile::open(&binding.path)?
         };
+        let source = file.read(MAX_SOURCE)?;
+        *binding.resource.lock().map_err(|_| Error::Internal)? = Some(file);
+
         if source.is_empty() {
             return Err(Error::InvalidInput);
         }
@@ -301,79 +293,56 @@ pub(crate) struct Bindings {
     entries: BTreeMap<(String, u32), Arc<Binding>>,
 }
 impl Bindings {
-    pub(crate) fn compile(name: Option<&str>, refs: Vec<(String, u32)>) -> Result<Arc<Self>> {
-        if refs.is_empty() {
-            return Ok(Arc::new(Self::default()));
-        }
-        if name.is_none()
-            || !refs
-                .iter()
-                .any(|(reference, _)| Some(reference.as_str()) == name)
-        {
-            crate::error::diagnostics::record(
-                Error::InvalidInput,
-                crate::error::diagnostics::DiagnosticSite::BackgroundJob,
-            );
-            return Ok(Arc::new(Self::default()));
-        }
-        let context = crate::platform::storage::context()?;
-        Self::in_root(&context.root, !context.read_only_configuration, name, refs)
+    fn diagnose(error: Error) {
+        crate::error::diagnostics::record(
+            error,
+            crate::error::diagnostics::DiagnosticSite::BackgroundJob,
+        );
     }
-    pub(crate) fn in_root(
-        root: &std::path::Path,
-        create: bool,
+    pub(crate) fn from_file(
         declared: Option<&str>,
-        refs: Vec<(String, u32)>,
-    ) -> Result<Arc<Self>> {
-        Directory::open(root, "js", create)?;
-        Self::in_directory(root, "js", &root.join("js"), declared, refs)
-    }
-    pub(crate) fn in_directory(
-        root: &std::path::Path,
-        child: &str,
-        absolute: &std::path::Path,
-        declared: Option<&str>,
+        file: Option<&crate::storage::NamedFile>,
         refs: Vec<(String, u32)>,
     ) -> Result<Arc<Self>> {
         if refs.len() > 1024 {
             return Err(Error::ResourceLimit);
         }
+        if let Some(file) = file
+            && Some(file.name.as_str()) != declared
+        {
+            return Err(Error::InvalidInput);
+        }
         let mut requested = std::collections::BTreeSet::new();
         for (name, ttl) in refs {
-            if declared != Some(name.as_str()) {
-                crate::error::diagnostics::record(
-                    Error::InvalidInput,
-                    crate::error::diagnostics::DiagnosticSite::BackgroundJob,
-                );
+            if Some(name.as_str()) != declared {
+                Self::diagnose(Error::InvalidInput);
                 continue;
             }
             requested.insert((name, ttl));
         }
         let mut entries = BTreeMap::new();
         if let Some(ttl) = requested.iter().map(|(_, ttl)| *ttl).min() {
-            let name = declared.ok_or(Error::Internal)?;
-            let directory = Directory::open(root, child, false)?;
-            if let Err(error) = directory.require_file(name, MAX_SOURCE) {
-                crate::error::diagnostics::record(
-                    error,
-                    crate::error::diagnostics::DiagnosticSite::BackgroundJob,
-                );
-            } else {
-                // 同一命名资源共用一个线程；多个规则 TTL 不同时使用最短生命周期，不能重复占用运行时预算。
-                let binding = Binding::new(directory, absolute.join(name), name.into(), ttl)?;
-                for key in requested {
-                    entries.insert(key, binding.clone());
+            match file.map(|file| Binding::new(file.path.clone(), ttl)) {
+                Some(Ok(binding)) => {
+                    for key in requested {
+                        entries.insert(key, binding.clone());
+                    }
                 }
+                Some(Err(error)) => Self::diagnose(error),
+                None => Self::diagnose(Error::InvalidInput),
             }
         }
         Ok(Arc::new(Self { entries }))
     }
-    /// 发布前固定文件身份，仍不读取源码；旧快照不会被新目录事务或同名原子写入重新解释。
     pub(crate) fn pin(&self) -> Result<()> {
         for binding in self.entries.values() {
-            let mut resource = binding.resource.lock().map_err(|_| Error::Internal)?;
-            if resource.is_none() {
-                *resource = Some(binding.directory.resource(&binding.filename, MAX_SOURCE)?);
+            if binding
+                .resource
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .is_none()
+            {
+                return Err(Error::InvalidState);
             }
         }
         Ok(())

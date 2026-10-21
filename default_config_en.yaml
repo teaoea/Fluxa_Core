@@ -1,0 +1,52 @@
+# Default configuration
+
+# Issue tracker. Include logs when reporting a problem.
+# Issues: https://github.com/teaoea/fluxa-app/issues
+
+# silent: disable logging.
+# info: record all log levels, including debug, warn, and error.
+# debug: record debug logs only.
+# warn: record warning logs only.
+# error: record error logs only.
+log-level: silent # Default: silent.
+
+system-proxy:
+  # System proxy listening port. Default: 0 (disabled). HTTP, HTTPS, and SOCKS5 share this port.
+  # Ports 1 through 1053 are prohibited. Do not use the same port as LAN sharing.
+  port: 0
+  # Addresses that bypass the system proxy.
+  bypass:
+    ["127.0.0.1", "192.168.0.0/16", "10.0.0.0/8", "localhost", "*.local", "::1"]
+
+lan-share:
+  # LAN sharing listening port. Default: 0 (disabled). Ports 1 through 1053 are prohibited. Do not use the system proxy port.
+  port: 0
+  # Username and password for LAN HTTP, HTTPS, and SOCKS5 access. Both are empty by default.
+  account: ""
+  password: ""
+
+# Operation mode. Default: rule. Supported values: rule, global, direct.
+mode: rule
+
+# GeoIP configuration.
+# The App/host downloads, validates, and saves the database as geoip.mmdb in its managed directory. Rule sets are saved as <name>.yaml.
+# MaxMind GeoLite2 Country MMDB
+# https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb
+geoip:
+  enabled: false # false: disable GeoIP. true: enable GeoIP; the App/host downloads the MMDB on restart or at the scheduled update time.
+  #url: "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb" # Suggested MMDB database when configuring GeoIP.
+  url: "https://example.com" # Placeholder URL. Replace it with an HTTPS URL to a raw .mmdb file.
+  update-time: "00:00" # Update daily at 00:00 in the device local time zone. Use a quoted HH:mm value.
+
+# prefer-ipv4: query A records and try IPv4 first; query AAAA records and try IPv6 only if IPv4 is unavailable.
+# prefer-ipv6: query AAAA records and try IPv6 first; query A records and try IPv4 only if IPv6 is unavailable.
+# only-ipv4: use IPv4 only. Do not query AAAA records during active resolution. No fallback is allowed.
+# only-ipv6: use IPv6 only. Do not query A records during active resolution. No fallback is allowed.
+ip-strategy: prefer-ipv6
+
+plugin-providers: []
+
+rule-providers: []
+
+rules:
+  - final,direct # Fallback rule.

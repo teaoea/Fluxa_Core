@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     std::fs::create_dir(&path)?;
     let directory = Directory(path);
-    let store = Store::open(&directory.0)?;
+    let store = Store::memory();
     store.update(
         Config::default(),
         vec![Source {
@@ -64,8 +64,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect(),
         }],
     )?;
+    // CLI 宿主保存内存编码，Core 不持久化。
+    let file = directory.0.join("rules.bin");
+    std::fs::write(&file, store.snapshot()?.to_binary()?.as_ref())?;
     store.close()?;
-    let restored = Store::open(&directory.0)?;
+    let restored = Store::open(&file)?;
     let snapshot = restored.snapshot()?;
     for (id, domain) in names.iter().enumerate() {
         let decision = snapshot.evaluate(&Target {

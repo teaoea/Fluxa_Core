@@ -309,6 +309,7 @@ fn output_limit(input: &[u8]) -> usize {
                 hint.operation.as_str(),
                 "request"
                     | "configuration_load"
+                    | "configuration_default"
                     | "https"
                     | "subscription_fetch"
                     | "subscription_rules"
@@ -335,25 +336,39 @@ enum Command {
     ConfigurationValidate {
         yaml: String,
     },
+    ConfigurationCheck {
+        yaml: String,
+    },
+    ConfigurationCheckFile {
+        path: String,
+    },
     /// 原子应用主配置；未接入能力返回错误，不允许部分替换。
     ConfigurationApply {
         yaml: String,
     },
     ConfigurationStatus,
-    /// 仅初始化系统共享容器中的缺省配置，不提交网络配置。
-    StorageInitialize {},
-    /// 只读加载配置，不创建文件或接受调用者自报的宿主角色。
-    ConfigurationLoad {
-        filename: String,
+    /// 返回纯默认模板内容，是否创建文件由宿主决定。
+    ConfigurationDefault {
+        language: String,
     },
-    /// 宿主身份由系统读取，扩展进程不能通过 JSON 自报写入权限。
-    ConfigurationSave {
-        filename: String,
-        yaml: String,
+    /// 只读取宿主提供的现有绝对路径。
+    ConfigurationLoad {
+        path: String,
+    },
+    /// 原子应用只读文件及明确授权的外部资源。
+    ConfigurationApplyFile {
+        path: String,
+        #[serde(default)]
+        resources: crate::storage::Resources,
     },
     /// 只准备隔离资产，不允许网络接管；成功通过状态查询读取。
     VpnPreparationBegin {
         yaml: String,
+    },
+    VpnPreparationBeginFile {
+        path: String,
+        #[serde(default)]
+        resources: crate::storage::Resources,
     },
     VpnPreparationStatus,
     VpnPreparationClose,
@@ -562,9 +577,11 @@ impl RuntimeRulesSummary {
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
+    configuration_issue: Option<Box<crate::configuration::CheckIssue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     configuration: Option<crate::configuration::Summary>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    default_configuration_created: Option<bool>,
+    default_configuration: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     configuration_yaml: Option<crate::storage::ConfigurationText>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -819,9 +836,33 @@ fn execute_request(engine: &Engine, input: RequestInput, https_only: bool) -> Re
     })?;
     Ok(Reply::from(response))
 }
+fn configuration_check_reply(
+    result: std::result::Result<
+        crate::configuration::Summary,
+        Box<crate::configuration::CheckIssue>,
+    >,
+) -> Result<Reply, Error> {
+    match result {
+        Ok(summary) => Ok(Reply {
+            success: true,
+            configuration: Some(summary),
+            ..Reply::default()
+        }),
+        Err(issue) => {
+            set_last_error(issue.error_info);
+            Ok(Reply {
+                success: false,
+                error_info: Some(issue.error_info),
+                configuration_issue: Some(issue),
+                level: Some("error"),
+                ..Reply::default()
+            })
+        }
+    }
+}
 // 大型控制面 future 只在独立栈帧/内核运行时构造，避免让每个命令都占用宿主小栈。
 #[inline(never)]
-fn apply_configuration(engine: &Engine, yaml: String) -> Result<Reply, Error> {
+fn configuration_preflight(engine: &Engine) -> Result<(), Error> {
     // 旧服务各有独立生命周期；尚未实现统一迁移前拒绝混合接管，不能留下运行中的旧服务。
     if engine
         .dns_service
@@ -847,6 +888,11 @@ fn apply_configuration(engine: &Engine, yaml: String) -> Result<Reply, Error> {
     {
         return Err(Error::InvalidState);
     }
+    Ok(())
+}
+#[inline(never)]
+fn apply_configuration(engine: &Engine, yaml: String) -> Result<Reply, Error> {
+    configuration_preflight(engine)?;
     let manager = engine.outbound.clone();
     let revision =
         run_network(async move { Box::pin(manager.apply_configuration_async(&yaml)).await })?;
@@ -1303,7 +1349,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             if guard.is_some() {
                 return Err(Error::InvalidState);
             }
-            let store = crate::routing::store::Store::open(crate::storage::runtime_rule_directory()?)?;
+            let store = crate::routing::store::Store::memory();
             let summary = match store.snapshot() {
                 Ok(snapshot) => {
                     engine.outbound.configure_routing(Some(Arc::new(
@@ -1420,20 +1466,19 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ..Reply::default()
             })
         },
-        Command::StorageInitialize {} => Ok(Reply {
-            success: true,
-            default_configuration_created: Some(crate::storage::initialize()?),
+        Command::ConfigurationDefault { language } => Ok(Reply {
+            success:true,
+            default_configuration:Some(crate::storage::default_configuration(&language)?),
             ..Reply::default()
         }),
-        Command::ConfigurationLoad { filename } => Ok(Reply {
-            success: true,
-            configuration_yaml: Some(crate::storage::read_configuration(&filename)?),
-            ..Reply::default()
+        Command::ConfigurationLoad { path } => Ok(Reply {
+            success:true,configuration_yaml:Some(crate::storage::read_configuration(&path)?),..Reply::default()
         }),
-        Command::ConfigurationSave { filename, yaml } => {
-            let yaml = Zeroizing::new(yaml);
-            crate::storage::save_configuration(&filename, &yaml)?;
-            Ok(Reply { success: true, ..Reply::default() })
+        Command::ConfigurationApplyFile { path,resources } => {
+            configuration_preflight(engine)?;
+            let manager=engine.outbound.clone();
+            let revision=run_network(async move {Box::pin(manager.apply_configuration_file(&path,resources)).await})?;
+            Ok(Reply { success:true,network_revision:Some(revision),configuration_status:Some(engine.outbound.configuration_status()?),..Reply::default() })
         },
         Command::ConfigurationApply { yaml } => apply_configuration(engine, yaml),
         Command::ProviderStatus => Ok(Reply {
@@ -1449,6 +1494,20 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             }
             let yaml = Zeroizing::new(yaml);
             let candidate = Arc::new(crate::vpn::Preparation::begin(&yaml)?);
+            let status = candidate.status()?;
+            *slot = Some(candidate);
+            Ok(Reply {
+                success: true,
+                vpn_preparation: Some(status),
+                ..Reply::default()
+            })
+        },
+        Command::VpnPreparationBeginFile { path, resources } => {
+            let mut slot = engine.vpn_preparation.lock().map_err(|_| Error::Internal)?;
+            if slot.is_some() || engine.vpn_closed.load(Ordering::Acquire) {
+                return Err(Error::InvalidState);
+            }
+            let candidate = Arc::new(crate::vpn::Preparation::begin_file(&path, resources)?);
             let status = candidate.status()?;
             *slot = Some(candidate);
             Ok(Reply {
@@ -1478,6 +1537,8 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             configuration_status: Some(engine.outbound.configuration_status()?),
             ..Reply::default()
         }),
+        Command::ConfigurationCheck {yaml}=>configuration_check_reply(crate::configuration::check_yaml(&yaml)),
+        Command::ConfigurationCheckFile {path}=>configuration_check_reply(crate::configuration::check_file(&path)),
         Command::ConfigurationValidate { yaml } => {
             let document = crate::configuration::Document::from_yaml(&yaml)?;
             Ok(Reply {
@@ -1813,12 +1874,12 @@ pub extern "C" fn fluxa_engine_capabilities() -> u64 {
     const TUN_TCP_CAPABILITY: u64 = 1 << 28;
     // 位 29：隔离候选资产准备，不表示前置检查通过或系统 VPN 可用。
     const VPN_CANDIDATE_CAPABILITY: u64 = 1 << 29;
-    // 位 30：系统共享容器中的默认配置与受控保存；仍需真实宿主 entitlement。
-    const SHARED_STORAGE_CAPABILITY: u64 = 1 << 30;
+    // 位 30 已移除（旧写入接口）；位 31 代表纯模板和宿主授权文件只读接口。
+    const READ_ONLY_FILES_CAPABILITY: u64 = 1 << 31;
     33554431
         | TUN_TCP_CAPABILITY
         | VPN_CANDIDATE_CAPABILITY
-        | SHARED_STORAGE_CAPABILITY
+        | READ_ONLY_FILES_CAPABILITY
         | STRUCTURED_ERROR_CAPABILITY
         | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {

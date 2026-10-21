@@ -268,6 +268,10 @@ impl Service {
         }
         self.store.cancel_job(id)
     }
+    /// 导出最近已提交快照的有界内存编码；是否保存及落盘事务属于宿主。
+    pub fn export_binary(&self) -> Result<super::Encoded> {
+        self.store.snapshot()?.to_binary()
+    }
     pub fn close(&self) -> Result<()> {
         self.store.close()
     }

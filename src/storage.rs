@@ -1,17 +1,36 @@
-//! 共享存储的受控业务入口；只操作系统授予当前宿主的容器，不接受外部绝对路径。
+//! Core 是配置及资源的只读消费者；所有目录、下载落盘和持久化由宿主负责。
 use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
 };
+use serde::Deserialize;
+use std::{
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom},
+    path::{Component, Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 use zeroize::Zeroizing;
 const READ_MEMORY: usize = 2 * crate::configuration::MAX_CONFIG_BYTES + 4096;
 static MEMORY: ByteBudget = ByteBudget::new(8 * READ_MEMORY);
-// 同进程写意图先串行准入，跨进程再由同一持久锁文件排他；读取仍是原子无锁快照。
-static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
-/// 读取正文持有独立预算；释放时清零，不包含实际存放路径。
+static FILES: ByteBudget = ByteBudget::new(512);
+
+/// 返回纯模板内容；不探测宿主语言、目录或文件，不决定是否创建默认配置。
+pub fn default_configuration(language: &str) -> Result<&'static str> {
+    if language.len() > 64 || language.chars().any(char::is_control) {
+        return Err(Error::InvalidInput);
+    }
+    Ok(crate::configuration::defaults::yaml(language))
+}
+/// 一次受预算约束的配置正文；释放时清零，不泄漏文件路径。
 pub struct ConfigurationText {
     yaml: Zeroizing<String>,
     _lease: ByteLease,
+}
+impl ConfigurationText {
+    pub fn as_str(&self) -> &str {
+        &self.yaml
+    }
 }
 impl serde::Serialize for ConfigurationText {
     fn serialize<S: serde::Serializer>(
@@ -21,121 +40,200 @@ impl serde::Serialize for ConfigurationText {
         serializer.serialize_str(self.as_str())
     }
 }
-impl ConfigurationText {
-    pub fn as_str(&self) -> &str {
-        &self.yaml
-    }
+/// 只读加载宿主授权的绝对文件路径；配置异常原样报错，不创建、修复或保存任何文件。
+pub fn read_configuration(path: &str) -> Result<ConfigurationText> {
+    let text = read_text(path)?;
+    crate::configuration::Document::from_yaml(text.as_str())?;
+    Ok(text)
 }
-/// 幂等初始化；仅无任何 YAML 配置时由 Core 创建完整 config.yaml。
-/// 返回 true 表示本次创建；false 表示已存在配置，绝不覆盖、启用 VPN 或发起下载。
-pub fn initialize() -> Result<bool> {
-    initialize_in(crate::platform::storage::context()?)
+pub(crate) fn read_text(path: &str) -> Result<ConfigurationText> {
+    let lease = MEMORY.reserve(READ_MEMORY)?;
+    let file = ReadOnlyFile::open(Path::new(path))?;
+    let yaml = file.read(crate::configuration::MAX_CONFIG_BYTES)?;
+    Ok(ConfigurationText {
+        yaml,
+        _lease: lease,
+    })
 }
-fn initialize_in(context: crate::platform::storage::Context) -> Result<bool> {
-    if context.read_only_configuration {
-        return Err(Error::InvalidState);
-    }
-    #[cfg(unix)]
-    {
-        let _writer = WRITER.lock().map_err(|_| Error::Internal)?;
-        let config = crate::platform::storage::Directory::open(&context.root, "config", true)?;
-        let _lock = config.lock()?;
-        for name in ["log", "rule", "plugin", "js"] {
-            crate::platform::storage::Directory::open(&context.root, name, true)?;
+
+/// 文件名是配置内的逻辑资源名，path 是宿主通过独立 API 明确授权的文件；配置正文不授予路径权限。
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedFile {
+    pub name: String,
+    pub path: PathBuf,
+}
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginFiles {
+    pub name: String,
+    pub id: u64,
+    pub path: PathBuf,
+    #[serde(default)]
+    pub script: Option<NamedFile>,
+}
+/// 宿主准备完毕的一批只读资源；Core 不搜索缺失资源、解析下载目录或自动更新磁盘。
+#[derive(Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Resources {
+    pub script: Option<NamedFile>,
+    pub plugins: Vec<PluginFiles>,
+    pub rules: Vec<NamedFile>,
+    pub geoip: Option<PathBuf>,
+}
+impl Resources {
+    pub(crate) fn validate(&self) -> Result<()> {
+        if self.plugins.len() > 128 || self.rules.len() > 128 {
+            return Err(Error::ResourceLimit);
         }
-        if config.has_yaml()? {
-            return Ok(false);
+        let mut ids = std::collections::HashSet::new();
+        let mut names = std::collections::HashSet::new();
+        for plugin in &self.plugins {
+            if plugin.id == 0 || !ids.insert(plugin.id) || !names.insert(plugin.name.as_str()) {
+                return Err(Error::InvalidInput);
+            }
+            path_check(&plugin.path)?;
+            if let Some(script) = &plugin.script {
+                path_check(&script.path)?;
+            }
         }
-        let yaml = crate::configuration::defaults::yaml(&context.language);
-        crate::configuration::Document::from_yaml(yaml)?;
-        config.write("config.yaml", yaml.as_bytes(), false)
-    }
-    #[cfg(not(unix))]
-    {
-        Err(Error::Unsupported)
-    }
-}
-/// 配置读取不创建目录或锁文件，Network Extension 可以使用；拒绝路径遍历与链接。
-pub fn read_configuration(filename: &str) -> Result<ConfigurationText> {
-    filename_check(filename)?;
-    read_in(crate::platform::storage::context()?, filename)
-}
-fn read_in(
-    context: crate::platform::storage::Context,
-    filename: &str,
-) -> Result<ConfigurationText> {
-    filename_check(filename)?;
-    #[cfg(unix)]
-    {
-        let lease = MEMORY.reserve(READ_MEMORY)?;
-        let directory = crate::platform::storage::Directory::open(&context.root, "config", false)?;
-        let yaml = directory.read(filename)?;
-        crate::configuration::Document::from_yaml(&yaml)?;
-        Ok(ConfigurationText {
-            yaml,
-            _lease: lease,
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        Err(Error::Unsupported)
-    }
-}
-/// 显式保存合法主配置；当前宿主为扩展时拒绝，不能通过参数自报为 App。
-/// 保存不代表提交运行配置，更不代表网络接管。
-pub fn save_configuration(filename: &str, yaml: &str) -> Result<()> {
-    filename_check(filename)?;
-    save_in(crate::platform::storage::context()?, filename, yaml)
-}
-fn save_in(context: crate::platform::storage::Context, filename: &str, yaml: &str) -> Result<()> {
-    if context.read_only_configuration {
-        return Err(Error::InvalidState);
-    }
-    filename_check(filename)?;
-    crate::configuration::Document::from_yaml(yaml)?;
-    #[cfg(unix)]
-    {
-        let _writer = WRITER.lock().map_err(|_| Error::Internal)?;
-        let directory = crate::platform::storage::Directory::open(&context.root, "config", false)?;
-        let _lock = directory.lock()?;
-        // 拒绝已有链接/非常规文件；缺失时允许明确的新建。
-        directory.validate_target(filename)?;
-        directory.write(filename, yaml.as_bytes(), true)?;
+        names.clear();
+        for file in &self.rules {
+            if !names.insert(&file.name) {
+                return Err(Error::InvalidInput);
+            }
+            path_check(&file.path)?;
+        }
+        if let Some(file) = &self.script {
+            path_check(&file.path)?;
+        }
+        if let Some(path) = &self.geoip {
+            path_check(path)?;
+        }
         Ok(())
     }
-    #[cfg(not(unix))]
-    {
-        Err(Error::Unsupported)
-    }
 }
-fn filename_check(filename: &str) -> Result<()> {
-    if filename.len() > 128
-        || !filename.ends_with(".yaml")
-        || filename.starts_with('.')
-        || filename.contains('/')
-        || filename.contains('\\')
-        || filename.chars().any(char::is_control)
+fn path_check(path: &Path) -> Result<()> {
+    let text = path.to_str().ok_or(Error::InvalidInput)?;
+    if !path.is_absolute()
+        || text.len() > 4096
+        || text.chars().any(char::is_control)
+        || path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
     {
         return Err(Error::InvalidInput);
     }
     Ok(())
 }
-/// 编译缓存独立于会整目录交换的原始 rule 资产，避免提供者刷新删除已打开的二进制。
-pub(crate) fn runtime_rule_directory() -> Result<std::path::PathBuf> {
-    let context = crate::platform::storage::context()?;
-    #[cfg(unix)]
-    {
-        crate::platform::storage::Directory::open(&context.root, ".runtime-rules", true)?;
-        Ok(context.root.join(".runtime-rules"))
-    }
-    #[cfg(not(unix))]
-    {
-        Err(Error::Unsupported)
-    }
+/// 打开现有普通文件且仅有读取权限；持有描述符，不持有或管理目录。
+pub(crate) struct ReadOnlyFile {
+    file: Mutex<File>,
+    _lease: ByteLease,
 }
-/// 供实际提供者/GeoIP缓存取得同一系统根目录，不向 FFI 回复暴露路径。
-pub(crate) fn asset_root() -> Result<std::path::PathBuf> {
-    Ok(crate::platform::storage::context()?.root)
+impl ReadOnlyFile {
+    pub(crate) fn open(path: &Path) -> Result<Arc<Self>> {
+        path_check(path)?;
+        let lease = FILES.reserve(1)?;
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(Error::InvalidInput);
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+        }
+        let file = options.open(path)?;
+        let opened = file.metadata()?;
+        if !opened.is_file() {
+            return Err(Error::InvalidInput);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if metadata.dev() != opened.dev() || metadata.ino() != opened.ino() {
+                return Err(Error::InvalidInput);
+            }
+        }
+        Ok(Arc::new(Self {
+            file: Mutex::new(file),
+            _lease: lease,
+        }))
+    }
+    pub(crate) fn size(&self) -> Result<usize> {
+        usize::try_from(
+            self.file
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .metadata()?
+                .len(),
+        )
+        .map_err(|_| Error::ResourceLimit)
+    }
+    pub(crate) fn check_size(&self, maximum: usize) -> Result<()> {
+        if self
+            .file
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .metadata()?
+            .len()
+            > maximum as u64
+        {
+            return Err(Error::ResourceLimit);
+        }
+        Ok(())
+    }
+    /// 调用者先按实际长度持有内存预算；仅读取本次固定长度，增长、截短或原地修改均拒绝。
+    pub(crate) fn read_binary(&self, maximum: usize) -> Result<Vec<u8>> {
+        let mut file = self.file.lock().map_err(|_| Error::Internal)?;
+        let before = file.metadata()?;
+        let length = usize::try_from(before.len()).map_err(|_| Error::ResourceLimit)?;
+        if length > maximum {
+            return Err(Error::ResourceLimit);
+        }
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| Error::ResourceLimit)?;
+        bytes.resize(length, 0);
+        file.seek(SeekFrom::Start(0))?;
+        file.read_exact(&mut bytes)?;
+        let mut tail = [0];
+        if file.read(&mut tail)? != 0 {
+            return Err(Error::InvalidInput);
+        }
+        let after = file.metadata()?;
+        if before.len() != after.len() || before.modified()? != after.modified()? {
+            return Err(Error::InvalidInput);
+        }
+        Ok(bytes)
+    }
+    pub(crate) fn read(&self, maximum: usize) -> Result<Zeroizing<String>> {
+        let mut file = self.file.lock().map_err(|_| Error::Internal)?;
+        let before = file.metadata()?;
+        if before.len() > maximum as u64 {
+            return Err(Error::ResourceLimit);
+        }
+        file.seek(SeekFrom::Start(0))?;
+        let mut result = Zeroizing::new(String::new());
+        Read::by_ref(&mut *file)
+            .take(maximum as u64 + 1)
+            .read_to_string(&mut result)?;
+        let after = file.metadata()?;
+        if result.len() > maximum {
+            return Err(Error::ResourceLimit);
+        }
+        if before.len() != after.len()
+            || before.modified()? != after.modified()?
+            || result.len() as u64 != after.len()
+        {
+            return Err(Error::InvalidInput);
+        }
+        Ok(result)
+    }
 }
 #[cfg(test)]
 #[path = "../tests/test_storage.rs"]

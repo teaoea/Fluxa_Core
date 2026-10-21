@@ -12,9 +12,10 @@
 //! 前置条件：无网络或系统资源需求。
 use super::*;
 fn check(rules: &[&str]) -> Result<()> {
-    validate(
+    validate_at(
         &rules.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
         &HashSet::from(["PROXY"]),
+        &mut 0,
     )
 }
 #[test]

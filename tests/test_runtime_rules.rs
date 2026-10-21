@@ -23,7 +23,7 @@
 //! - domain_branch_skips_ip_and_respects_domain_type_and_source_priority：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - clash_payload_is_strict_uppercase_and_supports_both_address_families：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
-//! - binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - binary_cache_reopens_host_export_without_migrating_legacy_yaml：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - binary_cache_rejects_corruption_offsets_truncation_and_unknown_version：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - binary_cache_matches_all_matcher_shapes_before_and_after_reopen：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
@@ -411,10 +411,9 @@ fn strict_yaml_round_trip_unknown_duplicate_alias_and_depth() {
 }
 #[test]
 fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
-    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-runtime-store-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     let settings = Config {
         fallback: Policy::Direct,
         ..Config::default()
@@ -474,9 +473,10 @@ fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
             .policy,
         Policy::Direct
     );
-    assert!(Store::open(&path).is_err());
+    // Core 可以同时打开只读文件，不再持有目录写锁。
+    assert!(fluxa_core::routing::store::Store::open(path.join("runtime-rules.bin")).is_ok());
     store.close().unwrap();
-    let reopened = Store::open(&path).unwrap();
+    let reopened = HostStore::open(&path).unwrap();
     assert_eq!(reopened.snapshot().unwrap().document().version, 2);
     store.close().unwrap();
     assert!(store.snapshot().is_err());
@@ -797,8 +797,7 @@ fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
 }
 
 #[test]
-fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
-    use fluxa_core::routing::store::Store;
+fn binary_cache_reopens_host_export_without_migrating_legacy_yaml() {
     let path = std::env::temp_dir().join(format!("fluxa-binary-migration-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
@@ -808,7 +807,25 @@ fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
     );
     let legacy = snapshot.to_yaml().unwrap().replace("DOMAIN", "domain");
     std::fs::write(path.join("runtime-rules.yaml"), &legacy).unwrap();
-    let store = Store::open(&path).unwrap();
+    assert!(fluxa_core::routing::store::Store::open(path.join("runtime-rules.yaml")).is_err());
+    assert!(!path.join("runtime-rules.bin").exists());
+    let store = HostStore::open(&path).unwrap();
+    store
+        .update(
+            Config {
+                fallback: Policy::Direct,
+                ..Config::default()
+            },
+            vec![
+                source(
+                    "local",
+                    Layer::Local,
+                    vec![rule(Match::Domain, "a.example.com", Policy::Reject)],
+                ),
+                source("remote", Layer::Remote, vec![]),
+            ],
+        )
+        .unwrap();
     assert_eq!(store.snapshot().unwrap().document(), snapshot.document());
     let bytes = std::fs::read(path.join("runtime-rules.bin")).unwrap();
     assert!(bytes.starts_with(b"FLXARULE"));
@@ -817,25 +834,24 @@ fn binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml() {
         legacy
     );
     store.close().unwrap();
-    let reopened = Store::open(&path).unwrap();
+    let reopened = HostStore::open(&path).unwrap();
     assert_eq!(reopened.snapshot().unwrap().document(), snapshot.document());
     reopened.close().unwrap();
     let mut bytes = std::fs::read(path.join("runtime-rules.bin")).unwrap();
     bytes[8..12].copy_from_slice(&UNSUPPORTED_CACHE_VERSION.to_le_bytes());
     std::fs::write(path.join("runtime-rules.bin"), bytes).unwrap();
     // 已存在二进制缓存损坏或版本未知时不能回退旧文件，伪装成最新方案。
-    assert!(Store::open(&path).is_err());
+    assert!(HostStore::open(&path).is_err());
     std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
 fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
-    use fluxa_core::routing::store::Store;
     for mode in 0..6 {
         let path =
             std::env::temp_dir().join(format!("fluxa-binary-tamper-{}-{mode}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
-        let store = Store::open(&path).unwrap();
+        let store = HostStore::open(&path).unwrap();
         store
             .update(
                 Config::default(),
@@ -870,28 +886,28 @@ fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
             }
         }
         std::fs::write(file, bytes).unwrap();
-        assert!(Store::open(&path).is_err());
+        assert!(HostStore::open(&path).is_err());
         std::fs::remove_dir_all(path).unwrap();
     }
 }
 
 #[test]
 fn binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback() {
-    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-legacy-sqlite-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     std::fs::write(path.join("runtime-rules.sqlite"), b"SQLite format 3\0").unwrap();
-    assert!(matches!(
-        Store::open(&path),
-        Err(fluxa_core::error::Error::Unsupported)
-    ));
+    assert!(fluxa_core::routing::store::Store::open(path.join("runtime-rules.sqlite")).is_err());
+    assert!(!path.join("runtime-rules.bin").exists());
+    assert_eq!(
+        std::fs::read(path.join("runtime-rules.sqlite")).unwrap(),
+        b"SQLite format 3\0"
+    );
     std::fs::remove_dir_all(path).unwrap();
 }
 
 #[test]
 fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
-    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-flat-differential-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let inputs = vec![source(
@@ -909,11 +925,11 @@ fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
         ],
     )];
     let reference = Snapshot::generate(Config::default(), inputs.clone(), 1).unwrap();
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     store.update(Config::default(), inputs).unwrap();
     let flat = store.snapshot().unwrap();
     store.close().unwrap();
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     let reopened = store.snapshot().unwrap();
     for domain in [
         "exact.example",
@@ -1330,10 +1346,10 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
         let path =
             std::env::temp_dir().join(format!("fluxa-flat-random-{}-{batch}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
-        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
+        let store = HostStore::open(&path).unwrap();
         store.update(settings.clone(), sources.clone()).unwrap();
         store.close().unwrap();
-        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
+        let store = HostStore::open(&path).unwrap();
         let binary = store.snapshot().unwrap();
         let snapshot = Snapshot::generate(settings, sources, batch + 1).unwrap();
         let loaded = Snapshot::from_yaml(&snapshot.to_yaml().unwrap()).unwrap();
@@ -1381,10 +1397,9 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
 
 #[test]
 fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
-    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-flat-fault-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     let rules = (0..32)
         .map(|id| {
             rule(
@@ -1413,7 +1428,7 @@ fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
         bytes[24..56].copy_from_slice(digest.as_ref());
         std::fs::write(&file, bytes).unwrap();
         let result = std::panic::catch_unwind(|| {
-            if let Ok(store) = Store::open(&path) {
+            if let Ok(store) = HostStore::open(&path) {
                 let _ = store
                     .snapshot()
                     .unwrap()
@@ -1554,7 +1569,6 @@ fn scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rul
 
 #[test]
 fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
-    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-scoped-cache-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let mut tcp = rule(Match::Domain, "example.com", Policy::Direct);
@@ -1563,11 +1577,11 @@ fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
     udp.protocol = Some(Transport::Udp);
     udp.policy = Policy::Reject;
     let input = vec![source("local", Layer::Local, vec![tcp, udp])];
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     store.update(Config::default(), input).unwrap();
     let old = store.snapshot().unwrap();
     store.close().unwrap();
-    let reopened = Store::open(&path).unwrap();
+    let reopened = HostStore::open(&path).unwrap();
     let flat = reopened.snapshot().unwrap();
     for transport in [Transport::Tcp, Transport::Udp] {
         let mut query = target("example.com", "192.0.2.1");
@@ -1592,7 +1606,7 @@ fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
     let mut bytes = std::fs::read(&file).unwrap();
     bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
     std::fs::write(file, bytes).unwrap();
-    assert!(Store::open(&path).is_err());
+    assert!(HostStore::open(&path).is_err());
     std::fs::remove_dir_all(path).unwrap();
 }
 
@@ -1673,11 +1687,10 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
 
 #[test]
 fn duplicate_vec_capacity_is_accounted_without_false_rejection() {
-    use fluxa_core::routing::store::Store;
     let path =
         std::env::temp_dir().join(format!("fluxa-duplicate-capacity-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     let duplicate = rule(Match::Domain, "duplicate.example.net", Policy::Direct);
     store
         .update(
@@ -1690,7 +1703,7 @@ fn duplicate_vec_capacity_is_accounted_without_false_rejection() {
     assert_eq!(before.document().report.duplicates, 999);
     assert_eq!(before.document().rules.len(), 1);
     store.close().unwrap();
-    let reopened = Store::open(&path).unwrap();
+    let reopened = HostStore::open(&path).unwrap();
     let loaded = reopened.snapshot().unwrap();
     assert_eq!(before.document(), loaded.document());
     assert_eq!(
@@ -1817,10 +1830,9 @@ fn ignored_domain_rules_in_global_direct_do_not_hide_ip_reject() {
 }
 #[test]
 fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
-    use fluxa_core::routing::store::Store;
     let path = std::env::temp_dir().join(format!("fluxa-plugin-source-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
-    let store = Store::open(&path).unwrap();
+    let store = HostStore::open(&path).unwrap();
     store
         .update(
             Config::default(),
@@ -1840,7 +1852,7 @@ fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
         .unwrap();
     store.close().unwrap();
     drop(store);
-    let reopened = Store::open(&path).unwrap();
+    let reopened = HostStore::open(&path).unwrap();
     let snapshot = reopened.snapshot().unwrap();
     let query = target("a.example.com", "192.0.2.1");
     let decision = snapshot.evaluate(&query).unwrap();
@@ -1855,4 +1867,37 @@ fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
     );
     reopened.close().unwrap();
     std::fs::remove_dir_all(path).unwrap();
+}
+
+// 测试宿主显式承担目录和落盘；不向 Core 增加写入 API。缓存破坏/独立匹配断言仍走实际 Core 只读加载。
+struct HostStore {
+    core: fluxa_core::routing::store::Store,
+    path: std::path::PathBuf,
+}
+impl std::ops::Deref for HostStore {
+    type Target = fluxa_core::routing::store::Store;
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+impl HostStore {
+    fn open(directory: &std::path::Path) -> Result<Self, fluxa_core::error::Error> {
+        std::fs::create_dir_all(directory)?;
+        let path = directory.join("runtime-rules.bin");
+        let core = if path.exists() {
+            fluxa_core::routing::store::Store::open(&path)?
+        } else {
+            fluxa_core::routing::store::Store::memory()
+        };
+        Ok(Self { core, path })
+    }
+    fn update(
+        &self,
+        settings: Config,
+        sources: Vec<Source>,
+    ) -> Result<fluxa_core::routing::store::Commit, fluxa_core::error::Error> {
+        let result = self.core.update(settings, sources)?;
+        std::fs::write(&self.path, self.core.snapshot()?.to_binary()?.as_ref())?;
+        Ok(result)
+    }
 }

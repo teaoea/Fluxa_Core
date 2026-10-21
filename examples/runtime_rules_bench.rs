@@ -137,15 +137,22 @@ fn main() {
             .iter()
             .map(|row| row.rule.clone())
             .collect();
-        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
+        let store = fluxa_core::routing::store::Store::memory();
         store
             .update(snapshot.document().settings.clone(), sources(input))
             .unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(
+            path.join("runtime-rules.bin"),
+            store.snapshot().unwrap().to_binary().unwrap().as_ref(),
+        )
+        .unwrap();
         store.close().unwrap();
         drop(store);
         drop(snapshot);
         let started = Instant::now();
-        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
+        let store =
+            fluxa_core::routing::store::Store::open(path.join("runtime-rules.bin")).unwrap();
         let snapshot = store.snapshot().unwrap();
         println!(
             "reopen_us={} reopened_rss_kib={}",
@@ -168,7 +175,8 @@ fn main() {
         drop(snapshot);
         let path = std::env::temp_dir().join(format!("fluxa-runtime-bench-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
-        let store = fluxa_core::routing::store::Store::open(&path).unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        let store = fluxa_core::routing::store::Store::memory();
         let start = Instant::now();
         if std::env::args().any(|arg| arg == "--background") {
             let service = fluxa_core::routing::background::Service::new(
@@ -198,6 +206,11 @@ fn main() {
                     }
                 }
             }
+            std::fs::write(
+                path.join("runtime-rules.bin"),
+                service.export_binary().unwrap().as_ref(),
+            )
+            .unwrap();
             service.close().unwrap();
             // Service 关闭后仍可从磁盘验证完整生成产物。
         } else {
@@ -222,6 +235,11 @@ fn main() {
                 .expect("新旧快照共存更新必须实际成功");
             print_update(2, &second);
             println!("active_snapshot_rss_kib={}", rss());
+            std::fs::write(
+                path.join("runtime-rules.bin"),
+                store.snapshot().unwrap().to_binary().unwrap().as_ref(),
+            )
+            .unwrap();
             store.close().unwrap();
         }
         println!(
@@ -231,8 +249,8 @@ fn main() {
         );
         // 同步模式在上面的分支内关闭，异步模式由 Service 关闭。
         let reopen_started = Instant::now();
-        let reopened =
-            fluxa_core::routing::store::Store::open(&path).expect("磁盘缓存必须能够重新加载");
+        let reopened = fluxa_core::routing::store::Store::open(path.join("runtime-rules.bin"))
+            .expect("磁盘缓存必须能够重新加载");
         println!(
             "reopen_us={} reopened_rss_kib={}",
             reopen_started.elapsed().as_micros(),

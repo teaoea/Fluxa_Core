@@ -1,12 +1,12 @@
 # 主配置 DNS 与 GeoIP 编排
 
-当前 dev 源码契约，2026-10-17。本文不表示 App、系统 VPN、外部节点或移动设备已经验收。历史阶段记录不能替代当前 tests 同名报告的源码指纹和实际退出状态。
+当前 main 开发源码契约，2026-10-21。本文不表示 App、系统 VPN、外部节点或移动设备已经验收。历史阶段记录不能替代当前 tests 同名报告的源码指纹和实际退出状态。
 
 ## 入口与事务
 
 Rust 使用 Arc<outbound::Manager>::apply_configuration_async；显式企业 TLS 根使用 apply_configuration_with_client。同步 apply_configuration 只接受无需异步子系统的配置。C ABI 沿用 v2 configuration_apply、configuration_status、dns_query、geoip_lookup、geoip_refresh。没有新错误代码、通信架构或 App 修改。
 
-解析、DNS 引导、GeoIP 下载/验证、规则生成和缓存暂存都在发布前完成；失败返回原错误并保留旧配置。提交检查控制权限和基线版本，一次发布路由、节点、解析器、数据库与状态。缓存提交失败不退休旧 DNS。目录交换后的父目录 fsync 失败不冒称回滚，provider_status 明确 directory_synced=false 并记录失败。
+宿主提供配置和资源绝对路径；Core 只读解析、验证 MMDB、准备 DNS 并编译规则，全部成功后一次发布。失败保留原有效快照和原始文件，不进行下载、暂存目录、缓存交换或自动修复。权限和基线版本在提交处检查。
 
 新请求读取新配置；已准入建连事务使用原解析器完成地址族尝试；已建立业务连接不随更新关闭。旧解析器立即拒绝新准入，排空后内核停止连接/监听/驱动。close 主动取消并等待释放，不依赖外部 Arc 归零。专用节点连接持有权限令牌，必须先关闭连接再等待令牌归零。实际旧对象内存继续持有预算。
 
@@ -29,35 +29,14 @@ Rust 使用 Arc<outbound::Manager>::apply_configuration_async；显式企业 TLS
 
 ## GeoIP 与资产
 
-关闭/未配置为 WARN Disabled 2410，不初始化/下载，国家行不参与合并。enabled=true 必须有有效 HTTPS URL；下载完整且 MMDB 验证 Ready 2411 后才编译国家规则。同来源更新失败 Err，保留旧库/快照/连接；不同来源不能借旧库冒充 Ready。合法 IP 无记录为 no-match 2412，执行故障为 2409。
+关闭/未配置为 WARN Disabled 2410，不初始化/下载，国家行不参与合并。enabled=true 必须有有效 HTTPS URL；宿主文件只读加载且 MMDB 验证 Ready 2411 后才编译国家规则。同来源更新失败 Err，保留旧库/快照/连接；不同来源不能借旧库冒充 Ready。合法 IP 无记录为 no-match 2412，执行故障为 2409。
 
-新管理器启动启用配置重新下载；不指定更新时间则不周期更新。update-time 使用设备本地民用日期，每日最多成功一次，失败至少间隔 60 秒重试。refresh_geoip 强制下载并重新编译/提交。首次无库时仅控制下载候选暂不含国家规则，不发布为业务快照；Ready 后给后续提供者下载和最终业务候选绑定国家规则。
+数据库由宿主下载及校验来源后，通过 resources.geoip 提供现有只读文件。首次启用必须提供数据库，关闭时不得暗中启用；读取、格式及记录验证成功后才编译国家规则。宿主更新文件后须显式重新提交配置，Core 不安排 update-time、不重启下载、不修复损坏文件；refresh_geoip 返回 Unsupported。
 
-| 平台 | 资产目录 |
-| --- | --- |
-| Apple 平台 | 系统 App Group 容器的 rule/，组标识 group.app.fluxa.ios |
-| 非 Apple 宿主 | 本轮未提供系统共享容器适配，明确 Unsupported，不回退 HOME |
-
-提供者文件 <name>.yaml，数据库固定 geoip.mmdb，共用受保护目录和整目录交换。清单写版本 2、接受 1/2。启动流式验证已有二进制摘要，不加载为 Ready；禁用不初始化。禁用保留文件，规则更新用 16 KiB 缓冲保留其内容。损坏资产受控拒绝；显式强制刷新可用新验证库修复损坏 GeoIP。摘要保证一致性，不代替 HTTPS 认证或外部签名。
-
-Database Reader 与持久化正文共享 Arc<Vec<u8>>，不为保存再复制整库；预算直到真实数据库销毁归还。256 MiB 单库门禁与预算独立，不宣称预算等于 RSS。I/O 保留系统类别；摘要错误 2406、超限 2407、下载/超时 2403/2404、格式 2405、初始化 2408。没有新增代码，参数沿用中央契约。
+MMDB Reader 持有受预算约束的共享不可变正文；单库最多 256 MiB，总预算 512 MiB。文件类型、最终链接、长度及读取期间变更在共用只读边界检查。来源认证由宿主负责，不以文件校验代替 HTTPS 或签名。资源路径及运行规则内存导出见 [只读文件接入](共享存储.md)。
 
 ## 示例与独立语义证据
 
-离线示例：cargo run --offline --locked --example main_dns_geoip，仅查 hosts、不下载。显式传文件才执行其下载；完整主示例含未实现监听/TUN/MITM 等，不删活动项制造成功；纯校验使用 validate_main_configuration。
+离线示例：cargo run --offline --locked --example main_dns_geoip，仅查 hosts、不下载。显式传配置及资源清单才只读加载资源；完整主示例含未实现监听/TUN/MITM 等，不删活动项制造成功；纯校验使用 validate_main_configuration。
 
-| 独立规范 | 源码 | 测试 |
-| --- | --- | --- |
-| DNS 路由独立、失败不直连 | dns/main.rs build，dns/runtime.rs | test_dns_geoip_contract：direct DoH 遇业务 reject；失败节点无直发包 |
-| 每上游完整期限 | dns/config.rs build，dns/mod.rs resolve_allowed | ordered_upstreams_get_independent_deadlines |
-| 无部分端点、零 TTL、主动关闭 | dns/main.rs initialize/bootstrap，dns/mod.rs cleanup | test_dns_main：失败重复初始化、零 TTL、保留旧引用及空闲连接关闭 |
-| 仅允许失败换族 | outbound/execution.rs | preferred_family_order_ip_reject_and_nxdomain；admitted_family_fallback_survives_configuration_replacement |
-| Ready 门禁、失败旧版本保留 | providers.rs update，configuration/rules.rs | geoip_ready_failure_atomicity_and_disabled_rules；test_providers 本地日期幂等 |
-| 资产原子提交与损坏拒绝 | providers/cache.rs | geoip_binary_and_rules_share_atomic_batch；私有目录夹具的文件检查 |
-| API 状态一致，无独立关闭破坏事务 | ffi.rs | main_dns_and_geoip_status_use_same_configuration |
-
-L1/L2 以真实检查命令和报告退出码为准；L3 以表中用户确认规范核对，不能凭两个实现一致；L4 核对报告、原始日志和指纹。尚未验证：外部 VLESS DNS 成功互通、移动设备路径/权限与 tvOS 清缓存、真实夏令时、系统 VPN、断电恢复、RSS 硬上限。系统代理、局域网共享、文件日志保持 TODO 暂存。
-
-全量回归补充边界：底层固定族 DomainTarget 无地址仍返回 5002，不改为网络拨号失败；普通旧解析器退休保持幂等，已关闭旧引用不阻止 configure_dns 绑定新实例。带缓存提交的 retire_after 仍严格验证旧准入并保持提交失败不撤销。对应原有 test_outbound_dns 与 test_tun_dns 断言完整保留。
-
-OS 引导调用不能强制终止，操作与预算留在阻塞线程直到真实返回；未发布 Resolver 的 Drop 兜底也等待这些操作退出后才归还活动名额。test_dns_mod 的 drop_waits_for_real_operation_before_releasing_quota 保留操作令牌，独立检查 Closing 状态和真实名额归还时点。
+测试及同名报告覆盖 DNS 路由、地址族、GeoIP 就绪门禁、损坏替换保留旧快照与 API 状态一致性。临时目录由测试宿主准备，不证明 App Group 签名或真实系统 VPN。旧下载／目录交换／调度验收不适用于当前架构；外部代理节点、移动真机、最低系统和系统接管仍须独立验证。

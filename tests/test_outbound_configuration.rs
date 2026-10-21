@@ -327,7 +327,17 @@ mod dns_geoip_contract {
         ) -> Result<u64, Error> {
             let document = Arc::new(crate::configuration::Document::from_yaml(yaml)?);
             self.inner
-                .apply_provider_document(document, client, Some(self.root.clone()))
+                .apply_provider_document(
+                    document.clone(),
+                    client,
+                    crate::storage::Resources {
+                        geoip: document
+                            .summary()
+                            .geoip_enabled
+                            .then(|| self.root.join("geoip.mmdb")),
+                        ..Default::default()
+                    },
+                )
                 .await
         }
         async fn apply_configuration_async(&self, yaml: &str) -> Result<u64, Error> {
@@ -415,14 +425,20 @@ mod dns_geoip_contract {
             "geoip: {{enabled: true,url: 'https://localhost:{}/geoip'}}\nip-strategy: only-ipv4\nrules: ['geoip,US,reject','final,direct']",
             fixture.port
         );
+        std::fs::write(
+            manager.root.join("geoip.mmdb"),
+            support::geoip_data::fixture(),
+        )
+        .unwrap();
         let revision = manager
             .apply_configuration_with_client(&yaml, client(fixture.root.clone()))
             .await
             .unwrap();
-        assert!(manager.root.join("rule/geoip.mmdb").is_file());
-        let refreshed = manager.refresh_geoip().await.unwrap();
-        assert_ne!(refreshed, revision);
-        let revision = refreshed;
+        assert!(manager.root.join("geoip.mmdb").is_file());
+        assert!(matches!(
+            manager.refresh_geoip().await,
+            Err(Error::Unsupported)
+        ));
         assert_eq!(
             manager
                 .lookup_geoip("8.8.8.8", "en")
@@ -457,6 +473,7 @@ mod dns_geoip_contract {
                 .policy,
             Policy::Reject
         );
+        std::fs::write(manager.root.join("geoip.mmdb"), b"invalid mmdb").unwrap();
         assert!(matches!(
             manager
                 .apply_configuration_with_client(
@@ -468,8 +485,16 @@ mod dns_geoip_contract {
         ));
         assert_eq!(manager.network_snapshot().unwrap().revision, revision);
         assert!(manager.provider_status().unwrap().error_info.is_some());
-        // 真正重新下载当前有效来源并提交后，才可清除失败状态；不能靠本地编辑冒充恢复。
-        manager.refresh_geoip().await.unwrap();
+        // 测试宿主替换资源后显式重新提交；Core 不下载或修复原文件。
+        std::fs::write(
+            manager.root.join("geoip.mmdb"),
+            support::geoip_data::fixture(),
+        )
+        .unwrap();
+        manager
+            .apply_configuration_with_client(&yaml, client(fixture.root.clone()))
+            .await
+            .unwrap();
         assert!(manager.provider_status().unwrap().error_info.is_none());
         assert_eq!(
             manager
@@ -771,17 +796,18 @@ async fn named_script_modifies_real_tls_request_and_conditional_response() {
         crate::lifecycle::identifier().unwrap()
     ));
     std::fs::create_dir(&path).unwrap();
-    let directory = crate::platform::storage::Directory::open(&path, "js", true).unwrap();
-    directory.write("response",br#"input => input.status ? ({status:201,body: 'response:' + input.body}) : ({method:'POST',body:'request-body'})"#,false).unwrap();
+    std::fs::write(path.join("response"),br#"input => input.status ? ({status:201,body: 'response:' + input.body}) : ({method:'POST',body:'request-body'})"#).unwrap();
     let url = format!("https://localhost:{}/echo", fixture.port);
     let doc=Arc::new(Document::from_yaml(&serde_json::json!({"rules":["final,direct"],"scripts":{"name":"response"},"rewrites":[
         {"url":url,"phase":"request","action":"script","js":"response"},
         {"url":url,"phase":"response","when":{"status":200,"content-type":"text/plain"},"action":"script","js":"response"}
     ]}).to_string()).unwrap());
-    let bindings = crate::script::worker::Bindings::in_root(
-        &path,
-        true,
+    let bindings = crate::script::worker::Bindings::from_file(
         Some("response"),
+        Some(&crate::storage::NamedFile {
+            name: "response".into(),
+            path: path.join("response"),
+        }),
         vec![("response".into(), 3600)],
     )
     .unwrap();
@@ -811,22 +837,22 @@ async fn named_script_modifies_real_tls_request_and_conditional_response() {
             .any(|h| h.name.eq_ignore_ascii_case("content-length"))
     );
     manager.clear_script_cache().await.unwrap();
-    directory
-        .write(
-            "response",
-            b"() => {throw new Error('condition must skip JS');}",
-            true,
-        )
-        .unwrap();
+    std::fs::write(
+        path.join("response"),
+        b"() => {throw new Error('condition must skip JS');}",
+    )
+    .unwrap();
     let doc=Arc::new(Document::from_yaml(&serde_json::json!({"rules":["final,direct"],"scripts":{"name":"response"},"rewrites":[{"url":url,"phase":"response","when":{"status":403},"action":"script","js":"response"}]}).to_string()).unwrap());
     let mut prepared = Arc::new(Document::from_yaml("rules: ['final,direct']").unwrap())
         .prepare_shared(Vec::new())
         .unwrap();
     prepared.document = doc;
-    prepared.scripts = crate::script::worker::Bindings::in_root(
-        &path,
-        true,
+    prepared.scripts = crate::script::worker::Bindings::from_file(
         Some("response"),
+        Some(&crate::storage::NamedFile {
+            name: "response".into(),
+            path: path.join("response"),
+        }),
         vec![("response".into(), 3600)],
     )
     .unwrap();

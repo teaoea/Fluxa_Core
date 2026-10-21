@@ -35,7 +35,7 @@ def fingerprint():
                 if directory == 'tests' and path.suffix == '.md':
                     continue
                 paths.add(path)
-    for name in ('Cargo.toml', 'Cargo.lock', 'Package.swift', 'example_config.yaml', 'AGENTS.md'):
+    for name in ('Cargo.toml', 'Cargo.lock', 'Package.swift', 'example_config.yaml', 'default_config.yaml', 'default_config_en.yaml', 'AGENTS.md'):
         if (ROOT / name).exists():
             paths.add(ROOT / name)
     for path in ROOT.glob('*.sh'):

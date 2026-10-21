@@ -106,7 +106,7 @@ mod tests {
     async fn async_generation_keeps_connections_old_until_commit_and_bounds_workers() {
         let directory = path();
         let manager = Arc::new(Manager::default());
-        let store = Store::open(&directory).unwrap();
+        let store = Store::memory();
         store
             .update_network(Config::default(), sources(Policy::Direct), &manager)
             .unwrap();
@@ -189,7 +189,9 @@ mod tests {
             b"x"
         );
         manager.close(opened.connection.id).await.unwrap();
-        let before = std::fs::read(directory.join("runtime-rules.bin")).unwrap();
+        let before = service.export_binary().unwrap();
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("runtime-rules.bin"), before.as_ref()).unwrap();
         let mut invalid = sources(Policy::Direct);
         invalid[0].rules[0].value = "invalid".into();
         let failed = service.start(Config::default(), invalid).unwrap();
@@ -217,7 +219,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read(directory.join("runtime-rules.bin")).unwrap(),
-            before
+            before.as_ref()
         );
         let (send, receive) = mpsc::channel();
         let closing = service
@@ -230,7 +232,7 @@ mod tests {
             )
             .unwrap();
         service.close().unwrap();
-        let reopened = Store::open(&directory).unwrap();
+        let reopened = Store::open(directory.join("runtime-rules.bin")).unwrap();
         send.send(()).unwrap();
         assert_eq!(finished(&service, closing.id).await.phase, Phase::Cancelled);
         assert_eq!(reopened.snapshot().unwrap().document().version, 2);
@@ -242,10 +244,7 @@ mod tests {
         let mut running = Vec::new();
         for _ in 0..4 {
             let directory = path();
-            let service = Service::new(
-                Store::open(&directory).unwrap(),
-                Arc::new(Manager::default()),
-            );
+            let service = Service::new(Store::memory(), Arc::new(Manager::default()));
             let (send, receive) = mpsc::channel();
             let job = service
                 .spawn(
@@ -259,10 +258,7 @@ mod tests {
             running.push((directory, service, send, job.id));
         }
         let directory = path();
-        let extra = Service::new(
-            Store::open(&directory).unwrap(),
-            Arc::new(Manager::default()),
-        );
+        let extra = Service::new(Store::memory(), Arc::new(Manager::default()));
         assert!(matches!(
             extra.start(Config::default(), sources(Policy::Direct)),
             Err(Error::ResourceBudgetExceeded {
@@ -275,7 +271,7 @@ mod tests {
             assert_eq!(finished(&service, id).await.phase, Phase::Succeeded);
             service.close().unwrap();
             drop(service);
-            std::fs::remove_dir_all(directory).unwrap();
+            assert!(!directory.exists(), "内存规则库不能创建目录");
         }
         let restored = extra
             .start(Config::default(), sources(Policy::Direct))
@@ -283,6 +279,6 @@ mod tests {
         assert_eq!(finished(&extra, restored.id).await.phase, Phase::Succeeded);
         extra.close().unwrap();
         drop(extra);
-        std::fs::remove_dir_all(directory).unwrap();
+        assert!(!directory.exists(), "内存规则库不能创建目录");
     }
 }

@@ -56,7 +56,7 @@ GeoIP 使用用户明确指定的 2401–2409 错误，前两位 24 为 GEOIP �
 | 2001 | 主配置 YAML 事件语法非法 | 拒绝输入，不执行网络操作 | `src/routing/yaml.rs Decoder::next`，由 `Document::from_yaml` 复用 |
 | 2002 | 主配置或嵌套字段未知，包括被移除的旧字段与 Debug 配置入口 | 拒绝输入，只返回有界安全字段名 | `src/configuration/models.rs` 的严格模型及 `src/routing/yaml.rs unknown_field` |
 | 2003 | 主配置任一映射重复字段 | 拒绝整个文档，不允许后项覆盖 | `src/routing/yaml.rs Mapping::next_key_seed` |
-| 1021 | 非空代理提供者、活动插件提供者、非当前 VLESS 组合，或启用未实现 system/gvisor 栈 | 拒绝相应待校验配置，不虚构能力或替换栈 | `src/configuration.rs validate/validate_proxy` |
+| 1021 | 非空代理提供者、非当前 VLESS 组合，或启用未实现 system/gvisor 栈 | 拒绝相应待校验配置，不虚构能力或替换栈 | `src/configuration.rs validate/validate_proxy` |
 | 8001 | 主配置超过输入/解析结构数量/深度/标量长度门禁 | 解析拒绝，已有预算租约释放 | `Document::from_yaml`、`src/routing/yaml.rs` |
 | 8002 | 主配置解析驻留预算准入失败 | 不开始解析，不产生租约或网络副作用 | `src/configuration.rs Document::from_yaml` → `src/budget.rs ByteBudget::reserve` |
 | 2401/2402 | GeoIP 启用但 URL 缺失/非法或协议非 HTTPS | 校验失败，不下载、不回退内置来源 | `src/configuration.rs validate` → `src/geoip.rs Config::validate` |
@@ -76,3 +76,11 @@ src/dns/main.rs 的端点、自举和专用出站复用既有 DNS 5001/5002/5003
 ## 共享存储入口的既有错误映射（2026-10-19）
 
 未分配新错误码。src/platform/storage.rs 与 src/storage.rs：缺失当前进程共享组 entitlement、扩展请求写入、文件锁忙使用 9001；不支持宿主使用 1021；文件 I/O 沿用 6001；非法文件名为 1001，文件系统链接/类型拒绝由原文件 I/O 映射返回，正文语法及未知/重复字段沿用配置错误。读取预算及长度超限沿用 8001/8002。实际代码与中央定义为准，公开回复不携带容器路径。
+
+## 只读配置检查与资源加载（2026-10-21）
+
+现有整数代码及参数 Schema 不变。配置检查 API 的 configuration_issue 单独携带有界字段路径和源文件／UTF-16 位置，不向固定代码或 params 拼接未登记字段；同一失败与 Document::from_yaml 使用相同错误代码。文件访问错误没有 YAML 位置，见 [配置检查 API](API/配置文件检查.md)。
+
+Core 不再创建目录、保存配置、下载落盘或自动修复；6001 仍是既有 I/O 类别，当前配置入口只用于读取失败。配置和资源异常保留原有效快照及原始文件。声明式插件／JS 的格式错误复用 1001、2002、2003，超限或准入复用 8001／8002；缺失脚本记录受控错误并排除相应复写，插件正文错误拒绝整体提交。脚本执行／超时使用 1301／1302，取消使用 9002，不默认 Continue 或 DIRECT。
+
+旧目录管理及写入入口已移除，旧 provider/GeoIP refresh 返回 1021。新版只读入口要求宿主明确提供路径，路径不授予系统权限。详情见 [只读文件接入](共享存储.md)。

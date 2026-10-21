@@ -22,7 +22,7 @@ pub(super) fn parse(
     geoip: bool,
     node_names: &[&str],
 ) -> Result<Parsed> {
-    let memory = crate::routing::runtime::reserve_parse(input, super::cache::BODY_LIMIT)?;
+    let memory = crate::routing::runtime::reserve_parse(input, super::BODY_LIMIT)?;
     let payload: Payload = crate::routing::runtime::yaml::decode(input)?;
     let mut rules = Vec::new();
     rules

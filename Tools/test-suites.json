@@ -141,6 +141,10 @@
       ],
       "module": "test_ffi",
       "declared_cases": [
+        "script_cache_clear_is_owned_and_schema_is_strict",
+        "configuration_check_returns_editor_location_without_applying",
+        "storage_commands_reject_unentitled_hosts_and_role_injection",
+        "candidate_commands_are_safe_on_bounded_host_stack",
         "http_request_works_on_bounded_host_stack",
         "main_dns_and_geoip_status_use_same_configuration",
         "main_configuration_validation_is_read_only_and_structured",
@@ -156,10 +160,7 @@
         "output_buffers_obey_budget_and_handle_type",
         "admission_failure_keeps_tcp_bytes_and_returns_reservations",
         "admission_failure_keeps_tun_return_packet",
-        "nested_runtime_does_not_detach_failed_http_calls",
-        "candidate_commands_are_safe_on_bounded_host_stack",
-        "storage_commands_reject_unentitled_hosts_and_role_injection",
-        "script_cache_clear_is_owned_and_schema_is_strict"
+        "nested_runtime_does_not_detach_failed_http_calls"
       ]
     },
     {
@@ -516,13 +517,11 @@
       ],
       "module": "test_routing_store",
       "declared_cases": [
-        "cache_owned_file_roundtrip_preserves_document",
-        "cache_write_rejects_nonempty_handle_without_truncation",
-        "cache_failed_exclusive_creation_does_not_remove_existing_file",
-        "cache_symlink_swap_never_truncates_or_overwrites_target",
-        "cache_regular_file_swap_is_rejected_by_identity",
-        "cache_failed_exclusive_creation_does_not_remove_symlink",
-        "cache_rejected_update_keeps_snapshot_old_file_and_symlink_target"
+        "host_export_roundtrip_is_read_only",
+        "memory_updates_never_persist",
+        "invalid_file_is_not_repaired",
+        "symlink_target_is_never_modified",
+        "cancelled_job_cannot_publish"
       ]
     },
     {
@@ -835,9 +834,7 @@
       "id": "test_proxy",
       "file": "tests/test_proxy.rs",
       "kind": "integration",
-      "sources": [
-        "跨模块契约：proxy"
-      ],
+      "sources": [],
       "target": "test_proxy",
       "declared_cases": [
         "http_rewrites_chunked_upload_and_records_original_request",
@@ -877,7 +874,7 @@
         "domain_branch_skips_ip_and_respects_domain_type_and_source_priority",
         "domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject",
         "clash_payload_is_strict_uppercase_and_supports_both_address_families",
-        "binary_cache_reopens_merged_rules_and_migrates_only_internal_legacy_yaml",
+        "binary_cache_reopens_host_export_without_migrating_legacy_yaml",
         "binary_cache_rejects_corruption_offsets_truncation_and_unknown_version",
         "binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback",
         "binary_cache_matches_all_matcher_shapes_before_and_after_reopen",
@@ -1223,12 +1220,12 @@
         "partial_updates_invalidate_summary_but_retain_budget",
         "debug_overlay_survives_main_commit",
         "concurrent_candidates_have_one_commit_winner",
-        "admitted_family_fallback_survives_configuration_replacement",
-        "named_numeric_dns_failure_never_uses_direct",
         "explicit_doh_ignores_formal_route_and_retires_old_resolver",
         "geoip_ready_failure_atomicity_and_disabled_rules",
         "preferred_family_order_ip_reject_and_nxdomain",
         "ordered_upstreams_get_independent_deadlines",
+        "named_numeric_dns_failure_never_uses_direct",
+        "admitted_family_fallback_survives_configuration_replacement",
         "named_script_modifies_real_tls_request_and_conditional_response"
       ]
     },
@@ -1269,29 +1266,10 @@
       ],
       "module": "test_providers",
       "declared_cases": [
-        "import_reuse_refresh_and_restart_keep_policy_and_atomic_cache",
-        "invalid_update_keeps_files_snapshot_and_live_connection",
-        "close_cancels_download_and_releases_lease_with_old_arc_alive",
-        "schedule_requires_local_slot_and_retry_without_caller_clock",
-        "disabled_manual_and_policy_edits_reuse_body_without_rewriting",
-        "multi_provider_failure_never_partially_publishes",
-        "automatic_due_is_once_per_slot_and_errors_are_rate_limited",
-        "scheduler_outlives_request_runtime",
-        "geoip_daily_slot_is_kernel_owned_and_idempotent"
-      ]
-    },
-    {
-      "id": "test_providers_cache",
-      "file": "tests/test_providers_cache.rs",
-      "kind": "unit",
-      "sources": [
-        "src/providers/cache.rs"
-      ],
-      "module": "test_providers_cache",
-      "declared_cases": [
-        "cache_batch_is_atomic_and_old_references_do_not_own_lock",
-        "corruption_version_and_symlink_are_rejected",
-        "geoip_binary_and_rules_share_atomic_batch"
+        "host_files_are_applied_without_download_or_write",
+        "invalid_replacement_keeps_live_snapshot",
+        "missing_resource_does_not_create_files",
+        "close_releases_controller_with_old_reference_alive"
       ]
     },
     {
@@ -1305,21 +1283,6 @@
       "declared_cases": [
         "conditions_inherit_only_provider_policy_and_reject_scope_is_limited",
         "malformed_structure_is_transaction_error_not_empty_success"
-      ]
-    },
-    {
-      "id": "test_platform_providers",
-      "file": "tests/test_platform_providers.rs",
-      "kind": "unit",
-      "sources": [
-        "src/platform/providers.rs",
-        "src/platform/storage.rs"
-      ],
-      "module": "test_platform_providers",
-      "declared_cases": [
-        "exchange_swaps_whole_directories_without_missing_target",
-        "local_calendar_uses_valid_civil_dates_and_bounded_time",
-        "shared_container_requires_real_entitlement"
       ]
     },
     {
@@ -1410,12 +1373,13 @@
       "declared_cases": [
         "local_candidate_is_not_activation_and_does_not_replace_live_rules",
         "invalid_input_and_unsupported_modes_fail_without_partial_candidate",
-        "remote_sources_are_memory_only_and_keep_policy",
+        "host_sources_are_read_only_and_keep_policy",
         "failure_of_second_source_never_publishes_partial_candidate",
-        "close_cancels_download_and_releases_slot_with_old_reference_alive",
+        "close_releases_slot_with_old_reference_alive",
         "slots_are_bounded_before_background_work",
         "geoip_failure_is_error_not_disabled_success",
-        "total_deadline_has_its_own_error_and_releases_resources"
+        "total_deadline_rejects_invalid_duration_before_work",
+        "nonexistent_default_node_fails_without_candidate_or_direct_fallback"
       ]
     },
     {
@@ -1424,18 +1388,15 @@
       "kind": "unit",
       "sources": [
         "src/storage.rs",
-        "src/platform/storage.rs",
         "src/configuration/defaults.rs"
       ],
       "module": "test_storage",
       "declared_cases": [
-        "default_is_complete_localized_and_fail_closed",
-        "create_once_preserves_existing_yaml",
-        "extension_reads_but_cannot_write",
-        "invalid_input_and_links_are_rejected",
-        "concurrent_creation_never_overwrites",
-        "save_validates_before_replacing",
-        "cross_process_initialization_is_exclusive"
+        "default_matches_host_templates_and_starts_direct",
+        "existing_file_is_read_without_mutation",
+        "missing_and_invalid_files_are_never_repaired",
+        "nonregular_and_unauthorized_paths_are_rejected",
+        "manifest_is_strict_and_bounded"
       ]
     },
     {
@@ -1545,8 +1506,7 @@
       "kind": "unit",
       "sources": [
         "src/script/worker.rs",
-        "src/script.rs",
-        "src/platform/storage.rs"
+        "src/script.rs"
       ],
       "module": "test_script_worker",
       "declared_cases": [
@@ -1572,14 +1532,9 @@
       "declared_cases": [
         "only_strict_plugin_fields_and_single_script_mapping_are_allowed",
         "main_mitm_bypass_and_master_switch_override_plugin_decryption",
-        "imports_namespaced_scripts_and_main_rewrites_win",
-        "reordering_moves_ids_files_and_priority_without_redownload",
-        "invalid_plugin_or_abandoned_batch_preserves_old_resources",
-        "missing_script_excludes_only_bad_rewrite_and_keeps_native_rules",
-        "disabled_new_entry_and_read_only_reuse_never_download_or_write",
-        "automatic_refresh_requires_declared_local_slot_and_does_not_repeat_same_slot",
-        "interrupted_resource_transaction_recovers_single_swap_and_accepts_complete_pair",
-        "recovery_journal_cannot_name_external_paths"
+        "host_files_preserve_priority_and_script_namespaces",
+        "invalid_plugin_preserves_host_files",
+        "missing_script_excludes_only_script_rule"
       ]
     },
     {
@@ -1598,19 +1553,6 @@
       ]
     },
     {
-      "id": "test_platform_storage",
-      "file": "tests/test_platform_storage.rs",
-      "kind": "unit",
-      "sources": [
-        "src/platform/storage.rs"
-      ],
-      "module": "test_platform_storage",
-      "declared_cases": [
-        "signed_team_namespace",
-        "reject_invalid_team"
-      ]
-    },
-    {
       "id": "test_apple_platforms",
       "file": "tests/test_apple_platforms.py",
       "kind": "python_unit",
@@ -1625,6 +1567,22 @@
         "test_local_only_entrypoints",
         "test_package_names_and_contents",
         "test_packages_reject_excluded_architecture"
+      ]
+    },
+    {
+      "id": "test_configuration_check",
+      "file": "tests/test_configuration_check.rs",
+      "kind": "unit",
+      "sources": [
+        "src/configuration/check.rs"
+      ],
+      "module": "test_configuration_check",
+      "declared_cases": [
+        "semantic_fields_have_exact_lines",
+        "strict_decode_reports_nested_and_duplicate_fields",
+        "unicode_and_crlf_offsets_match_editor_units",
+        "file_errors_never_have_fake_lines_or_repair",
+        "checking_does_not_apply_or_change_error_codes"
       ]
     }
   ]

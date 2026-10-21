@@ -28,6 +28,11 @@ struct Decoder<'a> {
     nodes: usize,
     depth: usize,
     scalar_limit: usize,
+    path: String,
+    failure: Option<(String, usize)>,
+    position: usize,
+    target: Option<String>,
+    found: Option<usize>,
 }
 impl Decoder<'_> {
     fn next(&mut self) -> Result<Event> {
@@ -35,10 +40,12 @@ impl Decoder<'_> {
             return Ok(event);
         }
         let limit = std::mem::replace(&mut self.scalar_limit, 1024);
-        let (event, _) = self
-            .parser
-            .next_token()
-            .map_err(|_| Error::ConfigYamlSyntax)?;
+        let (event, marker) = self.parser.next_token().map_err(|error| {
+            self.position = error.marker().index();
+            self.capture();
+            Error::ConfigYamlSyntax
+        })?;
+        self.position = marker.index();
         self.nodes += 1;
         if self.nodes > MAX_NODES {
             return Err(Error::ResourceLimit);
@@ -69,25 +76,90 @@ impl Decoder<'_> {
         self.pending.as_ref().ok_or(Error::Internal)
     }
 }
-pub(crate) fn decode<T: DeserializeOwned>(input: &str) -> Result<T> {
-    if input.len() > MAX_BYTES {
-        return Err(Error::ResourceLimit);
+/// 解析诊断独立于固定错误协议，不解析或公开底层错误字符串。
+pub(crate) struct DecodeIssue {
+    pub error: Error,
+    pub path: String,
+    pub offset: usize,
+}
+impl Decoder<'_> {
+    fn capture(&mut self) {
+        if self.failure.is_none() {
+            self.failure = Some((self.path.clone(), self.position));
+        }
     }
-    let mut decoder = Decoder {
+    fn locate(&mut self) {
+        if self.target.as_deref() == Some(self.path.as_str()) && self.found.is_none() {
+            self.found = Some(self.position);
+        }
+    }
+    fn enter(&mut self, part: &str) -> usize {
+        let length = self.path.len();
+        if self.path.len() + part.len() < 1024 {
+            if !part.starts_with('[') && !self.path.is_empty() {
+                self.path.push('.');
+            }
+            self.path.push_str(part);
+        }
+        length
+    }
+}
+fn decoder<'a>(input: &'a str, target: Option<&str>) -> Decoder<'a> {
+    Decoder {
         parser: Parser::new(input.chars()),
         pending: None,
         nodes: 0,
         depth: 0,
         scalar_limit: 1024,
-    };
+        path: String::new(),
+        failure: None,
+        position: 0,
+        target: target.map(str::to_owned),
+        found: None,
+    }
+}
+fn parse<T: DeserializeOwned>(decoder: &mut Decoder<'_>) -> Result<T> {
     if decoder.next()? != Event::StreamStart || decoder.next()? != Event::DocumentStart {
         return Err(Error::InvalidInput);
     }
-    let value = T::deserialize(&mut decoder)?;
+    let value = T::deserialize(&mut *decoder)?;
     if decoder.next()? != Event::DocumentEnd || decoder.next()? != Event::StreamEnd {
         return Err(Error::InvalidInput);
     }
     Ok(value)
+}
+pub(crate) fn decode<T: DeserializeOwned>(input: &str) -> Result<T> {
+    decode_diagnosed(input).map_err(|issue| issue.error)
+}
+pub(crate) fn decode_diagnosed<T: DeserializeOwned>(
+    input: &str,
+) -> std::result::Result<T, DecodeIssue> {
+    if input.len() > MAX_BYTES {
+        return Err(DecodeIssue {
+            error: Error::ResourceLimit,
+            path: String::new(),
+            offset: 0,
+        });
+    }
+    let mut decoder = decoder(input, None);
+    parse(&mut decoder).map_err(|error| {
+        decoder.capture();
+        let (path, offset) = decoder.failure.take().expect("诊断已记录");
+        DecodeIssue {
+            error,
+            path,
+            offset,
+        }
+    })
+}
+/// 第二遍仅扫描事件，不构造配置树；按实际键/序列路径取得语义错误位置。
+pub(crate) fn field_offset(input: &str, path: &str) -> Option<usize> {
+    if input.len() > MAX_BYTES {
+        return None;
+    }
+    let mut decoder = decoder(input, Some(path));
+    let _result = parse::<serde::de::IgnoredAny>(&mut decoder);
+    decoder.found
 }
 struct Sequence<'a, 'b> {
     decoder: &'a mut Decoder<'b>,
@@ -104,13 +176,22 @@ impl<'de> SeqAccess<'de> for Sequence<'_, '_> {
         if self.count > super::MAX_RULES {
             return Err(Error::ResourceLimit);
         }
-        seed.deserialize(&mut *self.decoder).map(Some)
+        self.decoder.peek()?;
+        let previous = self.decoder.enter(&format!("[{}]", self.count - 1));
+        self.decoder.locate();
+        let result = seed.deserialize(&mut *self.decoder).map(Some);
+        if result.is_err() {
+            self.decoder.capture();
+        }
+        self.decoder.path.truncate(previous);
+        result
     }
 }
 struct Mapping<'a, 'b> {
     decoder: &'a mut Decoder<'b>,
     keys: HashSet<String>,
     pending_value: bool,
+    key: String,
 }
 impl<'de> MapAccess<'de> for Mapping<'_, '_> {
     type Error = Error;
@@ -128,22 +209,50 @@ impl<'de> MapAccess<'de> for Mapping<'_, '_> {
         if self.keys.len() >= 64 {
             return Err(Error::ResourceLimit);
         }
+        self.key = if self.decoder.path == "dns.hosts" {
+            format!("[{}]", self.keys.len())
+        } else if key.len() <= 64
+            && key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        {
+            key.clone()
+        } else {
+            "[field]".into()
+        };
         if !self.keys.insert(key.clone()) {
+            let previous = self.decoder.enter(&self.key);
+            self.decoder.capture();
+            self.decoder.path.truncate(previous);
             return Err(Error::ConfigDuplicateField(FieldName::new(&key)));
         }
         self.pending_value = true;
         if key == "payload_yaml" {
             self.decoder.scalar_limit = 8 * 1024 * 1024;
         }
-        seed.deserialize(de::value::StringDeserializer::<Error>::new(key))
-            .map(Some)
+        let previous = self.decoder.enter(&self.key);
+        self.decoder.locate();
+        let result = seed
+            .deserialize(de::value::StringDeserializer::<Error>::new(key))
+            .map(Some);
+        if result.is_err() {
+            self.decoder.capture();
+        }
+        self.decoder.path.truncate(previous);
+        result
     }
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value> {
         if !self.pending_value {
             return Err(Error::InvalidInput);
         }
         self.pending_value = false;
-        seed.deserialize(&mut *self.decoder)
+        let previous = self.decoder.enter(&self.key);
+        let result = seed.deserialize(&mut *self.decoder);
+        if result.is_err() {
+            self.decoder.capture();
+        }
+        self.decoder.path.truncate(previous);
+        result
     }
 }
 impl<'de> de::Deserializer<'de> for &mut Decoder<'_> {
@@ -188,6 +297,7 @@ impl<'de> de::Deserializer<'de> for &mut Decoder<'_> {
                     decoder: self,
                     keys: HashSet::new(),
                     pending_value: false,
+                    key: String::new(),
                 });
                 self.depth -= 1;
                 result

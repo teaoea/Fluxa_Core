@@ -501,6 +501,7 @@ pub mod background;
 
 #[path = "routing/cache.rs"]
 mod cache;
+pub use cache::Encoded;
 
 /// 正式保护与限时例外分离；不因调试建连而永久撤销 QUIC/传输安全检查。
 #[derive(Default)]

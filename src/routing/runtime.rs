@@ -834,6 +834,10 @@ impl Snapshot {
         })
     }
     /// 标准 YAML 生成产物；不是允许用户直接编辑的原始配置。
+    /// 编码为只读内存字节；由 App／CLI 决定是否持久化，不接收可写文件句柄。
+    pub fn to_binary(&self) -> Result<super::Encoded> {
+        super::cache::encode(self)
+    }
     pub fn to_yaml(&self) -> Result<String> {
         let _temporary = MEMORY.reserve(scaled(
             self.document.report.original,
@@ -898,34 +902,7 @@ impl Snapshot {
         })?;
         Self::from_document_diagnosed(document)
     }
-    /// 二进制缓存与 YAML 导入共用严格文档校验，缓存直接使用平铺索引。
-    /// 仅迁移旧内部生成文件；用户配置入口仍拒绝小写规则类型。
-    pub(crate) fn migrate_yaml(input: &str) -> Result<Self> {
-        let _temporary = reserve_parse(input, yaml::MAX_BYTES)?;
-        let mut value: serde_json::Value = yaml::decode(input)?;
-        let rules = value
-            .get_mut("rules")
-            .and_then(serde_json::Value::as_array_mut)
-            .ok_or(Error::InvalidInput)?;
-        if rules.len() > MAX_RULES {
-            return Err(Error::ResourceLimit);
-        }
-        for row in rules {
-            if let Some(kind) = row.get_mut("rule").and_then(|rule| rule.get_mut("type"))
-                && let Some(name) = kind.as_str()
-            {
-                let renamed = match name {
-                    "domain" => "DOMAIN",
-                    "domain-suffix" => "DOMAIN-SUFFIX",
-                    "domain-keyword" => "DOMAIN-KEYWORD",
-                    "ip-cidr" => "IP-CIDR",
-                    other => other,
-                };
-                *kind = renamed.into();
-            }
-        }
-        Self::from_document(serde_json::from_value(value).map_err(|_| Error::InvalidInput)?)
-    }
+
     pub(crate) fn from_document(document: Document) -> Result<Self> {
         Self::from_document_diagnosed(document).map_err(|d| d.error)
     }

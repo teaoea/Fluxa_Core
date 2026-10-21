@@ -75,10 +75,10 @@ MMDB 识别检查元数据标记与格式；初始化检查元数据及布局边
 
 ## Ready 数据库与规则绑定
 
-`Document::compile_local_rules_with_geoip(version, &service)` 校验主配置有效 URL 与 Service 来源完全一致，再借用已 Ready 的不可变数据库。缺失、不同来源或未 Ready 返回 2408。规则查询直接读取 MMDB 国家两字母代码，不构造完整城市结果；无记录正常未匹配，读取失败返回 2409。关闭 GeoIP 的主配置不会编译国家行。数据库绑定不写入规则缓存，缓存恢复不得冒充 Ready。来源下载和自动编排已接入主配置异步事务。
+`Document::compile_local_rules_with_geoip(version, &service)` 校验主配置有效 URL 与 Service 来源完全一致，再借用已 Ready 的不可变数据库。缺失、不同来源或未 Ready 返回 2408。规则查询直接读取 MMDB 国家两字母代码，不构造完整城市结果；无记录正常未匹配，读取失败返回 2409。关闭 GeoIP 的主配置不会编译国家行。数据库绑定不写入规则缓存，缓存恢复不得冒充 Ready。主配置通过宿主授权的只读数据库文件接入事务。
 
 ## 当前主配置编排（2026-10-17）
 
 上文 geoip_url/独立服务 API 描述保留底层用法；新主配置统一使用 geoip.enabled/url/update-time。异步 apply 在数据库校验 Ready 后才发布国家规则；同来源更新失败返回 Err 并保留旧配置/数据库/连接。configuration_status、geoip_lookup 和 geoip_refresh 使用同一内核状态；主配置活动时禁止独立 geoip_configure/close 绕过事务。
 
-库与规则提供者使用同一规则资产目录，文件固定为 geoip.mmdb；平台路径、预算、重启下载和原子缓存边界见 [DNS/GeoIP 编排](DNSGeoIP编排.md)。不是 App 自行解析 MMDB 或管理资源；本次未修改 App 和固定远程二进制。
+数据库目录、文件保存、更新和下载属于 App／宿主；Core 只读加载、验证 MMDB 并执行查询。路径授权及预算边界见 [DNS/GeoIP 编排](DNSGeoIP编排.md)。本次不修改 App 接入。

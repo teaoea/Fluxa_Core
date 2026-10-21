@@ -11,12 +11,14 @@
 //!
 //! 测试文件：tests/test_script_worker.rs
 //! 测试类型：单元测试、真实 QuickJS、存储隔离与线程生命周期测试。
-//! 测试对象：src/script/worker.rs、src/platform/storage.rs、src/script.rs。
+//! 测试对象：src/script/worker.rs、src/storage.rs、src/script.rs。
 //! 测试内容：命名绑定、懒加载、缺失/不匹配排除、源缓存与清理、自动到期及活动取消。
 //! 测试依据：用户指定 scripts 单对象、name 精确引用、js-ttl 与独立线程约束。
 //! 前置条件：私有临时目录仅作内部存储夹具，不冒充真实 App Group；不访问网络。
 use super::*;
+use crate::storage::NamedFile;
 use serde_json::json;
+use std::path::PathBuf;
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -29,13 +31,18 @@ impl Fixture {
         Self(root)
     }
     fn write(&self, name: &str, text: &str) {
-        Directory::open(&self.0, "js", true)
-            .unwrap()
-            .write(name, text.as_bytes(), true)
-            .unwrap();
+        std::fs::write(self.0.join(name), text).unwrap();
     }
     fn bind(&self, name: &str, ttl: u32) -> Arc<Bindings> {
-        Bindings::in_root(&self.0, true, Some(name), vec![(name.into(), ttl)]).unwrap()
+        Bindings::from_file(
+            Some(name),
+            Some(&NamedFile {
+                name: name.into(),
+                path: self.0.join(name),
+            }),
+            vec![(name.into(), ttl)],
+        )
+        .unwrap()
     }
 }
 impl Drop for Fixture {
@@ -49,7 +56,7 @@ async fn exact_name_without_extension_is_bound_and_source_is_loaded_lazily() {
     root.write("response", "() => 1");
     let bindings = root.bind("response", 3600);
     let binding = bindings.get("response", 3600).unwrap();
-    assert_eq!(binding.path, root.0.join("js/response"));
+    assert_eq!(binding.path, root.0.join("response"));
     root.write("response", "() => 2");
     let cache = Arc::new(Cache::default());
     assert_eq!(
@@ -72,10 +79,12 @@ fn missing_or_unregistered_resource_is_excluded_without_reinterpreting_url() {
     root.write("response.js", "input=>input");
     let bindings = root.bind("response", 3600);
     assert!(!bindings.contains("response", 3600));
-    let bindings = Bindings::in_root(
-        &root.0,
-        true,
+    let bindings = Bindings::from_file(
         Some("response.js"),
+        Some(&NamedFile {
+            name: "response.js".into(),
+            path: root.0.join("response.js"),
+        }),
         vec![("response".into(), 3600)],
     )
     .unwrap();
@@ -84,7 +93,7 @@ fn missing_or_unregistered_resource_is_excluded_without_reinterpreting_url() {
     assert!(bindings.contains("response.js", 3600));
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(root.0.join("js/response.js"), root.0.join("js/link")).unwrap();
+        std::os::unix::fs::symlink(root.0.join("response.js"), root.0.join("link")).unwrap();
         assert!(!root.bind("link", 3600).contains("link", 3600));
     }
 }
@@ -146,10 +155,12 @@ async fn clear_interrupts_active_script_and_joins_before_returning() {
 fn one_resource_uses_one_binding_with_shortest_configured_ttl() {
     let root = Fixture::new();
     root.write("response", "input=>input");
-    let bindings = Bindings::in_root(
-        &root.0,
-        true,
+    let bindings = Bindings::from_file(
         Some("response"),
+        Some(&NamedFile {
+            name: "response".into(),
+            path: root.0.join("response"),
+        }),
         vec![("response".into(), 3600), ("response".into(), 1)],
     )
     .unwrap();

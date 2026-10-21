@@ -52,19 +52,40 @@ pub struct Preparation {
     inner: Arc<Inner>,
 }
 impl Preparation {
-    /// 在内核有界运行时异步解析、准备 DNS/GeoIP、下载提供者并编译完整候选规则。
+    /// 在内核有界运行时异步解析、准备 DNS 并编译候选规则；资源须由宿主提供。
     /// 不写资产缓存、不启动自动刷新、不触发 VPN；例如 begin("rules: ['final,direct']")。
     pub fn begin(yaml: &str) -> Result<Self> {
         Self::begin_with_client(yaml, None)
     }
     fn begin_with_client(yaml: &str, tls: Option<HttpsClient>) -> Result<Self> {
-        Self::begin_with_deadline(yaml, tls, PREPARATION_TIMEOUT)
+        Self::begin_resources(
+            yaml,
+            tls,
+            PREPARATION_TIMEOUT,
+            crate::storage::Resources::default(),
+        )
     }
+    /// 只读加载宿主授权配置及资源，候选准备不写入文件或授予系统接管权限。
+    pub fn begin_file(path: &str, resources: crate::storage::Resources) -> Result<Self> {
+        resources.validate()?;
+        let text = crate::storage::read_configuration(path)?;
+        Self::begin_resources(text.as_str(), None, PREPARATION_TIMEOUT, resources)
+    }
+    #[cfg(test)]
     fn begin_with_deadline(
         yaml: &str,
         tls: Option<HttpsClient>,
         deadline: Duration,
     ) -> Result<Self> {
+        Self::begin_resources(yaml, tls, deadline, crate::storage::Resources::default())
+    }
+    fn begin_resources(
+        yaml: &str,
+        tls: Option<HttpsClient>,
+        deadline: Duration,
+        resources: crate::storage::Resources,
+    ) -> Result<Self> {
+        resources.validate()?;
         let runtime = crate::lifecycle::runtime()?;
         if deadline.is_zero() || deadline > PREPARATION_TIMEOUT {
             return Err(Error::InvalidInput);
@@ -110,7 +131,9 @@ impl Preparation {
                     Some(tls) => tls,
                     None => HttpsClient::system()?,
                 };
-                work.manager.prepare_vpn_candidate(document, client).await?;
+                work.manager
+                    .prepare_vpn_candidate(document, client, resources)
+                    .await?;
                 Ok(())
             };
             let result = tokio::select! {

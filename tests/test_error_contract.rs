@@ -371,7 +371,7 @@ fn invalid_config_keeps_snapshot_and_machine_failure() {
         "fluxa-error-transaction-{}-{unique}",
         std::process::id()
     ));
-    let store = Store::open(&path).unwrap();
+    let store = Store::memory();
     store.update(Config::default(), vec![]).unwrap();
     let previous = store.snapshot().unwrap();
     let mut invalid = Config::default();
@@ -390,7 +390,7 @@ fn invalid_config_keeps_snapshot_and_machine_failure() {
     ));
     store.close().unwrap();
     drop(store);
-    std::fs::remove_dir_all(path).unwrap();
+    assert!(!path.exists(), "纯内存规则更新不能创建目录");
 }
 #[test]
 fn diagnostics_remain_fixed_size_and_do_not_hold_error_chains() {

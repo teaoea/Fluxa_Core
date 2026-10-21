@@ -76,7 +76,7 @@ mod public_contract {
     // ## 隔离边界
     // 只使用公开 API 与缓存文件字节；未为测试扩大任何生产 API 可见性，也未向外部暴露内核内部资源管理能力。
     // `FlatIndex`、`Snapshot::into_flat` 等为 crate 私有，因此篡改用例经缓存文件触达 `FlatIndex::validate`：
-    // `Store::update` 写出 → 就地改写索引区 → 重算 SHA-256 → `Store::open` 重载，全程不修改产品代码。
+    // `测试宿主导出 `Snapshot::to_binary` 写出 → 就地改写索引区 → 重算 SHA-256 → `Store::open` 重载，全程不修改产品代码。
     // 每个篡改用例先做「空改写仍能加载」自检，另有用例独立证明「摘要错误必被拒绝」，
     // 避免把校验和不匹配误判成语义校验生效。
     //
@@ -196,21 +196,27 @@ mod public_contract {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
         TestDirectory(dir)
     }
 
-    /// 写出缓存并返回可继续读取的目录；`Store` 关闭后跨进程锁释放，允许再次 `open`。
+    /// 写出缓存并返回可继续读取的目录；`Store` 关闭后宿主保存文件后，允许再次 `open`。
     fn write_cache(dir: &Path, rules: Vec<Rule>) {
-        let store = Store::open(dir).unwrap();
+        let store = Store::memory();
         store
             .update(settings(), vec![source("local", rules)])
-            .expect("合法规则必须能写出缓存");
+            .expect("合法规则必须能编译");
+        std::fs::write(
+            dir.join(CACHE_FILE),
+            store.snapshot().unwrap().to_binary().unwrap().as_ref(),
+        )
+        .unwrap();
         store.close().unwrap();
     }
 
     /// 用当前缓存重新打开一次；只关心能否加载。
     fn reload(dir: &Path) -> Result<(), Error> {
-        match Store::open(dir) {
+        match Store::open(dir.join(CACHE_FILE)) {
             Ok(store) => {
                 let _ = store.close();
                 Ok(())
@@ -221,11 +227,12 @@ mod public_contract {
 
     /// 打开缓存并取回已平铺的快照（`into_flat` 为 crate 私有，公开路径只有 `Store`）。
     fn flat_snapshot(dir: &Path, rules: Vec<Rule>) -> Arc<Snapshot> {
-        let store = Store::open(dir).unwrap();
+        let store = Store::memory();
         store
             .update(settings(), vec![source("local", rules)])
             .unwrap();
         let snapshot = store.snapshot().unwrap();
+        std::fs::write(dir.join(CACHE_FILE), snapshot.to_binary().unwrap().as_ref()).unwrap();
         let _ = store.close();
         snapshot
     }
@@ -289,7 +296,7 @@ mod public_contract {
         digest
     }
 
-    /// 按 `cache::write` 的顺序把摘要写在 (文档 ‖ 索引) 之上后落盘。
+    /// 按二进制格式的顺序把摘要写在 (文档 ‖ 索引) 之上后落盘。
     fn write_with_digest(dir: &Path, bytes: &[u8]) {
         let digest = sha256(&bytes[CACHE_HEADER_BYTES..]);
         let mut output = bytes.to_vec();
@@ -367,8 +374,8 @@ mod public_contract {
         assert_eq!(names.len(), 65);
         // 对照：取其中 64 个，槽数为 128，同槽 64 个正好等于探测链上限，必须成功。
         // 这一步证明「同槽构造」有效，失败只可能来自 65 越过上限。
-        let dir = temp_dir("slot64");
-        let store = Store::open(&dir).unwrap();
+        let _dir = temp_dir("slot64");
+        let store = Store::memory();
         let sixty_four: Vec<Rule> = names[..64]
             .iter()
             .map(|name| rule(Match::Domain, name, Policy::Direct))
@@ -387,7 +394,7 @@ mod public_contract {
             .map(|name| rule(Match::Domain, name, Policy::Direct))
             .collect();
         let dir = temp_dir("slot65");
-        let store = Store::open(&dir).unwrap();
+        let store = Store::memory();
         let result = store.update(settings(), vec![source("local", rules)]);
         // 注意错误类别：内存池不足返回的是 `ResourceBudgetExceeded`，这里拿到的是
         // `ResourceLimit`，说明失败来自精确表探测链上限而不是真实内存耗尽。
@@ -417,8 +424,13 @@ mod public_contract {
                 .rule_index,
             None
         );
+        std::fs::write(
+            dir.join(CACHE_FILE),
+            store.snapshot().unwrap().to_binary().unwrap().as_ref(),
+        )
+        .unwrap();
         store.close().unwrap();
-        let recovered = Store::open(&dir).unwrap();
+        let recovered = Store::open(dir.join(CACHE_FILE)).unwrap();
         for (index, name) in names.iter().enumerate() {
             let decision = recovered
                 .snapshot()
@@ -849,7 +861,7 @@ mod public_contract {
     }
 
     fn reload_decision(dir: &Path, domain: &str) -> Policy {
-        let store = Store::open(dir).unwrap();
+        let store = Store::open(dir.join(CACHE_FILE)).unwrap();
         let snapshot = store.snapshot().unwrap();
         let decision = snapshot
             .evaluate(&target(Some(domain), Some("192.0.2.1")))
@@ -935,7 +947,7 @@ mod public_contract {
 
     #[test]
     fn scenario_12_retained_snapshot_is_still_counted() {
-        let dir = temp_dir("retain");
+        let _dir = temp_dir("retain");
         let rules = || -> Vec<Rule> {
             (0..2_000)
                 .map(|index| {
@@ -947,7 +959,7 @@ mod public_contract {
                 })
                 .collect()
         };
-        let store = Store::open(&dir).unwrap();
+        let store = Store::memory();
         store
             .update(settings(), vec![source("local", rules())])
             .unwrap();
@@ -1107,7 +1119,7 @@ mod public_contract {
         ]);
         let dir = temp_dir("collision-mixed");
         write_cache(&dir, rules);
-        let store = Store::open(&dir).unwrap();
+        let store = Store::open(dir.join(CACHE_FILE)).unwrap();
         let snapshot = store.snapshot().unwrap();
         for (id, name) in names.iter().enumerate() {
             assert_eq!(
@@ -1142,7 +1154,7 @@ mod public_contract {
                 rule(Match::DomainKeyword, "foo", Policy::Reject),
             ],
         );
-        let store = Store::open(&dir).unwrap();
+        let store = Store::open(dir.join(CACHE_FILE)).unwrap();
         let snapshot = store.snapshot().unwrap();
         for (host, port, expected) in [
             ("example.com", 53, Policy::Reject),

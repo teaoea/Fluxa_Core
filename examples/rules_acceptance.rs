@@ -96,7 +96,7 @@ fn main() {
     assert!((1..=runtime::MAX_RULES).contains(&count));
     let path = std::env::temp_dir().join(format!("fluxa-rules-acceptance-{}", std::process::id()));
     std::fs::create_dir(&path).unwrap();
-    let store = Store::open(&path).unwrap();
+    let store = Store::memory();
     let mut retained = Vec::new();
     let started = Instant::now();
     for round in 0..3 {
@@ -123,6 +123,13 @@ fn main() {
             Err(error) => panic!("非资源错误：{error:?}"),
         }
     }
+    if let Ok(snapshot) = store.snapshot() {
+        std::fs::write(
+            path.join("runtime-rules.bin"),
+            snapshot.to_binary().unwrap().as_ref(),
+        )
+        .unwrap();
+    }
     store.close().unwrap();
     drop(store);
     if retained.is_empty() {
@@ -147,7 +154,7 @@ fn main() {
                 std::fs::create_dir(&directory).unwrap();
                 std::fs::copy(path.join("runtime-rules.bin"), directory.join("runtime-rules.bin")).unwrap();
                 gate.wait();
-                let reopened = Store::open(&directory);
+                let reopened = Store::open(directory.join("runtime-rules.bin"));
                 let loaded = match &reopened {
                     Ok(store) => Some(store.snapshot().unwrap()),
                     Err(error) if controlled(*error) => None,
@@ -172,7 +179,7 @@ fn main() {
         "全部实际对象释放后归还共享池"
     );
     // 压力失败不会污染预算或活动文件；释放旧引用后仍可恢复。
-    let store = Store::open(&path).unwrap();
+    let store = Store::open(path.join("runtime-rules.bin")).unwrap();
     store.close().unwrap();
     drop(store);
     let usage = runtime::memory_usage();

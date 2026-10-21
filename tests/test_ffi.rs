@@ -1,3 +1,4 @@
+//! configuration_check_returns_editor_location_without_applying：检查错误代码和 UTF-16 定位，运行版本不变。
 //! script_cache_clear_is_owned_and_schema_is_strict：验证缓存清理命令不接受路径或宿主权限注入。
 //!
 //! 测试文件：tests/test_ffi.rs
@@ -60,6 +61,45 @@ mod tests {
         held.busy.store(false, Ordering::Release);
     }
     #[test]
+    fn configuration_check_returns_editor_location_without_applying() {
+        let _gate = TEST_GATE.blocking_lock();
+        let owner = TestHandle(fluxa_engine_create());
+        let revision = engine(owner.0)
+            .unwrap()
+            .outbound
+            .network_snapshot()
+            .unwrap()
+            .revision;
+        let yaml = "# 中文 😀\n\nsystem-proxy: {port: wrong}\nrules: ['final,direct']";
+        let bytes =
+            serde_json::to_vec(&serde_json::json!({"operation":"configuration_check","yaml":yaml}))
+                .unwrap();
+        // SAFETY: 请求字节在同步调用期间保持可读，响应由 TestHandle 唯一释放。
+        let response =
+            TestHandle(unsafe { fluxa_engine_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+        let value: serde_json::Value =
+            serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
+        assert_eq!(value["success"], false);
+        assert_eq!(value["error_info"]["code"], 1001);
+        assert_eq!(value["configuration_issue"]["field"], "system-proxy.port");
+        assert_eq!(value["configuration_issue"]["position"]["line"], 3);
+        let offset = yaml[..yaml.find("wrong").unwrap()].encode_utf16().count();
+        assert_eq!(
+            value["configuration_issue"]["position"]["utf16_offset"],
+            offset
+        );
+        assert_eq!(
+            engine(owner.0)
+                .unwrap()
+                .outbound
+                .network_snapshot()
+                .unwrap()
+                .revision,
+            revision
+        );
+        assert_eq!(fluxa_engine_last_error_code(), 1001);
+    }
+    #[test]
     fn storage_commands_reject_unentitled_hosts_and_role_injection() {
         let _gate = TEST_GATE.blocking_lock();
         // 公开主配置允许 4 MiB 正文，不能把加载回复误限为普通小命令的 256 KiB。
@@ -70,10 +110,9 @@ mod tests {
         std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
             let owner = TestHandle(fluxa_engine_create());
             for (request, code) in [
-                (serde_json::json!({"operation":"storage_initialize"}), if cfg!(target_vendor="apple") {9001} else {1021}),
+                (serde_json::json!({"operation":"storage_initialize"}), 1001),
                 (serde_json::json!({"operation":"storage_initialize","read_only":false}), 1001),
                 (serde_json::json!({"operation":"runtime_rules_open","directory":"/tmp/forbidden-fluxa-path"}), 1001),
-                (serde_json::json!({"operation":"runtime_rules_open"}), if cfg!(target_vendor="apple") {9001} else {1021}),
                 (serde_json::json!({"operation":"configuration_load","filename":"../escape.yaml"}), 1001),
                 (serde_json::json!({"operation":"configuration_save","filename":"../escape.yaml","yaml":"rules: ['final,reject']"}), 1001),
             ] {
@@ -135,12 +174,13 @@ mod tests {
         let owner = TestHandle(fluxa_engine_create());
         let handle = owner.0;
         let home = std::env::temp_dir().join(format!(
-            "fluxa-ffi-storage-{}",
+            "fluxa-ffi-storage-{}-{}",
+            std::process::id(),
             crate::lifecycle::identifier().unwrap()
         ));
         std::fs::create_dir(&home).unwrap();
         let manager = engine(handle).unwrap().outbound.clone();
-        let root = home.clone();
+
         run_network(async move {
             manager
                 .apply_provider_document(
@@ -148,7 +188,7 @@ mod tests {
                         "dns: {enable: true,server: ['127.0.0.1:9']}\nrules: ['final,reject']",
                     )?),
                     HttpsClient::system()?,
-                    Some(root),
+                    crate::storage::Resources::default(),
                 )
                 .await
         })
@@ -334,10 +374,12 @@ mod tests {
         let mut roots = rustls::RootCertStore::empty();
         roots.add(fixture.root.clone()).unwrap();
         let client = crate::https::HttpsClient::with_roots(roots).unwrap();
-        fixture.provider.bodies.lock().unwrap().insert(
-            "/provider-one".into(),
-            "rules: ['domain,one.example', 'process-name,WeChat']".into(),
-        );
+        let resource = home.join("one.yaml");
+        std::fs::write(
+            &resource,
+            "rules: ['domain,one.example', 'process-name,WeChat']",
+        )
+        .unwrap();
         let yaml = format!(
             "rule-providers: [{{name: one, url: 'https://localhost:{}/provider-one', policy: direct, enable: true}}]\nrules: ['domain,localhost,direct','final,reject']",
             fixture.port
@@ -346,7 +388,13 @@ mod tests {
             .apply_provider_document(
                 Arc::new(crate::configuration::Document::from_yaml(&yaml).unwrap()),
                 client,
-                Some(home.clone()),
+                crate::storage::Resources {
+                    rules: vec![crate::storage::NamedFile {
+                        name: "one".into(),
+                        path: resource.clone(),
+                    }],
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();
@@ -372,26 +420,21 @@ mod tests {
         };
         let status = call(serde_json::json!({"operation":"provider_status"})).await;
         assert_eq!(status["provider_status"]["providers"][0]["ignored"], 1);
-        fixture.provider.bodies.lock().unwrap().insert(
-            "/provider-one".into(),
-            "rules: ['domain,two.example', 'process-name,WeChat']".into(),
-        );
+        let revision = manager.network_snapshot().unwrap().revision;
         let updated = call(serde_json::json!({"operation":"provider_refresh","name":"one"})).await;
-        assert_eq!(updated["success"], true, "{updated}");
-        assert_eq!(updated["provider_status"]["providers"][0]["rules"], 1);
-        assert_eq!(updated["provider_status"]["providers"][0]["ignored"], 1);
-        assert!(
-            std::fs::read_to_string(home.join("rule/one.yaml"))
-                .unwrap()
-                .contains("two.example")
-        );
-        let invalid =
-            call(serde_json::json!({"operation":"provider_refresh","name":"absent"})).await;
-        assert_eq!(invalid["success"], false);
-        assert_eq!(invalid["error_info"]["code"], 1001);
+        assert_eq!(updated["success"], false);
+        assert_eq!(updated["error_info"]["code"], 1021);
+        assert_eq!(manager.network_snapshot().unwrap().revision, revision);
         assert_eq!(
-            manager.network_snapshot().unwrap().revision,
-            updated["network_revision"].as_u64().unwrap()
+            std::fs::read_to_string(&resource).unwrap(),
+            "rules: ['domain,one.example', 'process-name,WeChat']"
+        );
+        assert_eq!(
+            fixture
+                .provider
+                .requests
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
         );
         manager.stop().await.unwrap();
         std::fs::remove_dir_all(home).unwrap();
@@ -553,9 +596,9 @@ mod tests {
         assert_eq!(
             fluxa_engine_capabilities(),
             if cfg!(target_os = "macos") {
-                2147483647
+                3221225471
             } else {
-                2080374783
+                3154116607
             }
         );
     }

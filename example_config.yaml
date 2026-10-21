@@ -4,8 +4,8 @@
 # 打开App会检查目录，是否有配置文件，如果不存在配置文件
 # 生成一份全量配置文件config.yaml（不含proxies、proxy-groups）
 # 对配置文件每个字段加上注释，注释采用设备语言，符号使用设备语言对应符号
-# 每次编译都必须重新通过系统 API 获取 App Group Containe，禁止将文件存放位置向用户暴露
-# 默认配置文件的由Core创建，App只负责检查是否存在配置文件
+# App 通过系统 API 获取真实 App Group Container 并授权只读文件；Core 不推断目录，不向回复暴露内部路径
+# 默认配置模板由 Core 返回纯内容；App 检查并自行创建、保存配置文件
 # Network Extension只能读取配置文件，不能写入配置文件
 
 # 配置文件头注释
@@ -47,7 +47,7 @@ lan-share:
 mode: rule
 
 # GeoIP配置
-# 下载并校验成功后保存为下述目录中的 geoip.mmdb；规则集保存为 <name>.yaml。
+# App／宿主下载并校验成功后保存到约定目录中的 geoip.mmdb；规则集保存为 <name>.yaml。
 # MaxMind GeoLite2 Country MMDB
 # https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb
 # 中国增强版 GeoIP
@@ -107,9 +107,9 @@ plugin-providers:
 # 远程规则集
 # 正文格式为 rules: ["domain,example.com", "protocol,quic,example.com"]，类型小写，不携带策略。
 # YAML 结构错误拒绝整个更新；自带策略或不合法的行单独忽略。
-# 订阅的规则集会下载下来，保存到约定位置
+# App／宿主将订阅规则集下载下来，保存到约定位置
 # 存放位置：App Group Container/rule/
-# 订阅的规则集会在每天指定时间自动更新，自动更新与手动更新会覆盖旧规则集文件，未配置update-time字段则不自动更新，仅在第一次导入时下载
+# App／宿主在每天指定时间更新订阅规则集，自动更新与手动更新会覆盖旧规则集文件，未配置update-time字段则不自动更新，仅在第一次导入时下载
 # 规则集更新或者本地规则变动，会进行合并裁剪，写入到内存，如果本地规则变动，但是订阅规则还未到更新时间
 # 订阅规则不会更新，而是直接使用rules文件夹下被激活的规则集文件
 # 订阅规则集配置policy: reject时，仅允许domain、ip-cidr、protocol、port规则执行拦截
@@ -315,7 +315,7 @@ rewrites:
       status: 200 # 仅处理 HTTP 200 响应
       content-type: application/json # 仅处理 JSON 响应
     action: script # 调用 JavaScript 引擎
-    js: response # 精确引用 scripts.name，不要求 .js 后缀；编译时绑定约定目录的绝对路径
+    js: response # 精确引用 scripts.name，不要求 .js 后缀；编译时绑定宿主明确提供的只读绝对文件路径
     js-ttl: 3600 # 脚本缓存生命周期，单位秒，省略默认 3600；只允许用于 action: script
 
 # js脚本引入

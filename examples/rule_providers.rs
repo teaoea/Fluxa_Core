@@ -1,5 +1,5 @@
 //! 规则提供者示例：默认仅验证本地正文，无网络或 HOME 副作用。
-//! 传入显式配置路径才提交；可选第二参数为刷新名称，* 表示刷新全部；最后由内核完成关闭。
+//! 参数为绝对配置路径及可选 JSON 资源清单路径；宿主下载落盘，Core 只读；最后由内核完成关闭。
 use fluxa_core::{outbound::Manager, providers, routing::Policy};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,15 +15,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     };
-    let yaml = std::fs::read_to_string(path)?;
+    let resources = if let Some(manifest) = args.next() {
+        serde_json::from_str(&std::fs::read_to_string(manifest)?)?
+    } else {
+        fluxa_core::storage::Resources::default()
+    };
     let manager = std::sync::Arc::new(Manager::default());
     let outcome = async {
-        manager.apply_configuration_async(&yaml).await?;
-        if let Some(name) = args.next() {
-            manager
-                .refresh_providers((name != "*").then_some(name))
-                .await?;
-        }
+        manager.apply_configuration_file(&path, resources).await?;
         println!("{}", serde_json::to_string(&manager.provider_status()?)?);
         Ok::<(), Box<dyn std::error::Error>>(())
     }

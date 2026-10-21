@@ -1,13 +1,9 @@
-//! 只保存内部生成产物；二进制索引不含主机指针，提交仍采用同目录临时文件与原子替换。
+//! 只读加载宿主保存的二进制索引；导出仅返回内存编码，不创建或替换文件。
 //! SHA-256 检测损坏，不充当认证；规则报告加载后仍仅结构验证，不能凭校验和升级信任。
 use super::runtime::{Document, Snapshot};
 use crate::error::{Error, Result};
 use ring::digest::{Context, SHA256};
-use std::{
-    fs::{self, File, OpenOptions},
-    io::{Read, Seek, Write},
-    path::Path,
-};
+use std::path::Path;
 const MAGIC: &[u8; 8] = b"FLXARULE";
 // v6 为 QUIC 组合条件增加独立森林条件根；同时隔离进程/国家精确键，候选槽位数量不变；v5 及更早布局须重建。
 // 旧布局/旧语义必须从原始来源重建；禁止把旧缓存当作当前规则接受。
@@ -20,7 +16,6 @@ const RESERVED_OFFSET: usize = INDEX_LENGTH_OFFSET + WORD_BYTES;
 const DIGEST_OFFSET: usize = RESERVED_OFFSET + WORD_BYTES;
 const DIGEST_BYTES: usize = 32;
 const HEADER_BYTES: usize = DIGEST_OFFSET + DIGEST_BYTES;
-const IO_BUFFER_BYTES: usize = 8192;
 const BUDGET_BASE_BYTES: usize = 4096;
 const WRITE_RULE_BYTES: usize = 1024;
 const LOAD_BUFFER_FACTOR: usize = 2;
@@ -42,31 +37,12 @@ fn checksum(document: &[u8], index: &[u8]) -> ring::digest::Digest {
     hash.update(index);
     hash.finish()
 }
-fn open(path: &Path) -> Result<File> {
-    let meta = fs::symlink_metadata(path)?;
-    if !meta.is_file() || meta.file_type().is_symlink() {
-        return Err(Error::InvalidInput);
-    }
-    if meta.len() > MAX_BYTES {
-        return Err(Error::ResourceLimit);
-    }
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        // 在打开时拒绝最终符号链接；非阻塞避免检查后被换成 FIFO 时挂起。
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let file = options.open(path)?;
-    if !file.metadata()?.is_file() || file.metadata()?.len() > MAX_BYTES {
-        return Err(Error::ResourceLimit);
-    }
-    Ok(file)
-}
 pub(super) fn load(path: &Path) -> Result<Snapshot> {
-    let mut file = open(path)?;
-    let total = file.metadata()?.len() as usize;
+    let file = crate::storage::ReadOnlyFile::open(path)?;
+    let total = file.size()?;
+    if total as u64 > MAX_BYTES {
+        return Err(Error::ResourceLimit);
+    }
     if total < HEADER_BYTES {
         return Err(Error::InvalidInput);
     }
@@ -76,14 +52,14 @@ pub(super) fn load(path: &Path) -> Result<Snapshot> {
             .and_then(|n| n.checked_add(BUDGET_BASE_BYTES))
             .ok_or(Error::ResourceLimit)?,
     )?;
-    let mut header = [0u8; HEADER_BYTES];
-    file.read_exact(&mut header)?;
-    if &header[..MAGIC.len()] != MAGIC || size(&header, VERSION_OFFSET) != VERSION as usize {
+    let bytes = file.read_binary(total)?;
+    let header = &bytes[..HEADER_BYTES];
+    if &header[..MAGIC.len()] != MAGIC || size(header, VERSION_OFFSET) != VERSION as usize {
         return Err(Error::Unsupported);
     }
-    let document_size = size(&header, DOCUMENT_LENGTH_OFFSET);
-    let index_size = size(&header, INDEX_LENGTH_OFFSET);
-    if size(&header, RESERVED_OFFSET) != 0
+    let document_size = size(header, DOCUMENT_LENGTH_OFFSET);
+    let index_size = size(header, INDEX_LENGTH_OFFSET);
+    if size(header, RESERVED_OFFSET) != 0
         || document_size > MAX_DOCUMENT_BYTES
         || HEADER_BYTES
             .checked_add(document_size)
@@ -92,39 +68,47 @@ pub(super) fn load(path: &Path) -> Result<Snapshot> {
     {
         return Err(Error::InvalidInput);
     }
-    let mut document = vec![0; document_size];
-    let mut index = vec![0; index_size];
-    file.read_exact(&mut document)?;
-    file.read_exact(&mut index)?;
-    let mut tail = [0];
-    if file.read(&mut tail)? != 0 {
+    let document = &bytes[HEADER_BYTES..HEADER_BYTES + document_size];
+    let index = &bytes[HEADER_BYTES + document_size..];
+    if checksum(document, index).as_ref() != &header[DIGEST_OFFSET..HEADER_BYTES] {
         return Err(Error::InvalidInput);
     }
-    if checksum(&document, &index).as_ref() != &header[DIGEST_OFFSET..HEADER_BYTES] {
-        return Err(Error::InvalidInput);
-    }
-    let document: Document = serde_json::from_slice(&document).map_err(|_| Error::InvalidInput)?;
-    Snapshot::from_flat_document(document, index)
+    let document: Document = serde_json::from_slice(document).map_err(|_| Error::InvalidInput)?;
+    Snapshot::from_flat_document(document, index.to_vec())
 }
-/// 仅写入 Store 排他创建的读写句柄；校验复用同一句柄，绝不按路径重开或截断。
-pub(super) fn write(file: &mut File, snapshot: &Snapshot) -> Result<()> {
+/// 只返回内存编码；是否保存、保存路径及原子替换由宿主处理。
+pub struct Encoded {
+    bytes: Vec<u8>,
+    _memory: crate::budget::ByteLease,
+}
+impl AsRef<[u8]> for Encoded {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+pub(super) fn encode(snapshot: &Snapshot) -> Result<Encoded> {
     let doc = snapshot.document();
-    let _temporary = MEMORY.reserve(
+    let temporary = MEMORY.reserve(
         doc.report
             .original
             .checked_mul(WRITE_RULE_BYTES)
-            .and_then(|n| n.checked_add(BUDGET_BASE_BYTES))
+            .and_then(|v| v.checked_add(BUDGET_BASE_BYTES))
             .ok_or(Error::ResourceLimit)?,
     )?;
     let document = serde_json::to_vec(doc).map_err(|_| Error::InvalidInput)?;
     let index = snapshot.flat_bytes()?;
     let total = HEADER_BYTES
         .checked_add(document.len())
-        .and_then(|n| n.checked_add(index.len()))
+        .and_then(|v| v.checked_add(index.len()))
         .ok_or(Error::ResourceLimit)?;
     if document.len() > MAX_DOCUMENT_BYTES || total as u64 > MAX_BYTES {
         return Err(Error::ResourceLimit);
     }
+    let memory = MEMORY.reserve(total)?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(total)
+        .map_err(|_| Error::ResourceLimit)?;
     let mut header = [0u8; HEADER_BYTES];
     header[..MAGIC.len()].copy_from_slice(MAGIC);
     header[VERSION_OFFSET..DOCUMENT_LENGTH_OFFSET].copy_from_slice(&VERSION.to_le_bytes());
@@ -139,28 +123,12 @@ pub(super) fn write(file: &mut File, snapshot: &Snapshot) -> Result<()> {
             .to_le_bytes(),
     );
     header[DIGEST_OFFSET..HEADER_BYTES].copy_from_slice(checksum(&document, index).as_ref());
-    // 句柄必须指向刚创建的空普通文件；拒绝误用，不能截断调用方的已有文件。
-    if !file.metadata()?.is_file() || file.metadata()?.len() != 0 {
-        return Err(Error::InvalidInput);
-    }
-    file.rewind()?;
-    file.write_all(&header)?;
-    file.write_all(&document)?;
-    file.write_all(index)?;
-    file.sync_all()?;
-    // 固定大小栈缓冲在原句柄上复核；路径替换不能把校验引向另一个文件。
-    file.rewind()?;
-    if file.metadata()?.len() != total as u64 {
-        return Err(Error::InvalidInput);
-    }
-    let mut buffer = [0u8; IO_BUFFER_BYTES];
-    for expected in [&header[..], &document[..], index] {
-        for chunk in expected.chunks(buffer.len()) {
-            file.read_exact(&mut buffer[..chunk.len()])?;
-            if &buffer[..chunk.len()] != chunk {
-                return Err(Error::InvalidInput);
-            }
-        }
-    }
-    Ok(())
+    bytes.extend_from_slice(&header);
+    bytes.extend_from_slice(&document);
+    bytes.extend_from_slice(index);
+    drop(temporary);
+    Ok(Encoded {
+        bytes,
+        _memory: memory,
+    })
 }

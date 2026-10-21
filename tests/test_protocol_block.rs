@@ -184,7 +184,7 @@ fn duplicate_sources_and_binary_cache_restore_guard() {
         },
     ];
     {
-        let store = Store::open(&dir).unwrap();
+        let store = Store::memory();
         store
             .update(
                 Config {
@@ -198,10 +198,16 @@ fn duplicate_sources_and_binary_cache_restore_guard() {
         assert!(s.blocks_quic());
         assert_eq!(s.document().report.effective, 1);
         assert_eq!(s.document().report.duplicates, 1);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("runtime-rules.bin"),
+            store.snapshot().unwrap().to_binary().unwrap().as_ref(),
+        )
+        .unwrap();
         store.close().unwrap();
     }
     {
-        let store = Store::open(&dir).unwrap();
+        let store = Store::open(dir.join("runtime-rules.bin")).unwrap();
         assert!(store.snapshot().unwrap().blocks_quic());
         store.close().unwrap();
     }

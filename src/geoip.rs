@@ -6,8 +6,6 @@ use crate::{
 use maxminddb::{Reader, path};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::File,
-    io::Read,
     net::IpAddr,
     path::Path,
     sync::{Arc, Mutex},
@@ -127,9 +125,12 @@ impl Service {
             database: Mutex::new(None),
         })
     }
-    /// 仅内核事务比较来源身份，不能用来自其他 URL 的旧库掩盖初始化失败。
-    pub(crate) fn source_url(&self) -> Option<&str> {
-        self.config.geoip_url.as_deref()
+    /// 仅从宿主明确提供的现有数据库读取；不创建目录、不下载或保存。
+    pub(crate) fn from_file(config: Config, path: &Path) -> Result<Self> {
+        let service = Self::new(config)?;
+        let database = Arc::new(Database::open(path)?);
+        *service.database.lock().map_err(|_| Error::Internal)? = Some(database);
+        Ok(service)
     }
     pub fn is_disabled(&self) -> bool {
         self.config.geoip_url.is_none()
@@ -238,7 +239,6 @@ impl AsRef<[u8]> for SharedBytes {
 }
 pub struct Database {
     reader: Reader<SharedBytes>,
-    source: SharedBytes,
     _lease: ByteLease,
 }
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -251,13 +251,8 @@ pub struct Location {
 impl Database {
     /// 配额在读文件之前保留；新库失败时调用者继续保留旧库。
     pub fn open(path: &Path) -> Result<Self> {
-        let metadata = std::fs::symlink_metadata(path)?;
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
-            return Err(Error::InvalidInput);
-        }
-        let mut file = File::open(path)?;
-        let length =
-            usize::try_from(file.metadata()?.len()).map_err(|_| Error::GeoipResourceLimit)?;
+        let file = crate::storage::ReadOnlyFile::open(path)?;
+        let length = file.size()?;
         if length == 0 {
             return Err(Error::GeoipInvalidDatabase);
         }
@@ -265,21 +260,7 @@ impl Database {
             return Err(Error::GeoipResourceLimit);
         }
         let lease = DATABASE_BUDGET.reserve(length).map_err(resource_error)?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(length)
-            .map_err(|_| Error::GeoipResourceLimit)?;
-        bytes.resize(length, 0);
-        file.read_exact(&mut bytes).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::UnexpectedEof {
-                Error::GeoipIntegrityFailed
-            } else {
-                Error::from(error)
-            }
-        })?;
-        if bytes.len() != length {
-            return Err(Error::InvalidInput);
-        }
+        let bytes = file.read_binary(length)?;
         Self::from_bytes(bytes, lease)
     }
     /// 格式识别与结构验证分别返回 2405/2406；不声称替代外部校验和或签名。
@@ -314,13 +295,8 @@ impl Database {
         verify_records(&reader)?;
         Ok(Self {
             reader,
-            source,
             _lease: lease,
         })
-    }
-    /// 原子缓存写入只借用已校验正文，不复制整库；数据库预算覆盖真实共享缓冲区。
-    pub(crate) fn bytes(&self) -> &[u8] {
-        self.source.as_ref()
     }
     /// 规则查询只借用两字节国家代码；无记录返回 None，数据库错误不可变成未命中。
     pub(crate) fn country_code(&self, ip: IpAddr) -> Result<Option<&str>> {

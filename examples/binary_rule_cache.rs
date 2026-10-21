@@ -7,7 +7,9 @@ use fluxa_core::routing::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory =
         std::env::temp_dir().join(format!("fluxa-binary-example-{}", std::process::id()));
-    let store = Store::open(&directory)?;
+    std::fs::create_dir(&directory)?;
+    let path = directory.join("rules.bin");
+    let store = Store::memory();
     let source = |policy| Source {
         id: "local".into(),
         layer: Layer::Local,
@@ -20,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             outbound: None,
         }],
     };
-    // Store 独占创建 0600 临时文件，写入和复核复用原句柄；宿主不能替换目录项。
+    // 本示例是 CLI 宿主；Core 只编译和返回内存编码，宿主决定保存。
     store.update(Config::default(), vec![source(Policy::Reject)])?;
     let old = store.snapshot()?;
     store.update(Config::default(), vec![source(Policy::Direct)])?;
@@ -32,9 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     assert_eq!(old.evaluate(&target)?.policy, Policy::Reject);
     assert_eq!(store.snapshot()?.evaluate(&target)?.policy, Policy::Direct);
+    std::fs::write(&path, store.snapshot()?.to_binary()?.as_ref())?;
     store.close()?;
     drop(store);
-    let reopened = Store::open(&directory)?;
+    let reopened = Store::open(&path)?;
     assert_eq!(
         reopened.snapshot()?.evaluate(&target)?.policy,
         Policy::Direct

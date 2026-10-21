@@ -1,5 +1,6 @@
 //! 主配置的内核校验入口：先预算、再严格解析、最后校验交叉引用。
 //! 成功只表示配置合法，不表示资源已启动、节点可用或 VPN 已接管。
+mod check;
 pub(crate) mod defaults;
 pub(crate) mod models;
 pub(crate) mod plugins;
@@ -9,6 +10,7 @@ use crate::{
     budget::{ByteBudget, ByteLease},
     error::{Error, Result},
 };
+pub use check::{CheckIssue, SourcePosition, check_file, check_yaml};
 use models::*;
 pub use models::{LogFilter, Mode};
 use serde::Serialize;
@@ -141,51 +143,91 @@ impl Document {
     }
 }
 fn validate(raw: &mut Raw) -> Result<()> {
-    for port in [raw.system_proxy.port, raw.lan_share.port] {
+    validate_at(raw, &mut String::new())
+}
+fn validate_at(raw: &mut Raw, path: &mut String) -> Result<()> {
+    for (field, port) in [
+        ("system-proxy.port", raw.system_proxy.port),
+        ("lan-share.port", raw.lan_share.port),
+    ] {
+        *path = field.into();
         if port != 0 && port < MIN_LISTEN_PORT {
             return Err(Error::InvalidInput);
         }
     }
+    *path = "lan-share.port".into();
     if raw.system_proxy.port != 0 && raw.system_proxy.port == raw.lan_share.port {
         return Err(Error::InvalidInput);
     }
-    if raw.proxies.len() > MAX_NODES
-        || raw.rule_providers.len() > MAX_PROVIDERS
-        || raw.plugin_providers.len() > MAX_PROVIDERS
-    {
-        return Err(Error::ResourceLimit);
+    for (field, length, limit) in [
+        ("proxies", raw.proxies.len(), MAX_NODES),
+        ("rule-providers", raw.rule_providers.len(), MAX_PROVIDERS),
+        (
+            "plugin-providers",
+            raw.plugin_providers.len(),
+            MAX_PROVIDERS,
+        ),
+    ] {
+        *path = field.into();
+        if length > limit {
+            return Err(Error::ResourceLimit);
+        }
     }
-    if !raw.proxy_providers.is_empty() || !raw.proxy_groups.is_empty() {
-        return Err(Error::Unsupported);
+    for (field, nonempty) in [
+        ("proxy-providers", !raw.proxy_providers.is_empty()),
+        ("proxy-groups", !raw.proxy_groups.is_empty()),
+    ] {
+        *path = field.into();
+        if nonempty {
+            return Err(Error::Unsupported);
+        }
     }
     let mut nodes = HashSet::new();
-    for proxy in &raw.proxies {
+    for (index, proxy) in raw.proxies.iter().enumerate() {
+        *path = format!("proxies[{index}].name");
         name(&proxy.name)?;
         if matches!(proxy.name.as_str(), "direct" | "reject") || !nodes.insert(proxy.name.as_str())
         {
             return Err(Error::InvalidInput);
         }
+        *path = format!("proxies[{index}]");
         validate_proxy(proxy)?;
     }
-    rules::validate(&raw.rules, &nodes)?;
+    *path = "rules".into();
+    let mut index = 0;
+    if let Err(error) = rules::validate_at(&raw.rules, &nodes, &mut index) {
+        if !raw.rules.is_empty() {
+            *path = format!("rules[{index}]");
+        }
+        return Err(error);
+    }
     let mut providers = HashSet::new();
-    for provider in &raw.rule_providers {
+    for (index, provider) in raw.rule_providers.iter().enumerate() {
+        *path = format!("rule-providers[{index}].name");
         provider_file_name(&provider.name)?;
         // 缓存文件跨默认大小写不敏感文件系统使用，拒绝可能指向同一文件的名称。
         if !providers.insert(provider.name.to_ascii_lowercase()) {
             return Err(Error::InvalidInput);
         }
+        *path = format!("rule-providers[{index}].url");
         https_url(&provider.url)?;
+        *path = format!("rule-providers[{index}].policy");
         rules::policy(&provider.policy, &nodes)?;
+        *path = format!("rule-providers[{index}].update-time");
         daily_time(provider.update_time.as_deref())?;
-        // enable 仅控制后续下载/参与合并，不能豁免元数据合法性。
+        // enable 仅控制参与合并，不能豁免元数据合法性。
         let _enabled = provider.enable;
     }
-    for provider in &raw.plugin_providers {
+    for (index, provider) in raw.plugin_providers.iter().enumerate() {
+        *path = format!("plugin-providers[{index}].name");
         name(&provider.name)?;
+        *path = format!("plugin-providers[{index}].category");
         name(&provider.category)?;
+        *path = format!("plugin-providers[{index}].url");
         https_url(&provider.url)?;
+        *path = format!("plugin-providers[{index}].update-time");
         daily_time(provider.update_time.as_deref())?;
+        *path = format!("plugin-providers[{index}].name");
         if raw
             .plugin_providers
             .iter()
@@ -197,22 +239,31 @@ fn validate(raw: &mut Raw) -> Result<()> {
         }
     }
     if raw.geoip.enabled {
+        *path = "geoip.url".into();
         crate::geoip::Config {
             geoip_url: Some(raw.geoip.url.clone().ok_or(Error::GeoipInvalidUrl)?),
         }
         .validate()?;
+        *path = "geoip.update-time".into();
         daily_time(raw.geoip.update_time.as_deref())?;
     }
-    validate_dns(&mut raw.dns, &nodes)?;
+    *path = "dns".into();
+    validate_dns(&mut raw.dns, &nodes, path)?;
+    *path = "outbound-limits".into();
     raw.outbound_limits.validate()?;
+    *path = "lan-share.password".into();
     validate_auth(&raw.lan_share.account, &raw.lan_share.password)?;
+    *path = "system-proxy.bypass".into();
     validate_patterns(&raw.system_proxy.bypass, true)?;
+    *path = "tun.bypass".into();
     if raw.tun.exclude_routes.len() > MAX_ADDRESS_FILTERS {
         return Err(Error::ResourceLimit);
     }
-    for route in &raw.tun.exclude_routes {
+    for (index, route) in raw.tun.exclude_routes.iter().enumerate() {
+        *path = format!("tun.bypass[{index}]");
         crate::network::Network::parse(route)?;
     }
+    *path = "tun.mtu".into();
     if raw.tun.enable {
         if !(1280..=65535).contains(&raw.tun.mtu) {
             return Err(Error::InvalidInput);
@@ -230,25 +281,31 @@ fn validate(raw: &mut Raw) -> Result<()> {
             return Err(Error::InvalidInput);
         }
     }
+    *path = "mitm.hosts".into();
     if raw.mitm.enabled && raw.mitm.hosts.is_empty() {
         return Err(Error::InvalidInput);
     }
     // 正式配置不包含全量解密字段；hosts 始终按普通域名/通配符范围校验。
     // 专用调试全量解密必须由独立授权路径控制。
+    *path = "mitm.hosts".into();
     validate_patterns(&raw.mitm.hosts, false)?;
+    *path = "mitm.bypass".into();
     validate_patterns(&raw.mitm.exclude_hosts, false)?;
     if raw.mitm.hosts.len() > MAX_ADDRESS_FILTERS || raw.rewrites.len() > 1024 {
         return Err(Error::ResourceLimit);
     }
     // 记录配置选择，实际 TLS/正文捕获管线在后续完整配置事务接入，不能据此声明运行成功。
     let _mitm_execution = (raw.mitm.skip_server_cert_verify, raw.mitm.capture_body);
+    *path = "scripts.name".into();
     if let Some(script) = &raw.scripts {
         script_name(&script.name)?;
+        *path = "scripts.url".into();
         if let Some(url) = &script.url {
             https_url(url)?;
         }
     }
-    for rewrite in &mut raw.rewrites {
+    for (index, rewrite) in raw.rewrites.iter_mut().enumerate() {
+        *path = format!("rewrites[{index}]");
         rewrite.validate()?;
         if let Some(node) = rewrite.proxy_node()
             && !raw.proxies.iter().any(|p| p.name == node)
@@ -365,26 +422,30 @@ fn validate_proxy(proxy: &Proxy) -> Result<()> {
     proxy_profile(proxy)?.validate()?;
     Ok(())
 }
-fn validate_dns(dns: &mut Dns, nodes: &HashSet<&str>) -> Result<()> {
+fn validate_dns(dns: &mut Dns, nodes: &HashSet<&str>, path: &mut String) -> Result<()> {
     // 关闭后不检查上游、hosts 和 Fake-IP 的业务值，也不创建任何解析器或合成地址池。
     if !dns.enable {
         return Ok(());
     }
+    *path = "dns.server".into();
     if dns.nameserver.is_empty() || dns.nameserver.len() > MAX_DNS_SERVERS {
         return Err(Error::InvalidInput);
     }
     if !(1..=30).contains(&dns.timeout) {
         dns.timeout = dns_timeout();
     }
+    *path = "dns.bootstrap".into();
     if let Some(servers) = &dns.default_nameserver {
         if servers.is_empty() || servers.len() > MAX_DNS_SERVERS {
             return Err(Error::InvalidInput);
         }
-        for value in servers {
+        for (index, value) in servers.iter().enumerate() {
+            *path = format!("dns.bootstrap[{index}]");
             numeric_dns(value)?;
         }
     }
-    for value in &dns.nameserver {
+    for (index, value) in dns.nameserver.iter().enumerate() {
+        *path = format!("dns.server[{index}]");
         // system 只能由用户在 server 列表中显式声明，保留原位置作为普通上游。
         // 不为未声明的列表补入它，不把失败转换为隐式系统回退；bootstrap 仍只允许数字地址。
         // 此处仅校验配置，顺序查询和系统解析适配由后续 DNS 编排实现。
@@ -424,10 +485,12 @@ fn validate_dns(dns: &mut Dns, nodes: &HashSet<&str>) -> Result<()> {
             return Err(Error::InvalidInput);
         }
     }
-    for (host, address) in &dns.hosts {
+    for (index, (host, address)) in dns.hosts.iter().enumerate() {
+        *path = format!("dns.hosts[{index}]");
         rules::domain(host)?;
         address.parse::<IpAddr>().map_err(|_| Error::InvalidInput)?;
     }
+    *path = "dns.fake-ip".into();
     if let Some(fake) = &dns.fake_ip
         && fake.enable
     {
@@ -531,7 +594,7 @@ fn mitm_scope(config: &Mitm, host: &str) -> bool {
 #[derive(Serialize)]
 pub struct ConfigurationStatus {
     pub revision: u64,
-    /// 主配置启用状态；下载失败由调用 Err/控制状态 error_info 表达，不能冒充 Disabled。
+    /// 主配置启用状态；资源读取或准备失败由调用 Err/控制状态 error_info 表达，不能冒充 Disabled。
     pub geoip_status: crate::geoip::Status,
     pub configuration: Option<Summary>,
 }
@@ -576,9 +639,6 @@ impl Document {
     pub(crate) fn dns_settings(&self) -> &models::Dns {
         &self.raw.dns
     }
-    pub(crate) fn geoip_time(&self) -> Option<&str> {
-        self.raw.geoip.update_time.as_deref()
-    }
     pub(crate) fn ip_strategy(&self) -> models::IpStrategy {
         self.raw.ip_strategy
     }
@@ -595,7 +655,7 @@ impl Document {
     ) -> Result<Prepared> {
         self.prepare_inner(sources, false, None, PreparationPurpose::Configuration)
     }
-    pub(crate) fn prepare_download(
+    pub(crate) fn prepare_transport(
         self: std::sync::Arc<Self>,
         database: Option<std::sync::Arc<crate::geoip::Database>>,
         purpose: PreparationPurpose,
@@ -615,7 +675,7 @@ impl Document {
         {
             return Err(Error::Unsupported);
         }
-        // 来源总数包含本地来源，过量请求必须在下载前受控拒绝。
+        // 来源总数包含本地来源，过量请求必须在读取资源前受控拒绝。
         if raw.rule_providers.iter().filter(|p| p.enable).count()
             >= crate::routing::runtime::MAX_SOURCES
         {
@@ -676,18 +736,7 @@ impl Document {
             ))?);
         Ok(Prepared {
             plugins: std::sync::Arc::new(plugins::Bundle::default()),
-            scripts: if download {
-                std::sync::Arc::default()
-            } else {
-                crate::script::worker::Bindings::compile(
-                    self.raw.scripts.as_ref().map(|s| s.name.as_str()),
-                    self.raw
-                        .rewrites
-                        .iter()
-                        .filter_map(|r| r.script_reference())
-                        .collect(),
-                )?
-            },
+            scripts: std::sync::Arc::default(),
             resolver: None,
             geoip: None,
             document: self,
@@ -699,8 +748,7 @@ impl Document {
 
 impl Document {
     pub(crate) fn has_assets(&self) -> bool {
-        !self.raw.plugin_providers.is_empty()
-            || self.raw.scripts.as_ref().is_some_and(|s| s.url.is_some())
+        !self.raw.plugin_providers.is_empty() || self.raw.scripts.is_some()
     }
 }
 

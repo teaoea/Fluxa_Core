@@ -48,7 +48,7 @@ fn cache_round_trip_preserves_independent_policy_matrix() {
         outbound: (policy == Policy::Proxy).then(|| "contract-proxy".into()),
     })
     .collect();
-    let store = Store::open(&directory.0).unwrap();
+    let store = Store::memory();
     store
         .update(
             Config::default(),
@@ -92,8 +92,14 @@ fn cache_round_trip_preserves_independent_policy_matrix() {
         }
     };
     assert_expected(&store);
+    let file = directory.0.join("host-rules.bin");
+    std::fs::write(
+        &file,
+        store.snapshot().unwrap().to_binary().unwrap().as_ref(),
+    )
+    .unwrap();
     store.close().unwrap();
-    let recovered = Store::open(&directory.0).unwrap();
+    let recovered = Store::open(&file).unwrap();
     assert_expected(&recovered);
     recovered.close().unwrap();
 }

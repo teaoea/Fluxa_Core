@@ -1,0 +1,52 @@
+# 默认配置文件
+
+# 问题反馈地址，反馈问题是需提交日志
+# Issues：https://github.com/teaoea/fluxa-app/issues
+
+# silent，不记录日志
+# info，记录完整日志，含debug、warn、error
+# debug，仅记录调试日志
+# warn，仅记录警告日志
+# error，仅记录错误日志
+log-level: silent # 默认silent
+
+system-proxy:
+  # 系统代理监听端口，默认0，表示禁用系统代理，http/https/socks5共用同一端口
+  # 禁止使用1–1053在内的端口，禁止使用与局域网共享相同端口
+  port: 0
+  # 需要绕过的地址
+  bypass:
+    ["127.0.0.1", "192.168.0.0/16", "10.0.0.0/8", "localhost", "*.local", "::1"]
+
+lan-share:
+  # 局域网共享监听端口，默认0，表示禁用局域网共享，禁止使用1–1053在内的端口，禁止使用系统代理端口
+  port: 0
+  # 局域网http/https/socks5访问用户和密码,默认为空
+  account: ""
+  password: ""
+
+# 运行模式，默认 rule（规则模式），可选值：rule、global、direct
+mode: rule
+
+# GeoIP配置
+# 下载并校验成功后保存为下述目录中的 geoip.mmdb；规则集保存为 <name>.yaml。
+# MaxMind GeoLite2 Country MMDB
+# https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb
+geoip:
+  enabled: false # false：禁用GeoIP；true：启用GeoIP，每次软件重新启动时或者到了更新时间会下载mmdb
+  #url: "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-Country.mmdb" # 如需配置GeoIP，建议使用这个mmdb数据库
+  url: "https://example.com" # 示例占位地址，请换成自己的原始 .mmdb HTTPS 地址。
+  update-time: "00:00" # 每天00:00更新；必须使用带引号的 HH:mm，使用设备本地时区
+
+# prefer-ipv4：优先查询A记录并尝试IPv4，无法使用时才查询AAAA记录并尝试IPv6
+# prefer-ipv6：优先查询AAAA记录并尝试IPv6，无法使用时才查询A记录并尝试IPv4
+# only-ipv4：仅使用IPv4，主动解析时不查询AAAA记录，不允许回退
+# only-ipv6：仅使用IPv6，主动解析时不查询A记录，不允许回退
+ip-strategy: prefer-ipv6
+
+plugin-providers: []
+
+rule-providers: []
+
+rules:
+  - final,direct # 兜底规则

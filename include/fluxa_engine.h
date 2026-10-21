@@ -68,5 +68,12 @@ int32_t fluxa_engine_tun_receive(uint64_t handle, uint64_t *output);
 
 /* 能力位 29：VPN 隔离资产候选准备；不表示前置检查通过、权限许可或系统接管。 */
 
-/* 能力位 30：storage_initialize / configuration_load / configuration_save；只使用系统 App Group，
-   无共享组签名权限或扩展写配置返回现有结构化错误，不接受外部绝对路径。 */
+/* 能力位 30 的旧目录写入接口已移除。能力位 31：configuration_default 返回纯模板，
+   configuration_load / configuration_apply_file / vpn_preparation_begin_file 只读宿主授权的绝对文件。
+   路径不授予 sandbox/App Group 权限；Core 不创建目录、下载落盘或修复配置。 */
+
+/* 配置检查命令（不应用、不保存、不启动 VPN）：
+   configuration_check 接收 yaml；configuration_check_file 接收宿主授权的现有绝对 path。
+   失败保留固定 error_info，并在 configuration_issue 中提供 field 和可空 position。
+   position.line/column 从 1 开始，utf16_offset 从 0 开始；编辑器据偏移换算自动换行显示位置。
+   完整请求、Schema、错误及权限边界见 Documentation/API/配置文件检查.md。 */

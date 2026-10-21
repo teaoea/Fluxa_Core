@@ -423,7 +423,7 @@ impl NetworkSnapshot {
 mod test_outbound_configuration;
 
 impl Manager {
-    /// 异步主配置意图：DNS、GeoIP、提供者下载/计划/缓存均由内核拥有，失败保留旧配置。
+    /// 异步主配置意图：DNS 和内存快照由内核拥有，磁盘资源由宿主提供，失败保留旧配置。
     /// 仅不需要异步子系统且没有活动控制器时可使用同步 apply_configuration。
     pub async fn apply_configuration_async(self: &Arc<Self>, yaml: &str) -> Result<u64> {
         let document = Arc::new(crate::configuration::Document::from_yaml(yaml)?);
@@ -440,7 +440,8 @@ impl Manager {
             return self.commit_configuration(revision, document.prepare_shared(Vec::new())?);
         }
         let client = crate::https::HttpsClient::system()?;
-        self.apply_provider_document(document, client, None).await
+        self.apply_provider_document(document, client, crate::storage::Resources::default())
+            .await
     }
     /// TLS 配置沿用 HTTPS 客户端的系统/企业根，忽略其网络对象；业务路由由内核候选配置生成。
     pub async fn apply_configuration_with_client(
@@ -449,13 +450,27 @@ impl Manager {
         client: crate::https::HttpsClient,
     ) -> Result<u64> {
         let document = Arc::new(crate::configuration::Document::from_yaml(yaml)?);
-        self.apply_provider_document(document, client, None).await
+        self.apply_provider_document(document, client, crate::storage::Resources::default())
+            .await
+    }
+    /// 读取宿主明确授权的主配置文件及资源清单，不使用 App Group 或任何默认目录。
+    pub async fn apply_configuration_file(
+        self: &Arc<Self>,
+        path: &str,
+        resources: crate::storage::Resources,
+    ) -> Result<u64> {
+        resources.validate()?;
+        let yaml = crate::storage::read_configuration(path)?;
+        let document = Arc::new(crate::configuration::Document::from_yaml(yaml.as_str())?);
+        let client = crate::https::HttpsClient::system()?;
+        self.apply_provider_document(document, client, resources)
+            .await
     }
     pub(crate) async fn apply_provider_document(
         self: &Arc<Self>,
         document: Arc<crate::configuration::Document>,
         client: crate::https::HttpsClient,
-        home: Option<std::path::PathBuf>,
+        resources: crate::storage::Resources,
     ) -> Result<u64> {
         let _serial = self.provider_control.lock().await;
         // 在任何文件/网络操作前拒绝尚未实现的活动能力，不能部分接管。
@@ -467,7 +482,11 @@ impl Manager {
             }
             state.providers.clone()
         };
-        if !document.needs_runtime()
+        if resources.plugins.is_empty()
+            && resources.rules.is_empty()
+            && resources.script.is_none()
+            && resources.geoip.is_none()
+            && !document.needs_runtime()
             && existing.is_none()
             && document.provider_settings().is_empty()
         {
@@ -477,11 +496,7 @@ impl Manager {
         let runtime = if let Some(runtime) = existing {
             runtime
         } else {
-            let home = match home {
-                Some(root) => root,
-                None => crate::storage::asset_root()?,
-            };
-            let runtime = crate::providers::Runtime::new(self, client, home)?;
+            let runtime = crate::providers::Runtime::new(self, client)?;
             {
                 let mut state = self.state.lock().map_err(|_| Error::Internal)?;
                 if state.stopped {
@@ -489,13 +504,12 @@ impl Manager {
                 }
                 state.providers = Some(runtime.clone());
             }
-            runtime.launch()?;
             runtime
         };
-        // 控制面 future 在此擦除嵌套类型，避免公开 async 调用方承受整个下载/解析/提交栈的布局深度。
+        // 控制面 future 在此擦除嵌套类型，避免公开 async 调用方承受整个读取/解析/提交栈的布局深度。
         let operation: std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<u64>> + Send + '_>,
-        > = Box::pin(runtime.apply(document, None, false));
+        > = Box::pin(runtime.apply_files(document, resources));
         operation.await
     }
     pub(crate) fn provider_runtime(&self) -> Result<Option<Arc<crate::providers::Runtime>>> {
@@ -515,11 +529,11 @@ impl Manager {
                 revision: None,
                 providers: Vec::new(),
                 error_info: None,
-                directory_synced: true,
+                read_only: true,
             }),
         }
     }
-    /// 手动刷新单项或全部已声明提供者，不会自动启用停用项。
+    /// 旧刷新入口明确拒绝；宿主更新文件后显式重新提交资源清单。
     pub async fn refresh_providers(&self, name: Option<String>) -> Result<u64> {
         // 与配置意图串行，不能用排队前读取的旧文档覆盖刚提交的新配置。
         let _serial = self.provider_control.lock().await;
@@ -530,7 +544,7 @@ impl Manager {
         operation.await
     }
 
-    /// 手动更新当前主配置 GeoIP；下载/校验/规则编译成功才发布，失败返回原错误并保留旧方案。
+    /// 旧 GeoIP 刷新入口明确拒绝；由宿主更新文件后重新提交，不自行下载或落盘。
     pub async fn refresh_geoip(&self) -> Result<u64> {
         let _serial = self.provider_control.lock().await;
         self.provider_runtime()?
@@ -579,26 +593,6 @@ impl Manager {
             router: Some(router),
             outbounds: Arc::new(outbounds),
             ..Default::default()
-        })
-    }
-    pub(crate) fn configure_provider_download(
-        &self,
-        prepared: &crate::configuration::Prepared,
-        authority: Arc<crate::lifecycle::session::Authority>,
-    ) -> Result<u64> {
-        self.replace_network(|_| NetworkSnapshot {
-            resolver: prepared.resolver.clone(),
-            ip_strategy: prepared.document.ip_strategy(),
-            configuration_complete: true,
-            scripts: prepared.scripts.clone(),
-            plugins: prepared.plugins.clone(),
-            configuration: Some(prepared.document.clone()),
-            router: Some(prepared.router.clone()),
-            outbounds: prepared.outbounds.clone(),
-            limits: prepared.document.raw_limits(),
-            system_dns: !prepared.document.dns_settings().enable,
-            session: Some(authority),
-            ..NetworkSnapshot::default()
         })
     }
     pub(crate) fn commit_provider_configuration(
@@ -657,6 +651,7 @@ impl Manager {
         self: &Arc<Self>,
         document: Arc<crate::configuration::Document>,
         client: crate::https::HttpsClient,
+        resources: crate::storage::Resources,
     ) -> Result<u64> {
         document.preparation_preflight(crate::configuration::PreparationPurpose::VpnCandidate)?;
         let runtime = crate::providers::Runtime::candidate(self, client)?;
@@ -669,7 +664,7 @@ impl Manager {
         }
         let operation: std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<u64>> + Send + '_>,
-        > = Box::pin(runtime.apply(document, None, false));
+        > = Box::pin(runtime.apply_files(document, resources));
         operation.await
     }
 }
