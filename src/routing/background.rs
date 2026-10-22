@@ -171,7 +171,7 @@ impl Service {
         let store = Arc::clone(&self.store);
         let manager = Arc::clone(&self.manager);
         let result = std::thread::Builder::new()
-            .name("fluxa-rule-compiler".into())
+            .name("nodus-rule-compiler".into())
             .spawn(move || {
                 let _worker = worker;
                 let _input = input;

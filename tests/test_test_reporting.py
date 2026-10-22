@@ -67,7 +67,7 @@ class ReportingContract(unittest.TestCase):
                 reporting.save_report(row, {'status': 'NOT RUN', 'fingerprint': 'same', 'time': record['time'],
                                            '_preserve_current': True}, {'ci_run_id': None}, evidence)
                 self.assertEqual(report.read_text(), before)
-                metadata = json.loads(re.search(r'<!-- fluxa-test-report:(.*) -->', before)[1])
+                metadata = json.loads(re.search(r'<!-- nodus-test-report:(.*) -->', before)[1])
                 self.assertEqual(metadata['status'], 'PASS')
 
     def test_support_fixture_cannot_be_counted_as_passing_suite(self):

@@ -1,20 +1,20 @@
 [package]
 autotests = false
-name = "libfluxa_core"
+name = "Nodus-Core"
 version = "2.8.0-dev"
 authors = ["可莉唯一的狗"]
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
-homepage = "https://github.com/teaoea/Fluxa_Core"
+homepage = "https://github.com/teaoea/Nodus-Core"
 readme = "README.md"
 publish = false
 keywords = ["proxy", "https", "mitm", "ffi", "network"]
 categories = ["network-programming"]
-include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/main-config-supported.yaml", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/README_ENGLISH.md", "/example_config.yaml", "/rules.yaml", "/LICENSE", "/LICENSE.md", "/Documentation/**", "/AGENTS/**", "/Notices/**"]
+include = ["/src/**/*.rs", "/include/**", "/tests/**/*.rs", "/tests/fixtures/main-config-supported.yaml", "/tests/fixtures/error-contract-v1.json", "/tests/fixtures/error-contract-v2.json", "/tests/fixtures/error-contract-v2.4.1.json", "/tests/**/*.md", "/examples/**/*.rs", "/Cargo.toml", "/Cargo.lock", "/README.md", "/example_config.yaml", "/default_config.yaml", "/default_config_en.yaml", "/rules.yaml", "/LICENSE", "/LICENSE.md", "/Documentation/**", "/AGENTS/**", "/Notices/**"]
 
 [lib]
-name = "fluxa_core"
+name = "nodus_core"
 crate-type = ["rlib", "staticlib"]
 
 [profile.release]
@@ -54,7 +54,7 @@ aho-corasick = "=1.1.4"
 psl = "=2.1.238"
 maxminddb = { version = "=0.32.0", default-features = false }
 
-# 移动 Apple 平台与 Catalyst 没有 QuickJS 预生成绑定，按目标 SDK 生成。
+# 移动 Apple 平台 没有 QuickJS 预生成绑定，按目标 SDK 生成。
 [target.'cfg(all(target_vendor = "apple", not(target_os = "macos")))'.dependencies]
 rquickjs = { version = "=0.14.0", default-features = false, features = ["bindgen"] }
 

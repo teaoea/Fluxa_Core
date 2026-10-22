@@ -60,19 +60,19 @@ class ApplePlatformsTests(unittest.TestCase):
             self.assertEqual((output/'sentinel').read_text(),'保留')
     def test_package_names_and_contents(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary);framework=root/'FluxaEngine.xcframework';framework.mkdir()
-            library={'LibraryIdentifier':'ios-arm64-simulator','LibraryPath':'fluxa_core.framework','SupportedArchitectures':['arm64'],'SupportedPlatform':'ios','SupportedPlatformVariant':'simulator'}
+            root=Path(temporary);framework=root/'NodusEngine.xcframework';framework.mkdir()
+            library={'LibraryIdentifier':'ios-arm64-simulator','LibraryPath':'nodus_core.framework','SupportedArchitectures':['arm64'],'SupportedPlatform':'ios','SupportedPlatformVariant':'simulator'}
             with (framework/'Info.plist').open('wb') as stream:
                 plistlib.dump({'AvailableLibraries':[library],'XCFrameworkFormatVersion':'1.0'},stream)
-            child=framework/library['LibraryIdentifier']/'fluxa_core.framework';child.mkdir(parents=True)
-            (child/'fluxa_core').write_bytes(b'static archive fixture')
+            child=framework/library['LibraryIdentifier']/'nodus_core.framework';child.mkdir(parents=True)
+            (child/'nodus_core').write_bytes(b'static archive fixture')
             with (child/'Info.plist').open('wb') as stream:
-                plistlib.dump({'MinimumOSVersion':'16.0','FluxaCoreVersion':'2.8.0-dev','FluxaSourceCommit':'a'*40,'FluxaSourceDirty':True},stream)
+                plistlib.dump({'MinimumOSVersion':'16.0','NodusCoreVersion':'2.8.0-dev','NodusSourceCommit':'a'*40,'NodusSourceDirty':True},stream)
             output=root/'packages';builder.package_slices(framework,output)
-            self.assertEqual({p.name for p in output.iterdir()},{'fluxa-core-ios-arm64-simulator.zip','manifest.json','SHA256SUMS'})
-            with zipfile.ZipFile(output/'fluxa-core-ios-arm64-simulator.zip') as archive:
-                self.assertIn('FluxaEngine.xcframework/ios-arm64-simulator/fluxa_core.framework/fluxa_core',archive.namelist())
-                info=plistlib.loads(archive.read('FluxaEngine.xcframework/Info.plist'))
+            self.assertEqual({p.name for p in output.iterdir()},{'nodus-core-ios-arm64-simulator.zip','manifest.json','SHA256SUMS'})
+            with zipfile.ZipFile(output/'nodus-core-ios-arm64-simulator.zip') as archive:
+                self.assertIn('NodusEngine.xcframework/ios-arm64-simulator/nodus_core.framework/nodus_core',archive.namelist())
+                info=plistlib.loads(archive.read('NodusEngine.xcframework/Info.plist'))
                 self.assertEqual(info['AvailableLibraries'],[library])
             record=json.loads((output/'manifest.json').read_text())[0]
             self.assertEqual((record['os'],record['arch'],record['abi'],record['minimum']),('ios','arm64','simulator','16.0'))

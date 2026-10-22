@@ -23,7 +23,7 @@ mod tests {
     use super::super::*;
     #[test]
     fn invalid_database_is_rejected() {
-        let path = std::env::temp_dir().join(format!("fluxa-geoip-invalid-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("nodus-geoip-invalid-{}", std::process::id()));
         std::fs::write(&path, b"not an mmdb").unwrap();
         assert!(Database::open(&path).is_err());
         std::fs::remove_file(path).unwrap();
@@ -78,11 +78,11 @@ mod classification_tests {
 use crate::test_fixture_https as support;
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
-    use fluxa_core::{error::Error, geoip::Database};
+    use nodus_core::{error::Error, geoip::Database};
     use support::geoip_data as fixture;
     #[test]
     fn offline_ipv4_ipv6_missing_invalid_and_file_limits() {
-        let path = std::env::temp_dir().join(format!("fluxa-geoip-test-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("nodus-geoip-test-{}", std::process::id()));
         std::fs::write(&path, fixture::fixture()).unwrap();
         let database = Database::open(&path).unwrap();
         let result = database.lookup("8.8.8.8", "zh-CN").unwrap().unwrap();
@@ -123,8 +123,8 @@ mod public_contract {
     }
 
     use super::support;
-    use fluxa_core::error::ErrorCode;
-    use fluxa_core::geoip::{Config, Service};
+    use nodus_core::error::ErrorCode;
+    use nodus_core::geoip::{Config, Service};
 
     #[test]
     fn configured_url_is_strict_and_never_defaults() {
@@ -192,7 +192,7 @@ mod public_contract {
         let fixture = support::fixture().await;
         let mut roots = rustls::RootCertStore::empty();
         roots.add(fixture.root.clone()).unwrap();
-        let client = fluxa_core::https::HttpsClient::with_roots(roots)
+        let client = nodus_core::https::HttpsClient::with_roots(roots)
             .unwrap()
             .with_network(fixture.network.clone());
         let url = |path: &str| Config {
@@ -288,7 +288,7 @@ mod public_contract {
             let info = error.public_info();
             let bytes = serde_json::to_vec(&info).unwrap();
             assert_eq!(
-                fluxa_core::error::ErrorInfo::from_json(&bytes).unwrap(),
+                nodus_core::error::ErrorInfo::from_json(&bytes).unwrap(),
                 info
             );
         }
@@ -297,7 +297,7 @@ mod public_contract {
     #[test]
     fn reachable_corruption_is_rejected_and_query_fault_is_not_no_match() {
         let path =
-            std::env::temp_dir().join(format!("fluxa-geoip-corruption-{}", std::process::id()));
+            std::env::temp_dir().join(format!("nodus-geoip-corruption-{}", std::process::id()));
         let mut damaged = fixture::fixture();
         damaged[..3].fill(0); // 左分支回到根节点：不能以合法 MMDB 元数据掩盖搜索树损坏。
         std::fs::write(&path, damaged).unwrap();
@@ -330,7 +330,7 @@ fn ready_database_binds_country_rules_and_source_priority() {
     };
     use std::sync::Arc;
     let path = std::env::temp_dir().join(format!(
-        "fluxa-country-rule-{}-{}",
+        "nodus-country-rule-{}-{}",
         std::process::id(),
         crate::lifecycle::identifier().unwrap()
     ));

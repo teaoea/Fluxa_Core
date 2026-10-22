@@ -18,9 +18,9 @@ TCP、分片、IPv4 选项、IPv6 扩展头、ICMP、超 MTU 报文明确拒绝�
 
 ## 二进制 FFI 与宿主
 
-能力位 21 仅表示 UDP 数据包转发，不表示系统 VPN。`tun_udp_open` 严格校验选项；`tun_udp_close` 可以越过普通请求配额取消会话。数据面使用 `fluxa_engine_tun_submit` 和 `fluxa_engine_tun_receive`，不使用 JSON/Base64。输入指针只在同步调用期借用；接收返回统一资源句柄，复制后必须 destroy。错误和队列空状态分开；详见头文件状态码。Swift `NativeTunUDPClient` 仅封装配置、参数、二进制借用与资源释放，不实现协议逻辑。
+能力位 21 仅表示 UDP 数据包转发，不表示系统 VPN。`tun_udp_open` 严格校验选项；`tun_udp_close` 可以越过普通请求配额取消会话。数据面使用 `nodus_core_tun_submit` 和 `nodus_core_tun_receive`，不使用 JSON/Base64。输入指针只在同步调用期借用；接收返回统一资源句柄，复制后必须 destroy。错误和队列空状态分开；详见头文件状态码。Swift `NativeTunUDPClient` 仅封装配置、参数、二进制借用与资源释放，不实现协议逻辑。
 
-App、CLI 与未来网关可使用同一个 Session；不创建系统接口或改变系统网络。`tun_start`、`fluxa_engine_start` 和 App PacketTunnelProvider 仍明确拒绝系统隧道启动。后续顺序为 TUN DNS 衔接、TCP 流处理、macOS Network Extension，之后网关与其他入口。
+App、CLI 与未来网关可使用同一个 Session；不创建系统接口或改变系统网络。`tun_start`、`nodus_core_start` 和 App PacketTunnelProvider 仍明确拒绝系统隧道启动。后续顺序为 TUN DNS 衔接、TCP 流处理、macOS Network Extension，之后网关与其他入口。
 
 ## v1.9.0 发布记录
 
@@ -56,7 +56,7 @@ IPv4 分片、IPv4 选项、IPv6 扩展头/分片/jumbogram、ICMP 和其他传�
 
 ## FFI 与平台分工
 
-复用 ABI 1 的 `fluxa_engine_command`、结果句柄与释放入口，不增加裸指针业务对象。
+复用 ABI 1 的 `nodus_core_command`、结果句柄与释放入口，不增加裸指针业务对象。
 
 - packet_open：创建一个检查会话，mtu 必填；重复创建拒绝。
 - packet_inspect：传入 Base64 编码的一个 IP 包，返回 packet_info；编码输入上限 12000 字节，原始包受 MTU 限制。

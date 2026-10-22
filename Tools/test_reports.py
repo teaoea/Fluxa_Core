@@ -123,7 +123,7 @@ def check_layout(check_reports=False):
             if not report.exists():
                 errors.append('缺少同名报告：' + row['id'])
                 continue
-            match = re.search(r'<!-- fluxa-test-report:(.*) -->', report.read_text())
+            match = re.search(r'<!-- (?:nodus|fluxa)-test-report:(.*) -->', report.read_text())
             try:
                 record = json.loads(match[1]) if match else {}
             except json.JSONDecodeError:
@@ -212,18 +212,18 @@ def environment():
     return {'os': platform.platform(), 'architecture': platform.machine(), 'rust': output(['rustc', '--version']),
             'cargo': output(['cargo', '--version']), 'commit': output(['git', 'rev-parse', 'HEAD']),
             'dirty': bool(output(['git', 'status', '--porcelain'])), 'features': 'Cargo 默认 features；未启用 --all-features',
-            'optional_environments': {key: bool(os.environ.get(key)) for key in ('FLUXA_DEBUG_TEST_REQUIREMENT', 'FLUXA_DEBUG_TEST_SWIFT', 'FLUXA_PROTOCOL_PROFILE', 'FLUXA_PROTOCOL_FIXTURE')}, 'ci_run_id': os.environ.get('GITHUB_RUN_ID'), 'ci_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT')}
+            'optional_environments': {key: bool(os.environ.get(key)) for key in ('NODUS_DEBUG_TEST_REQUIREMENT', 'NODUS_DEBUG_TEST_SWIFT', 'NODUS_PROTOCOL_PROFILE', 'NODUS_PROTOCOL_FIXTURE')}, 'ci_run_id': os.environ.get('GITHUB_RUN_ID'), 'ci_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT')}
 
 
 def save_report(row, record, env, directory):
     # Rust 收尾与 Swift 外部执行可能并发；同一报告锁下检查/写入，不能把实际执行覆盖成 NOT RUN。
     key = hashlib.sha256((str(ROOT) + row['id']).encode()).hexdigest()
-    lock = Path(tempfile.gettempdir()) / ('fluxa-test-report-' + key + '.lock')
+    lock = Path(tempfile.gettempdir()) / ('nodus-test-report-' + key + '.lock')
     with lock.open('a') as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         report = ROOT / Path(row['file']).with_suffix('.md')
         if record.get('_preserve_current') and report.exists():
-            matched = re.search(r'<!-- fluxa-test-report:(.*) -->', report.read_text())
+            matched = re.search(r'<!-- (?:nodus|fluxa)-test-report:(.*) -->', report.read_text())
             try:
                 previous = json.loads(matched[1]) if matched else {}
             except json.JSONDecodeError:
@@ -255,9 +255,9 @@ def _save_report_locked(row, record, env, directory):
     if report.exists():
         (directory / (row['id'] + '.before-' + str(attempt) + '.md')).write_bytes(report.read_bytes())
     evidence = str(directory)
-    artifact = ('fluxa-test-evidence-' + str(env['ci_run_id']) + '-' + str(env['ci_run_attempt'])) if env['ci_run_id'] else '本地证据目录；未宣称已上传 CI'
+    artifact = ('nodus-test-evidence-' + str(env['ci_run_id']) + '-' + str(env['ci_run_attempt'])) if env['ci_run_id'] else '本地证据目录；未宣称已上传 CI'
     failure_note = ('本次观察到断言失败；实际错误及期望/实际输出见下方和原始日志。' if counts['FAIL'] else '本次未观察到断言失败不等于不存在缺陷；平台门控的未发现用例不计通过。')
-    lines = ['# 测试报告：' + row['id'], '', '<!-- fluxa-test-report:' + json.dumps(meta, ensure_ascii=False) + ' -->', '',
+    lines = ['# 测试报告：' + row['id'], '', '<!-- nodus-test-report:' + json.dumps(meta, ensure_ascii=False) + ' -->', '',
              '## 基本信息', '', '- 测试文件：`' + row['file'] + '`', '- 测试对象：' + '、'.join(row.get('sources') or ['共享测试夹具；不是独立覆盖承诺']),
              '- 执行机制：' + row['kind'], '- 测试范围：' + record.get('scope', '本文件登记且在当前平台实际发现的全部用例'),
              '- 实际命令：`' + ' '.join(record.get('command', [])) + '`', '- 执行时间：' + record['time'],
@@ -296,7 +296,7 @@ def run(args):
     env = environment()
     digest = fingerprint()
     now = datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat()
-    directory = Path(args.evidence_dir or tempfile.mkdtemp(prefix='fluxa-test-evidence-')).resolve()
+    directory = Path(args.evidence_dir or tempfile.mkdtemp(prefix='nodus-test-evidence-')).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     print('测试证据：' + str(directory), flush=True)
     records = {}
@@ -409,7 +409,7 @@ def external(args):
     argv = args.command[1:] if args.command and args.command[0] == '--' else args.command
     if not argv:
         raise ValueError('外部执行器需要真实命令')
-    directory = Path(args.evidence_dir or os.environ.get('FLUXA_TEST_EVIDENCE_DIR') or tempfile.mkdtemp(prefix='fluxa-test-evidence-')).resolve()
+    directory = Path(args.evidence_dir or os.environ.get('NODUS_TEST_EVIDENCE_DIR') or tempfile.mkdtemp(prefix='nodus-test-evidence-')).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     env = environment()
     digest = fingerprint()

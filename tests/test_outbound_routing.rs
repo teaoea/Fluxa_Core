@@ -19,7 +19,7 @@
 
 #[path = "test_fixture_dns.rs"]
 mod support;
-use fluxa_core::{
+use nodus_core::{
     dns::{Config as DNSConfig, Query, Resolver, Server, fake_ip},
     error::Error,
     outbound::{Family, Manager, RoutedTarget},

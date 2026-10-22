@@ -1,9 +1,9 @@
 //! 仅准备本地规则候选并读取摘要；不下载提供者、不修改缓存或系统网络。
-use fluxa_core::vpn::{Phase, Preparation};
+use nodus_core::vpn::{Phase, Preparation};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let candidate =
-        Preparation::begin("tun: {enable: true, name: fluxa0}\nrules: ['final,direct']")?;
+        Preparation::begin("tun: {enable: true, name: nodus0}\nrules: ['final,direct']")?;
     let result = async {
         loop {
             let status = candidate.status()?;

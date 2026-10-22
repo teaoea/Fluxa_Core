@@ -29,8 +29,8 @@ def run(binary):
     errors = []
     sockets = []
     try:
-        fcntl.ioctl(tun, 0x400454CA, struct.pack('16sH', b'fluxa-frag-test', 0x1001))
-        for args in [['link', 'set', 'fluxa-frag-test', 'mtu', '1500', 'up'], ['addr', 'add', '198.19.0.1/32', 'dev', 'fluxa-frag-test'], ['route', 'add', '198.18.0.0/16', 'dev', 'fluxa-frag-test'], ['-6', 'addr', 'add', '2001:db8:19::1/128', 'dev', 'fluxa-frag-test', 'nodad'], ['-6', 'route', 'add', 'fd00:198:18::/64', 'dev', 'fluxa-frag-test']]:
+        fcntl.ioctl(tun, 0x400454CA, struct.pack('16sH', b'nodus-frag-test', 0x1001))
+        for args in [['link', 'set', 'nodus-frag-test', 'mtu', '1500', 'up'], ['addr', 'add', '198.19.0.1/32', 'dev', 'nodus-frag-test'], ['route', 'add', '198.18.0.0/16', 'dev', 'nodus-frag-test'], ['-6', 'addr', 'add', '2001:db8:19::1/128', 'dev', 'nodus-frag-test', 'nodad'], ['-6', 'route', 'add', 'fd00:198:18::/64', 'dev', 'nodus-frag-test']]:
             subprocess.run(['ip'] + args, check=True)
         dns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         dns.bind(('127.0.0.1', 0))

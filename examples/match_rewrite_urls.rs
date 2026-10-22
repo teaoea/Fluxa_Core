@@ -1,5 +1,5 @@
 //! 只演示已编译 URL 匹配，不执行复写动作、不访问网络或脚本文件。
-use fluxa_core::rewrite::UrlPattern;
+use nodus_core::rewrite::UrlPattern;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let one = UrlPattern::compile("https://example.com/api/*")?;
     let many = UrlPattern::compile("https://example.com/api/**")?;
@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("https://example.com/api", false, true),
         ("https://example.com/api/", false, true),
         ("https://example.com/API/a", false, false),
-        ("https://example.com/api/a?source=fluxa", true, true),
+        ("https://example.com/api/a?source=nodus", true, true),
     ] {
         let actual_one = one.matches(target)?;
         let actual_many = many.matches(target)?;

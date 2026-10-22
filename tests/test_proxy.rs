@@ -19,7 +19,7 @@
 // 使用真实 HTTP/TLS 服务验证迁移后的公共转发流程、改写、日志与拒绝边界。
 #[path = "test_fixture_https.rs"]
 mod support;
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     http,
     https::HttpsClient,
@@ -44,7 +44,7 @@ async fn proxy(
     roots: RootCertStore,
     captures: Arc<CaptureStore>,
     ca: Arc<Authority>,
-    network: Arc<fluxa_core::outbound::Manager>,
+    network: Arc<nodus_core::outbound::Manager>,
 ) -> MitmProxy {
     MitmProxy::start_with_options(
         options,
@@ -147,7 +147,7 @@ async fn rejection_is_exact_and_upstream_failure_never_falls_back() {
     )
     .await;
     assert!(head.first.starts_with("HTTP/1.1 400"));
-    assert!(String::from_utf8(body).unwrap().contains("Fluxa"));
+    assert!(String::from_utf8(body).unwrap().contains("Nodus"));
     assert!(
         request(
             server.port(),
@@ -257,7 +257,7 @@ fn replacement_expansion_is_bounded_before_allocation() {
     let rules = rules(
         serde_json::json!([{"host":"localhost","path_prefix":"/","action":"replace-response-text","match":"a","value":"x".repeat(8192)}]),
     );
-    let mut response = fluxa_core::https::Response {
+    let mut response = nodus_core::https::Response {
         status: 200,
         headers: vec![http::Header {
             name: "Content-Type".into(),
@@ -267,7 +267,7 @@ fn replacement_expansion_is_bounded_before_allocation() {
         duration_ms: 0,
     };
     assert_eq!(
-        fluxa_core::rewrite::response("http://localhost/", &mut response, &rules),
+        nodus_core::rewrite::response("http://localhost/", &mut response, &rules),
         Err(Error::ResourceLimit)
     );
     assert_eq!(response.body.len(), 1024 * 1024);
@@ -337,7 +337,7 @@ async fn traffic_script_runs_on_http_and_https_and_captures_processed_body() {
 
 #[test]
 fn traffic_scripts_validate_configuration_and_bound_processing() {
-    use fluxa_core::{
+    use nodus_core::{
         http::Header,
         https::Response,
         rewrite,

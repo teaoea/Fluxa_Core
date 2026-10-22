@@ -6,7 +6,7 @@ Rust 负责普通 HTTP 代理、CONNECT、精确域名 HTTPS MITM、上游证书
 
 macOS RequestRunner 与 RustDebugProxy 已通过实际 C ABI 调用内核。旧 Swift HTTPProxyServer、ProxySession、CertificateAuthority、RewriteProcessor 及 HTTPCodec 已移除。订阅下载和 IP 查询目前仍使用旧 Swift 服务，后续单独迁移；本次没有实现 SOCKS、TUN、DNS、网关或代理出站协议，0.2.0 已将受限内置 JS 接入 HTTP/HTTPS 响应管线，完整规则路由仍待开发。
 
-Swift 产品名为 FluxaEngine，客户端使用 `import FluxaEngine`。Rust crate 保留内部 rlib 供测试；对外交付 `FluxaEngine.xcframework`，内部是 `libfluxa_core.framework`，真正的二进制文件名是 `libfluxa_core`，没有扩展名且内容为静态 archive。Cargo 自动生成的中间 archive 文件在打包时改名，不作为最终交付名称；不编译 cdylib。
+Swift 产品名为 NodusEngine，客户端使用 `import NodusEngine`。Rust crate 保留内部 rlib 供测试；对外交付 `NodusEngine.xcframework`，内部是 `nodus_core.framework`，真正的二进制文件名是 `nodus_core`，没有扩展名且内容为静态 archive。Cargo 自动生成的中间 archive 文件在打包时改名，不作为最终交付名称；不编译 cdylib。
 
 ```sh
 bash ./build-macos.sh

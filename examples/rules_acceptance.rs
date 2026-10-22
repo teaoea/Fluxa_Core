@@ -1,6 +1,6 @@
 //! 四档构建/更新/并发恢复验收：原始输入由调用方拥有，规则准入池不冒充进程 RSS 硬限制。
 //! cargo run --release --example rules_acceptance -- 10000 mixed
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     routing::{
         Config, Match, Policy, Rule, Target, Transport,
@@ -94,7 +94,7 @@ fn main() {
         .unwrap();
     let shape = std::env::args().nth(2).unwrap_or_else(|| "mixed".into());
     assert!((1..=runtime::MAX_RULES).contains(&count));
-    let path = std::env::temp_dir().join(format!("fluxa-rules-acceptance-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-rules-acceptance-{}", std::process::id()));
     std::fs::create_dir(&path).unwrap();
     let store = Store::memory();
     let mut retained = Vec::new();

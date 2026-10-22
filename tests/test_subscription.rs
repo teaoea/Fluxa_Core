@@ -122,7 +122,7 @@ use crate::test_fixture_https as support;
 mod public_contract {
     // 验证订阅实际 HTTPS 下载、重定向、安全边界和共用有界分帧。
     use super::support;
-    use fluxa_core::{error::Error, https::HttpsClient, subscription};
+    use nodus_core::{error::Error, https::HttpsClient, subscription};
     #[tokio::test]
     async fn fetches_https_and_rejects_invalid_content() {
         let fixture = support::fixture().await;
@@ -171,7 +171,7 @@ mod public_contract {
     }
     #[tokio::test]
     async fn body_limits_precede_allocation_for_all_framings() {
-        use fluxa_core::http::{Head, Header, read_body_limited};
+        use nodus_core::http::{Head, Header, read_body_limited};
         use tokio::io::BufReader;
         let head = |name: &str, value: &str| Head {
             first: "HTTP/1.1 200 OK".into(),

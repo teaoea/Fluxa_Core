@@ -333,7 +333,7 @@ async fn failure<S: Duplex>(
     }
     http::write_message(
         socket.get_mut(),
-        &format!("HTTP/1.1 {status} Fluxa"),
+        &format!("HTTP/1.1 {status} Nodus"),
         &capture.response_headers,
         &body,
         false,
@@ -437,7 +437,7 @@ async fn forward<S: Duplex>(
     let no_body = parts[0].eq_ignore_ascii_case("HEAD") || matches!(response.status, 204 | 304);
     http::write_message(
         socket.get_mut(),
-        &format!("HTTP/1.1 {} Fluxa", response.status),
+        &format!("HTTP/1.1 {} Nodus", response.status),
         &response.headers,
         &response.body,
         no_body,

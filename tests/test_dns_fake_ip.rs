@@ -181,7 +181,7 @@ mod public_contract {
     // 生产代码路径：`src/dns/fake_ip.rs`（`Config::validate` / `Config::ranges` 的地址段与容量校验、
     // `Table::new`、`Table::allocate`、`Table::contains`、`Table::reverse`、`Table::reset`、`Table::generation`）。
     //
-    // 公开接口：`fluxa_core::dns::fake_ip::{Config, Table}`（`src/dns/mod.rs:4` 的 `pub mod fake_ip;`）。
+    // 公开接口：`nodus_core::dns::fake_ip::{Config, Table}`（`src/dns/mod.rs:4` 的 `pub mod fake_ip;`）。
     // `Table::bind_tun` / `authority` / `ensure_active` 为 `pub(crate)`，属于内核会话绑定，按第八条
     // 未扩大其可见性，本文件不覆盖；`Pools` 亦为私有，其不变量由 `src/dns/fake_ip.rs:397-545` 的
     // 内联测试覆盖（见报告「覆盖边界」）。
@@ -208,8 +208,8 @@ mod public_contract {
     // ## 执行状态
     // 5 项已实现、含有效断言且实际执行，结果见同名报告 `tests/test_dns_fake_ip.md`。
 
-    use fluxa_core::dns::fake_ip::{Config, Table};
-    use fluxa_core::error::Error;
+    use nodus_core::dns::fake_ip::{Config, Table};
+    use nodus_core::error::Error;
     use std::net::IpAddr;
 
     fn config(ipv4_range: &str, ipv6_range: &str, capacity: usize, exclude: &[&str]) -> Config {

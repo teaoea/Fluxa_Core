@@ -98,7 +98,7 @@ pub fn fixture() -> Vec<u8> {
         ("node_count", integer(count as u32, 6)),
         ("record_size", integer(24, 5)),
         ("ip_version", integer(6, 5)),
-        ("database_type", text("Fluxa-Test-City")),
+        ("database_type", text("Nodus-Test-City")),
         ("binary_format_major_version", integer(2, 5)),
         ("binary_format_minor_version", integer(0, 5)),
         ("build_epoch", vec![1, 2, 1]), // 扩展类型 9：uint64。
@@ -109,7 +109,7 @@ pub fn fixture() -> Vec<u8> {
         }),
         (
             "description",
-            map(vec![("en", text("Fluxa owned test fixture"))]),
+            map(vec![("en", text("Nodus owned test fixture"))]),
         ),
     ]));
     output

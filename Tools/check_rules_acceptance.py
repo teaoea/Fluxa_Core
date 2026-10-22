@@ -45,7 +45,7 @@ def main():
                 text, peak = measure(binary, [str(count), "--persist", "--keep-cache"], args.output / f"{label}-update-{count}-{repeat}.log")
                 measured[label].append({"compile_ms": int(re.search(r"compile_ms=(\d+)", text)[1]), "updates_ms": int(re.search(r"two_atomic_updates_ms=(\d+)", text)[1]), "rss_bytes": peak})
                 cache = Path(re.search(r"cache_directory=(.+)", text)[1])
-                assert cache.is_absolute() and cache.name.startswith("fluxa-runtime-bench-")
+                assert cache.is_absolute() and cache.name.startswith("nodus-runtime-bench-")
                 # 全新进程只恢复该兼容缓存；不额外驻留第二份普通编译树影响准入和 RSS。
                 try:
                     query, query_peak = measure(binary, ["--load", str(cache)], args.output / f"{label}-query-{count}-{repeat}.log")

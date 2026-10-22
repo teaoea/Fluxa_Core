@@ -3,6 +3,41 @@
 version = 4
 
 [[package]]
+name = "Nodus-Core"
+version = "2.8.0-dev"
+dependencies = [
+ "aho-corasick",
+ "base64",
+ "bytes",
+ "core-foundation",
+ "h2",
+ "hickory-resolver",
+ "http",
+ "httparse",
+ "libc",
+ "libproc",
+ "maxminddb",
+ "ml-kem",
+ "psl",
+ "rcgen",
+ "ring",
+ "rquickjs",
+ "rustls",
+ "rustls-native-certs",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "url",
+ "x25519-dalek",
+ "x509-parser",
+ "yaml-rust2",
+ "zeroize",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -922,41 +957,6 @@ name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
-
-[[package]]
-name = "libfluxa_core"
-version = "2.8.0-dev"
-dependencies = [
- "aho-corasick",
- "base64",
- "bytes",
- "core-foundation",
- "h2",
- "hickory-resolver",
- "http",
- "httparse",
- "libc",
- "libproc",
- "maxminddb",
- "ml-kem",
- "psl",
- "rcgen",
- "ring",
- "rquickjs",
- "rustls",
- "rustls-native-certs",
- "security-framework",
- "serde",
- "serde_json",
- "time",
- "tokio",
- "tokio-rustls",
- "url",
- "x25519-dalek",
- "x509-parser",
- "yaml-rust2",
- "zeroize",
-]
 
 [[package]]
 name = "libloading"

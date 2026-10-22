@@ -1,5 +1,5 @@
 //! 生成并核验内核公开错误契约；只输出固定代码元数据，不读取用户配置。
-use fluxa_core::error::ErrorCode;
+use nodus_core::error::ErrorCode;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let contracts: Vec<_> = ErrorCode::ALL.iter().map(|code| code.contract()).collect();
     let json = serde_json::to_string_pretty(&contracts)? + "\n";

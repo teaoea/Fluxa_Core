@@ -26,7 +26,7 @@ fn example_actions_are_accepted() {
         json!({"url":"https://example.com/video/**","action":"modify-response","response":{"body":{"preset":"minimal-mp4"}}}),
         json!({"url":"https://example.com/api/*","action":"modify-request","request":{"headers":{"set":{"X-Custom-Header":"AAA"},"remove":["X-Tracking-ID"]}}}),
         json!({"url":"https://example.com/api/submit","action":"modify-request","request":{"method":"POST"}}),
-        json!({"url":"https://example.com/api/**","action":"modify-request","request":{"query":{"set":{"source":"fluxa"},"remove":["tracking_id"]}}}),
+        json!({"url":"https://example.com/api/**","action":"modify-request","request":{"query":{"set":{"source":"nodus"},"remove":["tracking_id"]}}}),
         json!({"url":"https://example.com/api/data","action":"modify-request","request":{"body":{"text":"{\"enabled\":true}"},"headers":{"set":{"Content-Type":"application/json"}}}}),
         json!({"url":"https://example.com/api/request","action":"script","phase":"request","js":"request.js"}),
         json!({"url":"https://example.com/api/user","action":"script","phase":"response","js":"response.js"}),

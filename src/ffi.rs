@@ -1860,12 +1860,12 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 }
 // 安全条件：导出符号具有唯一前缀，固定宽度值类型不共享 Rust 对象地址。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_abi_version() -> u32 {
+pub extern "C" fn nodus_core_abi_version() -> u32 {
     2
 }
 // 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_capabilities() -> u64 {
+pub extern "C" fn nodus_core_capabilities() -> u64 {
     // 位 25 代表整数错误查询及显式结构化命令扩展，原能力位不改义。
     const STRUCTURED_ERROR_CAPABILITY: u64 = 1 << 25;
     // 位 27：正式域名与 TCP/UDP 组合规则，不改变既有能力位语义。
@@ -1890,7 +1890,7 @@ pub extern "C" fn fluxa_engine_capabilities() -> u64 {
 }
 // 安全条件同上；注册表拥有对象，零返回表示失败。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_create() -> u64 {
+pub extern "C" fn nodus_core_create() -> u64 {
     clear_last_error();
     catch_unwind(AssertUnwindSafe(|| {
         let mut registry = match registry().lock() {
@@ -1905,7 +1905,7 @@ pub extern "C" fn fluxa_engine_create() -> u64 {
 }
 // 安全条件同上；先移除所有权，再在注册表锁之外释放对象。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
+pub extern "C" fn nodus_core_destroy(handle: u64) -> i32 {
     clear_last_error();
     catch_unwind(AssertUnwindSafe(|| {
         let resource = match registry().lock() {
@@ -1985,7 +1985,7 @@ pub extern "C" fn fluxa_engine_destroy(handle: u64) -> i32 {
 }
 // 安全条件同上；系统隧道与入口尚未实现，不伪造连接；独立协议出站通过命令调用。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_start(handle: u64) -> i32 {
+pub extern "C" fn nodus_core_start(handle: u64) -> i32 {
     clear_last_error();
     catch_unwind(AssertUnwindSafe(|| match engine(handle) {
         Ok(_) => {
@@ -2012,7 +2012,7 @@ pub extern "C" fn fluxa_engine_start(handle: u64) -> i32 {
 /// # Safety
 /// 调用方必须保证 input 在整个调用期间指向 length 个可读字节且没有并发写入。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_command(handle: u64, input: *const u8, length: usize) -> u64 {
+pub unsafe extern "C" fn nodus_core_command(handle: u64, input: *const u8, length: usize) -> u64 {
     // SAFETY: 此入口沿用调用方的输入借用契约，失败统一提供分段代码与受限上下文。
     unsafe { command_boundary(handle, input, length, false) }
 }
@@ -2020,7 +2020,7 @@ pub unsafe extern "C" fn fluxa_engine_command(handle: u64, input: *const u8, len
 /// # Safety
 /// input 在整个同步调用期间指向 length 个可读且无并发写入的字节。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_command_v2(
+pub unsafe extern "C" fn nodus_core_command_v2(
     handle: u64,
     input: *const u8,
     length: usize,
@@ -2087,7 +2087,7 @@ unsafe fn command_boundary(
 /// 返回当前同步调用线程的固定整数错误代码；零是“无错误”状态，不是错误代码。
 /// 只读取线程本地值，不创建响应、不分配、不加锁，不清除错误。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_last_error_code() -> u16 {
+pub extern "C" fn nodus_core_last_error_code() -> u16 {
     LAST_ERROR
         .get()
         .map_or(NO_ERROR_CODE, |info| info.code.value())
@@ -2097,7 +2097,7 @@ pub extern "C" fn fluxa_engine_last_error_code() -> u16 {
 /// # Safety
 /// 容量足够时 output 指向 capacity 个可写字节，且调用期间无并发访问。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_last_error_copy(output: *mut u8, capacity: usize) -> usize {
+pub unsafe extern "C" fn nodus_core_last_error_copy(output: *mut u8, capacity: usize) -> usize {
     let Some(info) = LAST_ERROR.get() else {
         return 0;
     };
@@ -2127,7 +2127,7 @@ pub unsafe extern "C" fn fluxa_engine_last_error_copy(output: *mut u8, capacity:
 }
 // 安全条件同上；只返回固定宽度长度值，无效句柄返回零。
 #[unsafe(no_mangle)]
-pub extern "C" fn fluxa_engine_buffer_length(handle: u64) -> usize {
+pub extern "C" fn nodus_core_buffer_length(handle: u64) -> usize {
     clear_last_error();
     match checked_buffer(handle) {
         Ok(buffer) => buffer.len(),
@@ -2141,7 +2141,7 @@ pub extern "C" fn fluxa_engine_buffer_length(handle: u64) -> usize {
 /// # Safety
 /// 容量足够时，output 必须指向 capacity 个可写字节，且无并发访问。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_buffer_copy(
+pub unsafe extern "C" fn nodus_core_buffer_copy(
     handle: u64,
     output: *mut u8,
     capacity: usize,
@@ -2198,7 +2198,7 @@ fn udp_session(handle: u64) -> Result<ManagedTun, i32> {
 /// # Safety
 /// input 必须在调用期间指向 length 个可读且无并发写入的字节；不会保留该借用。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_tun_submit(
+pub unsafe extern "C" fn nodus_core_tun_submit(
     handle: u64,
     input: *const u8,
     length: usize,
@@ -2228,7 +2228,7 @@ pub unsafe extern "C" fn fluxa_engine_tun_submit(
 /// # Safety
 /// output 必须指向一个调用期间有效、对齐、可写且无并发访问的 u64；不保存其地址。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_tun_receive(handle: u64, output: *mut u64) -> i32 {
+pub unsafe extern "C" fn nodus_core_tun_receive(handle: u64, output: *mut u64) -> i32 {
     clear_last_error();
     catch_unwind(AssertUnwindSafe(|| {
         if output.is_null() {

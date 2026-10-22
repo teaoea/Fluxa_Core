@@ -1,6 +1,6 @@
 //! 隔离 Linux 系统 TCP 互通夹具：标准输入/输出传递长度分帧 IP 包，不创建网络接口。
 //! 网络命名空间与 TUN 由独立 Python 平台测试管理，业务逻辑仍复用 Rust 会话。
-use fluxa_core::{
+use nodus_core::{
     dns::{Config as DnsConfig, Resolver, Server, fake_ip},
     error::{Error, Result},
     outbound::{Limits, Manager},
@@ -66,13 +66,13 @@ async fn main() -> Result<()> {
     )?);
     let name = "connect.ipv4only.example.test";
     let v4 = resolver
-        .allocate_fake_ip(fluxa_core::dns::Query {
+        .allocate_fake_ip(nodus_core::dns::Query {
             name: name.into(),
             query_type: "A".into(),
         })?
         .addresses;
     let v6 = resolver
-        .allocate_fake_ip(fluxa_core::dns::Query {
+        .allocate_fake_ip(nodus_core::dns::Query {
             name: name.into(),
             query_type: "AAAA".into(),
         })?

@@ -104,11 +104,11 @@ fn query_is_separate_from_path_segments() {
             .matches("https://example.com/api/a?next=/a/b")
             .unwrap()
     );
-    let pattern = UrlPattern::compile("https://example.com/api/*?source=Fluxa&x=1").unwrap();
+    let pattern = UrlPattern::compile("https://example.com/api/*?source=Nodus&x=1").unwrap();
     for (query, expected) in [
-        ("?source=Fluxa&x=1", true),
-        ("?source=fluxa&x=1", false),
-        ("?x=1&source=Fluxa", false),
+        ("?source=Nodus&x=1", true),
+        ("?source=nodus&x=1", false),
+        ("?x=1&source=Nodus", false),
         ("", false),
     ] {
         assert_eq!(

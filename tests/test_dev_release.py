@@ -68,10 +68,12 @@ class Remote:
 
 class DevReleaseTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='fluxa-publish-contract-')
+        enabled = patch.object(publisher, "UPLOAD_ENABLED", True)
+        enabled.start(); self.addCleanup(enabled.stop)
+        self.tmp = tempfile.TemporaryDirectory(prefix='nodus-publish-contract-')
         self.addCleanup(self.tmp.cleanup); self.home = Path(self.tmp.name)
         self.assets = self.home/'assets'; self.assets.mkdir()
-        for name, member in [(publisher.FILES[1], 'FluxaEngine.xcframework/macos-arm64/fluxa_core.framework/fluxa_core'), (publisher.FILES[2], 'fluxa-test-fixture')]:
+        for name, member in [(publisher.FILES[1], 'NodusEngine.xcframework/macos-arm64/nodus_core.framework/nodus_core'), (publisher.FILES[2], 'nodus-test-fixture')]:
             with zipfile.ZipFile(self.assets/name, 'w') as archive: archive.writestr(member, b'fixed binary fixture')
         self.record = {'version':VERSION,'tag':'v'+VERSION+'.'+SOURCE,'source_commit':SOURCE,
             'unstable':True,'platforms':['macos-arm64'],'minimum_macos':'13.0',
@@ -87,18 +89,22 @@ class DevReleaseTests(unittest.TestCase):
         sha=subprocess.check_output(['git','rev-parse','HEAD'],cwd=self.repo,text=True).strip()
         bin=self.home/'bin'; bin.mkdir()
         (bin/'uname').write_text('#!/bin/sh\nif [ "$1" = -s ]; then echo Darwin; else echo arm64; fi\n'); (bin/'uname').chmod(0o755)
-        self.env={**os.environ,'PATH':str(bin)+os.pathsep+os.environ['PATH'],'FLUXA_DEV_SOURCE':sha,
-            'FLUXA_DEV_REPOSITORY':'teaoea/Fluxa_Core','FLUXA_BINARY_PUBLISH_TOKEN':'offline-fixture','MOCK_ROOT':str(self.home)}
+        self.env={**os.environ,'PATH':str(bin)+os.pathsep+os.environ['PATH'],'NODUS_DEV_SOURCE':sha,
+            'NODUS_DEV_REPOSITORY':'teaoea/Nodus-Core','NODUS_BINARY_PUBLISH_TOKEN':'offline-fixture','MOCK_ROOT':str(self.home)}
     def save_record(self):
         (self.assets/'provenance.json').write_text(json.dumps(self.record))
     def publish(self):
         return publisher.publish(SOURCE,VERSION,RUN,self.remote,self.assets)
     def run_release(self):
         return subprocess.run(['bash','Tools/dev-release.sh'],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+    def test_upload_disabled_before_remote_access(self):
+        with patch.object(publisher, "UPLOAD_ENABLED", False):
+            with self.assertRaises(ValueError): self.publish()
+        self.assertEqual(self.remote.calls, [])
     def test_dirty_source_never_publishes(self):
         (self.repo/'untracked').write_text('dirty'); self.assertNotEqual(self.run_release().returncode,0)
     def test_wrong_source_never_publishes(self):
-        self.env['FLUXA_DEV_SOURCE']='0'*40; self.assertNotEqual(self.run_release().returncode,0)
+        self.env['NODUS_DEV_SOURCE']='0'*40; self.assertNotEqual(self.run_release().returncode,0)
     def test_missing_verification_never_builds(self):
         result=subprocess.run(['bash','Tools/dev-release.sh','--prepare',str(self.home/'output')],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
         self.assertNotEqual(result.returncode,0); self.assertIn('缺少本机验证记录',result.stdout)
@@ -112,7 +118,7 @@ class DevReleaseTests(unittest.TestCase):
         self.assertEqual(self.remote.calls,[])
     def test_implementation_sources_never_become_public(self):
         with zipfile.ZipFile(self.assets/publisher.FILES[1], 'a') as archive:
-            archive.writestr('FluxaEngine.xcframework/src/lib.rs', 'private implementation')
+            archive.writestr('NodusEngine.xcframework/src/lib.rs', 'private implementation')
         self.record['framework_sha256']=publisher.digest(self.assets/publisher.FILES[1]); self.save_record()
         with self.assertRaises(ValueError): self.publish()
         self.assertEqual(self.remote.calls,[])
@@ -130,7 +136,7 @@ class DevReleaseTests(unittest.TestCase):
         self.assertIn('--draft=false',edit); self.assertIn('--latest=false',edit)
         self.assertLess(self.remote.calls.index(create),self.remote.calls.index(edit))
         for call in self.remote.calls:
-            if call[0]=='api': self.assertTrue(call[1].startswith('repos/teaoea/libfluxa-core'))
+            if call[0]=='api': self.assertTrue(call[1].startswith('repos/teaoea/Nodus-Core'))
         self.assertEqual(json.loads(self.remote.manifest),self.record)
         self.assertFalse(any(str(x).endswith('.rs') or str(x).endswith('.swift') for x in create))
     def test_existing_release_is_verified_without_overwrite(self):
@@ -156,12 +162,13 @@ class DevReleaseTests(unittest.TestCase):
         self.assertIn('publish = false',(ROOT/'Cargo.toml').read_text())
         self.assertFalse((ROOT/'.github/workflows/release.yml').exists())
         self.assertNotIn('gh release ',(ROOT/'Tools/dev-release.sh').read_text())
-        workflow=(ROOT/'.github/workflows/tests.yml').read_text()
+        workflow=''.join(p.read_text() for p in (ROOT/'.github/workflows').glob('*.yml'))
         self.assertNotIn('dev-release:',workflow)
-        self.assertNotIn('secrets.FLUXA_BINARY_PUBLISH_TOKEN',workflow)
-        self.assertIn('workflow_dispatch:',workflow)
+        self.assertNotIn('secrets.NODUS_BINARY_PUBLISH_TOKEN',workflow)
+        if workflow:
+            self.assertIn('workflow_dispatch:',workflow)
     def test_actions_reference_is_rejected(self):
-        self.record['verification_run']='https://github.com/teaoea/Fluxa_Core/actions/runs/123'
+        self.record['verification_run']='https://github.com/teaoea/Nodus-Core/actions/runs/123'
         self.save_record()
         with self.assertRaises(ValueError):
             publisher.publish(SOURCE,VERSION,self.record['verification_run'],self.remote,self.assets)
@@ -181,7 +188,7 @@ class DevReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):manual.verify(path)
     def test_prepare_does_not_require_upload_credentials(self):
         script=(ROOT/'Tools/dev-release.sh').read_text()
-        self.assertNotIn('${FLUXA_BINARY_PUBLISH_TOKEN',script)
+        self.assertNotIn('${NODUS_BINARY_PUBLISH_TOKEN',script)
         self.assertIn('Tools/verify-manual-release.py',script)
         self.assertIn('--prepare',script)
     def test_framework_preserves_current_license_files(self):
@@ -192,10 +199,10 @@ class DevReleaseTests(unittest.TestCase):
             shutil.copyfile(ROOT/name,self.repo/name)
         (self.repo/'Notices').mkdir();(self.repo/'Notices/third-party').write_text('第三方声明')
         (self.repo/'include').mkdir()
-        for name in ['fluxa_engine.h','fluxa_debug_ipc.h','module.modulemap']:
+        for name in ['nodus_core.h','nodus_debug_ipc.h','module.modulemap']:
             shutil.copyfile(ROOT/'include'/name,self.repo/'include'/name)
         scripts={
-            'cargo': '#!/bin/sh\nset -eu\nwhile [ $# -gt 0 ]; do if [ "$1" = --target-dir ]; then shift; directory=$1; fi; shift; done\nmkdir -p "$directory/aarch64-apple-darwin/release"\nprintf archive > "$directory/aarch64-apple-darwin/release/libfluxa_core.a"\n',
+            'cargo': '#!/bin/sh\nset -eu\nwhile [ $# -gt 0 ]; do if [ "$1" = --target-dir ]; then shift; directory=$1; fi; shift; done\nmkdir -p "$directory/aarch64-apple-darwin/release"\nprintf archive > "$directory/aarch64-apple-darwin/release/libnodus_core.a"\n',
             'xcrun': '#!/bin/sh\nprintf /offline-sdk\n',
             'xcodebuild': '#!/bin/sh\nset -eu\ncp -R "$3" "$5"\n'
         }
@@ -203,7 +210,7 @@ class DevReleaseTests(unittest.TestCase):
             target=self.home/'bin'/name;target.write_text(script);target.chmod(0o755)
         result=subprocess.run(['bash','build-macos.sh'],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
         self.assertEqual(result.returncode,0,result.stdout)
-        notices=self.repo/'Vendor/FluxaEngine.xcframework/Resources/Notices'
+        notices=self.repo/'Vendor/NodusEngine.xcframework/Resources/Notices'
         for name in ['LICENSE','LICENSE.md']:
             self.assertEqual((notices/name).read_bytes(),(ROOT/name).read_bytes())
         self.assertEqual((notices/'third-party').read_text(),'第三方声明')

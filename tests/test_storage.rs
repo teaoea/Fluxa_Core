@@ -9,7 +9,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "fluxa-readonly-{}",
+            "nodus-readonly-{}",
             crate::lifecycle::identifier().unwrap()
         ));
         std::fs::create_dir(&path).unwrap();
@@ -34,7 +34,7 @@ fn default_matches_host_templates_and_starts_direct() {
         assert!(!yaml.contains(fixture.0.to_str().unwrap()));
         assert!(!yaml.contains("App Group"));
         assert!(yaml.contains("final,direct"));
-        assert!(yaml.contains("https://github.com/teaoea/fluxa-app/issues"));
+        assert!(yaml.contains("https://github.com/teaoea/Nodus-Core/issues"));
         for key in [
             "log-level:",
             "system-proxy:",

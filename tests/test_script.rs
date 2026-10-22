@@ -36,7 +36,7 @@ mod tests {
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
     // 脚本引擎真实执行与失败恢复；不以模拟返回值替代运行时。
-    use fluxa_core::{
+    use nodus_core::{
         error::Error,
         script::{MAX_DATA, MAX_SOURCE, execute},
     };

@@ -287,7 +287,7 @@ mod dns_geoip_contract {
     //!
     //! 前置条件：本地临时 UDP/TCP/TLS；不访问公网、不写真实用户缓存、不更改系统代理/VPN。
     use crate::test_fixture_https as support;
-    use fluxa_core::{
+    use nodus_core::{
         dns::Query,
         error::Error,
         https::HttpsClient,
@@ -311,7 +311,7 @@ mod dns_geoip_contract {
     impl FixtureManager {
         fn new() -> Self {
             let root = std::env::temp_dir().join(format!(
-                "fluxa-dns-storage-{}",
+                "nodus-dns-storage-{}",
                 crate::lifecycle::identifier().unwrap()
             ));
             std::fs::create_dir(&root).unwrap();
@@ -792,7 +792,7 @@ async fn named_script_modifies_real_tls_request_and_conditional_response() {
     // 私有候选夹具只注入绑定，不调用/冒充系统共享容器；执行走真实发布和 TLS 数据管线。
     let fixture = crate::test_fixture_https::fixture().await;
     let path = std::env::temp_dir().join(format!(
-        "fluxa-js-wire-{}",
+        "nodus-js-wire-{}",
         crate::lifecycle::identifier().unwrap()
     ));
     std::fs::create_dir(&path).unwrap();

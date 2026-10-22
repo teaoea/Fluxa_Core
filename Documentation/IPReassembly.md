@@ -4,7 +4,7 @@
 
 ## 数据路径与语义
 
-宿主仍通过 `Session::submit` / `fluxa_engine_tun_submit` 提交完整单个 IP 包，TCP/UDP 使用同一重组入口。
+宿主仍通过 `Session::submit` / `nodus_core_tun_submit` 提交完整单个 IP 包，TCP/UDP 使用同一重组入口。
 未分片且无扩展头的包借用原输入，不额外复制；需要处理的包规范化为基础 IP 头及完整传输段，
 随后执行既有 TCP/UDP 校验和、DNS/Fake-IP、路由和出站。未收齐片段只表示已暂存，不能作为转发成功证据。
 
@@ -51,7 +51,7 @@ python3 Tools/test_reports.py --run --suite test_tun_ip
 真实 Swift FFI 在 Fluxa 仓库执行：
 
 ```sh
-FLUXA_CORE_ROOT=/实际受测内核目录 bash Packages/FluxaKernelBridge/check-ffi.sh all
+NODUS_CORE_ROOT=/实际受测内核目录 bash Packages/FluxaKernelBridge/check-ffi.sh all
 ```
 
 `test_ffi_tun_tcp.swift` 在 20 次 TCP 生命周期中把 1000 字节应用正文拆成乱序 IP 片段，经真实回环或独立代理

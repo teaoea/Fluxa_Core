@@ -1,4 +1,4 @@
-# Fluxa Core API
+# Nodus Core API
 
 本目录用于维护 Core API 的 Markdown 文档，可作为 GitBook 的内容源。文档以实际实现为准；开发中的接口不等同于已发布的稳定协议。
 

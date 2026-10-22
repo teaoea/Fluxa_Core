@@ -388,7 +388,7 @@ fn validate_policy(policy: &Policy) -> Result<()> {
 }
 fn transcript(hello: &Hello, sequence: u64, payload: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(64 + payload.len());
-    bytes.extend_from_slice(b"FLUXA_DEBUG_IPC_V1");
+    bytes.extend_from_slice(b"NODUS_DEBUG_IPC_V1");
     bytes.extend_from_slice(&hello.session.to_le_bytes());
     bytes.extend_from_slice(&hello.challenge);
     bytes.extend_from_slice(&sequence.to_le_bytes());

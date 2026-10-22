@@ -2,7 +2,7 @@
 
 ## 当前能力与边界
 
-第三阶段提供同步 JSON 转换引擎。Rust 使用固定版本 rquickjs 0.14.0 的安全 API，底层为其内嵌的 QuickJS C 解释器，不使用 JIT。网络内核仍为 Fluxa 自有实现，不引入代理内核。业务代码没有新增 unsafe。Swift 通过共用 NativeCommandClient 经现有 C ABI 调用，未增加 Swift 网络实现或 UI。
+第三阶段提供同步 JSON 转换引擎。Rust 使用固定版本 rquickjs 0.14.0 的安全 API，底层为其内嵌的 QuickJS C 解释器，不使用 JIT。网络内核仍为 Nodus 自有实现，不引入代理内核。业务代码没有新增 unsafe。Swift 通过共用 NativeCommandClient 经现有 C ABI 调用，未增加 Swift 网络实现或 UI。
 
 每次执行新建 Runtime 和 Context，结束即释放；不保存脚本全局变量，不返回 JS 对象地址。输入 JSON 会作为一个参数传入同步函数表达式，例如：
 

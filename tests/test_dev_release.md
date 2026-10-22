@@ -1,6 +1,6 @@
 # 测试报告：test_dev_release
 
-<!-- fluxa-test-report:{"command": ["python3", "tests/test_dev_release.py", "-v", "-b"], "exit_code": 0, "duration_seconds": 2.716475917, "status": "PASS", "discovered": ["test_dirty_source_never_publishes", "test_wrong_source_never_publishes", "test_missing_verification_never_builds", "test_wrong_provenance_never_publishes", "test_unknown_manifest_fields_never_become_public", "test_implementation_sources_never_become_public", "test_checksum_failure_never_publishes", "test_symlink_input_never_publishes", "test_new_release_stays_prerelease_and_not_latest", "test_existing_release_is_verified_without_overwrite", "test_failed_upload_never_publishes_draft", "test_download_mismatch_never_publishes_draft", "test_conflicting_tag_is_not_moved", "test_api_auth_failure_is_not_missing_release", "test_policy_blocks_crates_and_source_release", "test_framework_preserves_current_license_files", "test_actions_reference_is_rejected", "test_manual_verification_rejects_stale_and_incomplete_evidence", "test_prepare_does_not_require_upload_credentials"], "results": {"test_dirty_source_never_publishes": "PASS", "test_wrong_source_never_publishes": "PASS", "test_missing_verification_never_builds": "PASS", "test_wrong_provenance_never_publishes": "PASS", "test_unknown_manifest_fields_never_become_public": "PASS", "test_implementation_sources_never_become_public": "PASS", "test_checksum_failure_never_publishes": "PASS", "test_symlink_input_never_publishes": "PASS", "test_new_release_stays_prerelease_and_not_latest": "PASS", "test_existing_release_is_verified_without_overwrite": "PASS", "test_failed_upload_never_publishes_draft": "PASS", "test_download_mismatch_never_publishes_draft": "PASS", "test_conflicting_tag_is_not_moved": "PASS", "test_api_auth_failure_is_not_missing_release": "PASS", "test_policy_blocks_crates_and_source_release": "PASS", "test_framework_preserves_current_license_files": "PASS", "test_actions_reference_is_rejected": "PASS", "test_manual_verification_rejects_stale_and_incomplete_evidence": "PASS", "test_prepare_does_not_require_upload_credentials": "PASS"}, "fingerprint": "23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243", "time": "2026-10-21T20:02:01.509176+08:00", "scope": "逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_dev_release", "file": "tests/test_dev_release.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["python3", "tests/test_dev_release.py", "-v", "-b"], "exit_code": 0, "duration_seconds": 3.255775666, "status": "PASS", "discovered": ["test_dirty_source_never_publishes", "test_wrong_source_never_publishes", "test_missing_verification_never_builds", "test_wrong_provenance_never_publishes", "test_unknown_manifest_fields_never_become_public", "test_implementation_sources_never_become_public", "test_checksum_failure_never_publishes", "test_symlink_input_never_publishes", "test_new_release_stays_prerelease_and_not_latest", "test_existing_release_is_verified_without_overwrite", "test_failed_upload_never_publishes_draft", "test_download_mismatch_never_publishes_draft", "test_conflicting_tag_is_not_moved", "test_api_auth_failure_is_not_missing_release", "test_policy_blocks_crates_and_source_release", "test_framework_preserves_current_license_files", "test_actions_reference_is_rejected", "test_manual_verification_rejects_stale_and_incomplete_evidence", "test_prepare_does_not_require_upload_credentials", "test_upload_disabled_before_remote_access"], "results": {"test_dirty_source_never_publishes": "PASS", "test_wrong_source_never_publishes": "PASS", "test_missing_verification_never_builds": "PASS", "test_wrong_provenance_never_publishes": "PASS", "test_unknown_manifest_fields_never_become_public": "PASS", "test_implementation_sources_never_become_public": "PASS", "test_checksum_failure_never_publishes": "PASS", "test_symlink_input_never_publishes": "PASS", "test_new_release_stays_prerelease_and_not_latest": "PASS", "test_existing_release_is_verified_without_overwrite": "PASS", "test_failed_upload_never_publishes_draft": "PASS", "test_download_mismatch_never_publishes_draft": "PASS", "test_conflicting_tag_is_not_moved": "PASS", "test_api_auth_failure_is_not_missing_release": "PASS", "test_policy_blocks_crates_and_source_release": "PASS", "test_framework_preserves_current_license_files": "PASS", "test_actions_reference_is_rejected": "PASS", "test_manual_verification_rejects_stale_and_incomplete_evidence": "PASS", "test_prepare_does_not_require_upload_credentials": "PASS", "test_upload_disabled_before_remote_access": "PASS"}, "fingerprint": "e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5", "time": "2026-10-23T02:29:53.045989+08:00", "scope": "逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。", "note": "以真实外部进程退出状态验证程序整体；编译成功不代表测试已运行。内部断言数量未知，不与 Rust 函数数量合并。", "attempt": 1, "suite": "test_dev_release", "file": "tests/test_dev_release.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：python_unit
 - 测试范围：逐项核对实际测试框架输出与本文件登记函数；零用例或缺少实际结果不计通过。
 - 实际命令：`python3 tests/test_dev_release.py -v -b`
-- 执行时间：2026-10-21T20:02:01.509176+08:00
-- 实际耗时：2.716475917 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243`
+- 执行时间：2026-10-23T02:29:53.045989+08:00
+- 实际耗时：3.255775666 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -39,12 +39,13 @@
 | `test_actions_reference_is_rejected` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_manual_verification_rejects_stale_and_incomplete_evidence` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `test_prepare_does_not_require_upload_credentials` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `test_upload_disabled_before_remote_access` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：19
-- 实际执行完成：19
-- 通过：19
+- 实际发现：20
+- 实际执行完成：20
+- 通过：20
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -64,7 +65,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-readonly-policy-python/test_dev_release.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-final-release/test_dev_release.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

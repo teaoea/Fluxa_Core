@@ -1,4 +1,6 @@
-# libfluxa_core 发布说明
+> 2026-10-23：以下为历史发布流程，不作为当前操作入口。内核已开源为 `teaoea/Nodus-Core`，后续二进制在同仓库分发，本轮暂不启用。当前以 [发布与分发规范](../AGENTS/发布与分发规范.md) 为准。
+
+# nodus_core 发布说明
 
 ## 当前强制发布依据
 
@@ -6,7 +8,7 @@ API、版本与正式发布以 [《API全生命周期管理》](API全生命周�
 
 ## 既往发布流程及记录
 
-Rust 包名与 Rust 库名均为 libfluxa_core，版本 0.3.0。对外 C ABI 的 fluxa_engine_ 前缀保留兼容；Swift 产品 FluxaEngine、FluxaCore 与 FluxaEngine.xcframework 名称不变，内部静态二进制为 libfluxa_core，无扩展名。
+Rust 包名与 Rust 库名均为 nodus_core，版本 0.3.0。对外 C ABI 的 nodus_core_ 前缀保留兼容；Swift 产品 NodusEngine、NodusCore 与 NodusEngine.xcframework 名称不变，内部静态二进制为 nodus_core，无扩展名。
 
 crates.io 发布内容由 Cargo.toml 的 include 白名单限定：Rust 源码、C ABI 头、Rust 测试、测试例程和指定文档；不包含 Swift/App 源码、钥匙串、真实证书私钥、缓存或二进制。先执行 cargo package --list 与 cargo publish --dry-run --registry crates-io，再上传。凭据只通过 cargo login 或受保护环境变量配置，不写入仓库和聊天。
 

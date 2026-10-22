@@ -6,7 +6,7 @@
 
 本契约落实用户确认的十三项安全要求：独立本地 IPC、禁止 TCP/UDP Debug 监听、普通接口不能绕过授权、配置禁止 Debug、订阅不能注入控制命令、验证 OS 对端身份、逐操作权限、全部请求严格校验、仅内存存储、明确 TTL、优先级不越过安全边界、Rust 独立管理、受控审计。
 
-`routing::debug::Session` 与 `Router::with_debug` 为内核私有；普通 `fluxa_engine_command` 不接受 Debug 操作。公开 Rust `routing::debug::ipc::Client`、专用 C ABI 和 `NativeDebugClient` 只能操作已认证 IPC。策略 REJECT 可以被合法限时 Debug 规则覆盖；授权、协议报文检查、预算、会话生命周期不能被覆盖。
+`routing::debug::Session` 与 `Router::with_debug` 为内核私有；普通 `nodus_core_command` 不接受 Debug 操作。公开 Rust `routing::debug::ipc::Client`、专用 C ABI 和 `NativeDebugClient` 只能操作已认证 IPC。策略 REJECT 可以被合法限时 Debug 规则覆盖；授权、协议报文检查、预算、会话生命周期不能被覆盖。
 
 ## 身份、凭证和权限
 
@@ -28,7 +28,7 @@
 }
 ```
 
-这是结构示例，零密钥和占位 TeamID 不能用于真实授权。管理员必须核实真实签名主体及公钥；禁止使用 `true`、只靠可伪造 identifier 或任意签名人的宽泛 requirement。凭证是 32 字节私有 seed 文件，当前用户所有、0600，禁止符号链接，不能提交到 Git。实际 server/client 可执行文件均须符合核实的签名与运行时加固策略。没有可信策略、正确签名或凭证时明确失败，没有开发绕过开关。当前其他平台明确拒绝安全入口，能力位 26 不声明可用。Swift 还核验 `libfluxa_core.DebugIPC` 子模块是否存在；固定 v2.4.1 旧框架没有子模块，构造明确报不可用，不引用不存在的 ABI。匹配的新源码头文件和二进制才启用封装；不以本地目录替换 App 固定依赖。
+这是结构示例，零密钥和占位 TeamID 不能用于真实授权。管理员必须核实真实签名主体及公钥；禁止使用 `true`、只靠可伪造 identifier 或任意签名人的宽泛 requirement。凭证是 32 字节私有 seed 文件，当前用户所有、0600，禁止符号链接，不能提交到 Git。实际 server/client 可执行文件均须符合核实的签名与运行时加固策略。没有可信策略、正确签名或凭证时明确失败，没有开发绕过开关。当前其他平台明确拒绝安全入口，能力位 26 不声明可用。Swift 还核验 `nodus_core.DebugIPC` 子模块是否存在；固定 v2.4.1 旧框架没有子模块，构造明确报不可用，不引用不存在的 ABI。匹配的新源码头文件和二进制才启用封装；不以本地目录替换 App 固定依赖。
 
 ## 生命周期、资源与审计
 
@@ -41,7 +41,7 @@ IPC grant 的期限为 1–3600 秒；每条规则 TTL 必填且 1–3600 秒，
 ## 接口与迁移示例
 
 - Rust：`Service::start(policy_file, private_directory, manager)` 由内核启动受控监听；`Service::close().await` 等待关闭。`Client::connect(..., grant_seconds).await` 完成双向身份验证和签名证明，`client.command(&Request::Status {}).await` 发出专用请求。
-- C ABI：`fluxa_engine_debug_ipc_start`、`fluxa_engine_debug_ipc_connect`、`fluxa_engine_debug_ipc_command`；客户端句柄不是业务引擎句柄。响应和客户端句柄沿用内核 destroy 契约。
+- C ABI：`nodus_core_debug_ipc_start`、`nodus_core_debug_ipc_connect`、`nodus_core_debug_ipc_command`；客户端句柄不是业务引擎句柄。响应和客户端句柄沿用内核 destroy 契约。
 - Swift：`NativeDebugClient(endpoint:credential:serverUID:serverRequirement:lifetimeSeconds:)`；`replace`、`clear`、`status`、`close`、`audit` 只编码请求并显示内核权威结果。
 - Rust 运行示例见 `examples/debug_ipc.rs`；原 `Session::new()/replace` 和 `.with_debug()` 直接构造方式不再公开。dev API 按不稳定契约调整，禁止从 dev 发布到 crates.io；main 未改变。
 

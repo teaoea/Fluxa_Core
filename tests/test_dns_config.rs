@@ -27,8 +27,8 @@ mod public_contract {
     // 生产代码路径：`src/dns/config.rs`（`Config::validate` 及其调用的 `Config::build`、
     // 私有函数 `endpoint`、`super::normalize` 对 `dot` 服务名的校验）。
     //
-    // 公开接口：`fluxa_core::dns::{Config, Server}`（由 `src/dns/mod.rs:14`
-    // 的 `pub use config::{Config, Server};` 导出）、`fluxa_core::error::Error`。
+    // 公开接口：`nodus_core::dns::{Config, Server}`（由 `src/dns/mod.rs:14`
+    // 的 `pub use config::{Config, Server};` 导出）、`nodus_core::error::Error`。
     // `src/dns/config.rs` 本身是私有模块（`src/dns/mod.rs:3` 的 `mod config;`），
     // 因此只经上述公开导出覆盖，未为测试扩大其可见性。
     //
@@ -53,8 +53,8 @@ mod public_contract {
     // ## 执行状态
     // 7 项已实现、含有效断言且实际执行，结果见同名报告 `tests/test_dns_config.md`。
 
-    use fluxa_core::dns::{Config, Server};
-    use fluxa_core::error::Error;
+    use nodus_core::dns::{Config, Server};
+    use nodus_core::error::Error;
 
     fn plain(address: &str) -> Server {
         Server::Udp {

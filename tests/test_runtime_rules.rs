@@ -55,7 +55,7 @@
 // 固定的未分配版本作为独立非法输入；不把当前生产版本当作未知版本。
 const UNSUPPORTED_CACHE_VERSION: u32 = u32::MAX;
 
-use fluxa_core::routing::{
+use nodus_core::routing::{
     Config, Match, Mode, Policy, Rule, Target, Transport,
     runtime::{Layer, Snapshot, Source},
 };
@@ -411,7 +411,7 @@ fn strict_yaml_round_trip_unknown_duplicate_alias_and_depth() {
 }
 #[test]
 fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
-    let path = std::env::temp_dir().join(format!("fluxa-runtime-store-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-runtime-store-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = HostStore::open(&path).unwrap();
     let settings = Config {
@@ -474,7 +474,7 @@ fn failed_update_preserves_disk_and_snapshot_and_close_releases_owner() {
         Policy::Direct
     );
     // Core 可以同时打开只读文件，不再持有目录写锁。
-    assert!(fluxa_core::routing::store::Store::open(path.join("runtime-rules.bin")).is_ok());
+    assert!(nodus_core::routing::store::Store::open(path.join("runtime-rules.bin")).is_ok());
     store.close().unwrap();
     let reopened = HostStore::open(&path).unwrap();
     assert_eq!(reopened.snapshot().unwrap().document().version, 2);
@@ -564,7 +564,7 @@ fn source_precedes_type_but_exact_precedes_suffix_within_source() {
 
 #[test]
 fn pruned_index_agrees_with_unpruned_reference_including_original_origin() {
-    use fluxa_core::routing::runtime::Reference;
+    use nodus_core::routing::runtime::Reference;
     let settings = Config {
         fallback: Policy::Direct,
         ..Config::default()
@@ -698,7 +698,7 @@ fn domain_branch_skips_ip_and_respects_domain_type_and_source_priority() {
                     vec![rule(a_kind, a_value, Policy::Proxy)],
                 ),
             ];
-            let reference = fluxa_core::routing::runtime::Reference::compile(
+            let reference = nodus_core::routing::runtime::Reference::compile(
                 Config::default(),
                 sources.clone(),
                 1,
@@ -751,7 +751,7 @@ fn domain_hit_skips_ip_reject_but_domain_miss_checks_ip_reject() {
 
 #[test]
 fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
-    use fluxa_core::subscription::parse_rules;
+    use nodus_core::subscription::parse_rules;
     let input = "payload:\n - DOMAIN,WWW.Example.COM.\n - DOMAIN-SUFFIX,example.com\n - DOMAIN-KEYWORD,Example\n - IP-CIDR,192.0.2.0/24\n - IP-CIDR,2001:0DB8:0000:0000:0000:0000:0000:0000/32\n";
     let rows = parse_rules(input, Policy::Reject, None).unwrap();
     assert_eq!(
@@ -798,7 +798,7 @@ fn clash_payload_is_strict_uppercase_and_supports_both_address_families() {
 
 #[test]
 fn binary_cache_reopens_host_export_without_migrating_legacy_yaml() {
-    let path = std::env::temp_dir().join(format!("fluxa-binary-migration-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-binary-migration-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     let snapshot = build(
@@ -807,7 +807,7 @@ fn binary_cache_reopens_host_export_without_migrating_legacy_yaml() {
     );
     let legacy = snapshot.to_yaml().unwrap().replace("DOMAIN", "domain");
     std::fs::write(path.join("runtime-rules.yaml"), &legacy).unwrap();
-    assert!(fluxa_core::routing::store::Store::open(path.join("runtime-rules.yaml")).is_err());
+    assert!(nodus_core::routing::store::Store::open(path.join("runtime-rules.yaml")).is_err());
     assert!(!path.join("runtime-rules.bin").exists());
     let store = HostStore::open(&path).unwrap();
     store
@@ -849,7 +849,7 @@ fn binary_cache_reopens_host_export_without_migrating_legacy_yaml() {
 fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
     for mode in 0..6 {
         let path =
-            std::env::temp_dir().join(format!("fluxa-binary-tamper-{}-{mode}", std::process::id()));
+            std::env::temp_dir().join(format!("nodus-binary-tamper-{}-{mode}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         let store = HostStore::open(&path).unwrap();
         store
@@ -893,11 +893,11 @@ fn binary_cache_rejects_corruption_offsets_truncation_and_unknown_version() {
 
 #[test]
 fn binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback() {
-    let path = std::env::temp_dir().join(format!("fluxa-legacy-sqlite-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-legacy-sqlite-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap();
     std::fs::write(path.join("runtime-rules.sqlite"), b"SQLite format 3\0").unwrap();
-    assert!(fluxa_core::routing::store::Store::open(path.join("runtime-rules.sqlite")).is_err());
+    assert!(nodus_core::routing::store::Store::open(path.join("runtime-rules.sqlite")).is_err());
     assert!(!path.join("runtime-rules.bin").exists());
     assert_eq!(
         std::fs::read(path.join("runtime-rules.sqlite")).unwrap(),
@@ -908,7 +908,7 @@ fn binary_cache_rejects_legacy_sqlite_without_silent_yaml_fallback() {
 
 #[test]
 fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
-    let path = std::env::temp_dir().join(format!("fluxa-flat-differential-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-flat-differential-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let inputs = vec![source(
         "local",
@@ -965,7 +965,7 @@ fn binary_cache_matches_all_matcher_shapes_before_and_after_reopen() {
 
 #[test]
 fn generation_input_accepts_structured_and_clash_sources() {
-    use fluxa_core::routing::runtime::GenerationInput;
+    use nodus_core::routing::runtime::GenerationInput;
     let input = GenerationInput::from_yaml(
         "format_version: 1\nsettings: {mode: rules, fallback: direct}\nsources:\n  - id: local\n    layer: local\n    rules:\n      - {type: DOMAIN-KEYWORD, value: example, policy: direct}\n  - id: remote\n    layer: remote\n    policy: reject\n    payload_yaml: |\n      payload:\n        - DOMAIN,ads.example.com\n",
     );
@@ -985,7 +985,7 @@ fn empty_clash_payload_still_validates_outbound_metadata() {
         (Policy::Proxy, "invalid id"),
     ] {
         assert!(
-            fluxa_core::subscription::parse_rules("payload: []", policy, Some(id.into())).is_err()
+            nodus_core::subscription::parse_rules("payload: []", policy, Some(id.into())).is_err()
         );
     }
 }
@@ -1013,7 +1013,7 @@ fn audit_source_and_port_priority_matrix() {
                     vec![rule(kind, value, Policy::Proxy)],
                 ),
             ];
-            let reference = fluxa_core::routing::runtime::Reference::compile(
+            let reference = nodus_core::routing::runtime::Reference::compile(
                 Config::default(),
                 sources.clone(),
                 1,
@@ -1062,7 +1062,7 @@ fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
             disabled.enabled = false;
             assert!(matches!(
                 Snapshot::generate(Config::default(), vec![disabled], 1),
-                Err(fluxa_core::error::Error::InvalidInput)
+                Err(nodus_core::error::Error::InvalidInput)
             ));
 
             assert!(matches!(
@@ -1075,7 +1075,7 @@ fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
                     )],
                     1
                 ),
-                Err(fluxa_core::error::Error::InvalidInput)
+                Err(nodus_core::error::Error::InvalidInput)
             ));
         }
         let snapshot = build(
@@ -1099,7 +1099,7 @@ fn audit_global_transport_only_allows_reject_and_quic_is_not_udp() {
 
 #[test]
 fn audit_document_trust_requires_original_sources() {
-    use fluxa_core::routing::runtime::{RemovalReason, ReportVerification};
+    use nodus_core::routing::runtime::{RemovalReason, ReportVerification};
     let sources = vec![source(
         "local",
         Layer::Local,
@@ -1219,7 +1219,7 @@ fn audit_dns_before_after_matrix() {
 
 #[test]
 fn audit_resource_limits_reject_before_index_expansion() {
-    use fluxa_core::error::Error;
+    use nodus_core::error::Error;
     let dense = (0..20_000)
         .map(|_| {
             rule(
@@ -1250,7 +1250,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
     ));
     let payload = "payload:\n".to_owned() + &" - DOMAIN,example.com\n".repeat(100_001);
     assert!(matches!(
-        fluxa_core::subscription::parse_rules(&payload, Policy::Direct, None),
+        nodus_core::subscription::parse_rules(&payload, Policy::Direct, None),
         Err(Error::ResourceLimit)
     ));
     for invalid in [
@@ -1258,7 +1258,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
         "x".repeat(8 * 1024 * 1024 + 1),
     ] {
         assert!(matches!(
-            fluxa_core::subscription::parse_rules(&invalid, Policy::Direct, None),
+            nodus_core::subscription::parse_rules(&invalid, Policy::Direct, None),
             Err(Error::ResourceLimit)
         ));
     }
@@ -1277,7 +1277,7 @@ fn audit_resource_limits_reject_before_index_expansion() {
 
 #[test]
 fn audit_seeded_random_unpruned_differential_and_round_trip() {
-    use fluxa_core::routing::runtime::Reference;
+    use nodus_core::routing::runtime::Reference;
     let mut seed = 0x12_2026_1012u64;
     let mut next = || {
         seed ^= seed << 13;
@@ -1344,7 +1344,7 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
         };
         let reference = Reference::compile(settings.clone(), sources.clone(), batch + 1).unwrap();
         let path =
-            std::env::temp_dir().join(format!("fluxa-flat-random-{}-{batch}", std::process::id()));
+            std::env::temp_dir().join(format!("nodus-flat-random-{}-{batch}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         let store = HostStore::open(&path).unwrap();
         store.update(settings.clone(), sources.clone()).unwrap();
@@ -1397,7 +1397,7 @@ fn audit_seeded_random_unpruned_differential_and_round_trip() {
 
 #[test]
 fn binary_cache_fault_injection_never_panics_with_recomputed_checksum() {
-    let path = std::env::temp_dir().join(format!("fluxa-flat-fault-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-flat-fault-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = HostStore::open(&path).unwrap();
     let rules = (0..32)
@@ -1569,7 +1569,7 @@ fn scoped_rule_validation_is_strict_and_disabled_sources_cannot_hide_illegal_rul
 
 #[test]
 fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
-    let path = std::env::temp_dir().join(format!("fluxa-scoped-cache-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-scoped-cache-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let mut tcp = rule(Match::Domain, "example.com", Policy::Direct);
     tcp.protocol = Some(Transport::Tcp);
@@ -1614,7 +1614,7 @@ fn scoped_flat_cache_retains_both_protocols_and_rejects_previous_layout() {
 fn both_complete_yaml_examples_strictly_compile_formal_rules() {
     // macOS 已接入 OS 真实进程归属；其他非移动平台不得将未实现的进程规则假装可用。
     let result =
-        fluxa_core::configuration::Document::from_yaml(include_str!("../example_config.yaml"))
+        nodus_core::configuration::Document::from_yaml(include_str!("../example_config.yaml"))
             .unwrap()
             .compile_local_rules(1);
     if cfg!(target_os = "macos") {
@@ -1627,7 +1627,7 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
                 .any(|row| row.rule.r#type == Match::ProcessName)
         );
     } else if !cfg!(any(target_os = "ios", target_os = "tvos")) {
-        assert!(matches!(result, Err(fluxa_core::error::Error::Unsupported)));
+        assert!(matches!(result, Err(nodus_core::error::Error::Unsupported)));
     } else {
         assert!(
             !result
@@ -1640,7 +1640,7 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
     }
     {
         let full = include_str!("fixtures/main-config-supported.yaml");
-        let snapshot = fluxa_core::configuration::Document::from_yaml(full)
+        let snapshot = nodus_core::configuration::Document::from_yaml(full)
             .unwrap()
             .compile_local_rules(1)
             .unwrap();
@@ -1688,7 +1688,7 @@ fn both_complete_yaml_examples_strictly_compile_formal_rules() {
 #[test]
 fn duplicate_vec_capacity_is_accounted_without_false_rejection() {
     let path =
-        std::env::temp_dir().join(format!("fluxa-duplicate-capacity-{}", std::process::id()));
+        std::env::temp_dir().join(format!("nodus-duplicate-capacity-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = HostStore::open(&path).unwrap();
     let duplicate = rule(Match::Domain, "duplicate.example.net", Policy::Direct);
@@ -1830,7 +1830,7 @@ fn ignored_domain_rules_in_global_direct_do_not_hide_ip_reject() {
 }
 #[test]
 fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
-    let path = std::env::temp_dir().join(format!("fluxa-plugin-source-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("nodus-plugin-source-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     let store = HostStore::open(&path).unwrap();
     store
@@ -1871,23 +1871,23 @@ fn plugin_layer_round_trip_keeps_identity_and_shared_candidates() {
 
 // 测试宿主显式承担目录和落盘；不向 Core 增加写入 API。缓存破坏/独立匹配断言仍走实际 Core 只读加载。
 struct HostStore {
-    core: fluxa_core::routing::store::Store,
+    core: nodus_core::routing::store::Store,
     path: std::path::PathBuf,
 }
 impl std::ops::Deref for HostStore {
-    type Target = fluxa_core::routing::store::Store;
+    type Target = nodus_core::routing::store::Store;
     fn deref(&self) -> &Self::Target {
         &self.core
     }
 }
 impl HostStore {
-    fn open(directory: &std::path::Path) -> Result<Self, fluxa_core::error::Error> {
+    fn open(directory: &std::path::Path) -> Result<Self, nodus_core::error::Error> {
         std::fs::create_dir_all(directory)?;
         let path = directory.join("runtime-rules.bin");
         let core = if path.exists() {
-            fluxa_core::routing::store::Store::open(&path)?
+            nodus_core::routing::store::Store::open(&path)?
         } else {
-            fluxa_core::routing::store::Store::memory()
+            nodus_core::routing::store::Store::memory()
         };
         Ok(Self { core, path })
     }
@@ -1895,7 +1895,7 @@ impl HostStore {
         &self,
         settings: Config,
         sources: Vec<Source>,
-    ) -> Result<fluxa_core::routing::store::Commit, fluxa_core::error::Error> {
+    ) -> Result<nodus_core::routing::store::Commit, nodus_core::error::Error> {
         let result = self.core.update(settings, sources)?;
         std::fs::write(&self.path, self.core.snapshot()?.to_binary()?.as_ref())?;
         Ok(result)

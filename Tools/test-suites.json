@@ -430,7 +430,7 @@
         "failed_binding_does_not_activate_debug_and_audit_is_bounded",
         "signed_os_peer_and_operation_permissions_use_real_unix_socket"
       ],
-      "limitations": "未提供 FLUXA_DEBUG_TEST_REQUIREMENT 时，签名用例只验证未授权签名被拒绝；只有 Tools/check_debug_ipc.py 的真实签名与 Swift 对端联调才验证完整授权分支，普通 Rust PASS 不代表该分支完成。"
+      "limitations": "未提供 NODUS_DEBUG_TEST_REQUIREMENT 时，签名用例只验证未授权签名被拒绝；只有 Tools/check_debug_ipc.py 的真实签名与 Swift 对端联调才验证完整授权分支，普通 Rust PASS 不代表该分支完成。"
     },
     {
       "id": "test_routing_debug",
@@ -1356,7 +1356,8 @@
         "test_framework_preserves_current_license_files",
         "test_actions_reference_is_rejected",
         "test_manual_verification_rejects_stale_and_incomplete_evidence",
-        "test_prepare_does_not_require_upload_credentials"
+        "test_prepare_does_not_require_upload_credentials",
+        "test_upload_disabled_before_remote_access"
       ]
     },
     {

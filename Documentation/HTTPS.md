@@ -14,7 +14,7 @@
 
 ## Swift 与 C ABI
 
-`NativeHttpsClient` 负责资源生命周期、内部消息编码与解码。网络与证书判断全在 Rust。实例耗时调用应放在后台执行。`fluxa_engine_command` 同步调用，输入只在调用期间借用；结果返回 Rust 响应句柄，Swift 查询长度并复制到自己的 Data，随后调用统一 destroy。不可跨语言释放内存。
+`NativeHttpsClient` 负责资源生命周期、内部消息编码与解码。网络与证书判断全在 Rust。实例耗时调用应放在后台执行。`nodus_core_command` 同步调用，输入只在调用期间借用；结果返回 Rust 响应句柄，Swift 查询长度并复制到自己的 Data，随后调用统一 destroy。不可跨语言释放内存。
 
 能力位 0 表示 HTTPS 客户端，能力位 1 表示 MITM。内部 JSON 是 FFI 的结构化传输，不是用户配置格式；用户主配置、规则及插件仍使用 YAML。响应正文采用 Base64 传输，Swift 返回 Data。Rust 错误不包含请求正文、URL 凭据或私钥。
 

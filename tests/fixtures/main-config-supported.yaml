@@ -1,7 +1,7 @@
 # 功能回归夹具：主示例的已支持本地规则；进程规则另测明确能力错误。
 # 完整主配置示例
 
-# 日志记录等级，日志文件默认保存到[用户目录/.fluxa/log/silent（日志等级）/（年-月-日）]文件夹下
+# 日志记录等级，日志文件默认保存到[用户目录/.nodus/log/silent（日志等级）/（年-月-日）]文件夹下
 # 按照1小时为间隔，每小时的日志为独立文件
 # silent，不记录日志
 # info，记录完整日志，含debug、warn、error
@@ -57,7 +57,7 @@ proxies:
     sni: example.com
     pbk: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE # 仅用于格式验证的虚构公钥，连接前必须替换
     sid: "01" # 格式示例，连接前替换为服务端真实 short id
-    fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 fluxa。默认 chrome133 模板
+    fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 nodus。默认 chrome133 模板
 
 # 策略组
 proxy-groups: []
@@ -66,12 +66,12 @@ proxy-groups: []
 plugin-providers:
   - name: 插件集名称
     category: 插件集分类
-    url: https://example.com/fluxa/plugins.yaml # 插件集订阅地址
+    url: https://example.com/nodus/plugins.yaml # 插件集订阅地址
     enabled: false # 插件集是否启用，false 不启用，true 启用
     update-time: "12:00" #插件集每日更新的时间，必须使用带引号的 HH:mm，使用设备本地时区。省略此字段则不自动更新，仅在第一次导入时更新一次
 
 # 远程规则集
-# 订阅的规则集会下载下来，保存到[用户目录/.fluxa/rules]
+# 订阅的规则集会下载下来，保存到[用户目录/.nodus/rules]
 # policy: reject 时忽略远程 domain-suffix、domain-keyword 条目，防止扩大拦截范围。
 # 订阅的规则集会在每天指定时间自动更新，自动更新与手动更新会覆盖旧规则集文件，未配置update-time字段则不自动更新，仅在第一次导入时下载
 # 规则集更新或者本地规则变动，会进行合并裁剪，写入到内存，如果本地规则变动，但是订阅规则还未到更新时间
@@ -81,12 +81,12 @@ plugin-providers:
 # 忽略不符合要求的规则，不影响同一订阅中其他合法规则的加载
 rule-providers:
   - name: direct # 指定规则集名称，禁止重复，必填
-    url: https://example.com/fluxa/direct.yaml # 规则集订阅地址，必填
+    url: https://example.com/nodus/direct.yaml # 规则集订阅地址，必填
     policy: direct # 规则集内的规则流量处理策略，可选值：[direct、reject、代理节点名称]，必填项
     enable: false # 规则集是否启用，false 不启用，true 启用
     update-time: "12:00" # 规则集每日更新的时间，必须使用带引号的 HH:mm，使用设备本地时区
   - name: reject
-    url: https://example.com/fluxa/reject.yaml
+    url: https://example.com/nodus/reject.yaml
     policy: reject
     enable: true
 

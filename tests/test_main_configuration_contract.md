@@ -1,6 +1,6 @@
 # 测试报告：test_main_configuration_contract
 
-<!-- fluxa-test-report:{"command": ["/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_main_configuration_contract-a7ef77a6e135ac8d", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.04316379200000142, "status": "PASS", "discovered": ["committed_main_configuration_controls_new_requests_and_keeps_live_connection", "compiled_scalar_rules_obey_scoped_conditions_and_final", "configuration_errors_preserve_integer_protocol_and_do_not_expose_values", "keywords_match_only_the_registrable_tenant_label", "main_configuration_atomically_publishes_nodes_rules_and_limits", "os_process_rule_controls_actual_outbound_without_request_claim", "unavailable_rule_dependencies_fail_explicitly", "validation_summary_is_not_running_status"], "results": {"committed_main_configuration_controls_new_requests_and_keeps_live_connection": "PASS", "compiled_scalar_rules_obey_scoped_conditions_and_final": "PASS", "configuration_errors_preserve_integer_protocol_and_do_not_expose_values": "PASS", "keywords_match_only_the_registrable_tenant_label": "PASS", "main_configuration_atomically_publishes_nodes_rules_and_limits": "PASS", "os_process_rule_controls_actual_outbound_without_request_claim": "PASS", "unavailable_rule_dependencies_fail_explicitly": "PASS", "validation_summary_is_not_running_status": "PASS"}, "fingerprint": "23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243", "time": "2026-10-21T19:59:51.359405+08:00", "attempt": 1, "suite": "test_main_configuration_contract", "file": "tests/test_main_configuration_contract.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_main_configuration_contract-f2d45d7507f506dc", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.04429708299998936, "status": "PASS", "discovered": ["committed_main_configuration_controls_new_requests_and_keeps_live_connection", "compiled_scalar_rules_obey_scoped_conditions_and_final", "configuration_errors_preserve_integer_protocol_and_do_not_expose_values", "keywords_match_only_the_registrable_tenant_label", "main_configuration_atomically_publishes_nodes_rules_and_limits", "os_process_rule_controls_actual_outbound_without_request_claim", "unavailable_rule_dependencies_fail_explicitly", "validation_summary_is_not_running_status"], "results": {"committed_main_configuration_controls_new_requests_and_keeps_live_connection": "PASS", "compiled_scalar_rules_obey_scoped_conditions_and_final": "PASS", "configuration_errors_preserve_integer_protocol_and_do_not_expose_values": "PASS", "keywords_match_only_the_registrable_tenant_label": "PASS", "main_configuration_atomically_publishes_nodes_rules_and_limits": "PASS", "os_process_rule_controls_actual_outbound_without_request_claim": "PASS", "unavailable_rule_dependencies_fail_explicitly": "PASS", "validation_summary_is_not_running_status": "PASS"}, "fingerprint": "e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5", "time": "2026-10-23T02:28:19.213729+08:00", "attempt": 1, "suite": "test_main_configuration_contract", "file": "tests/test_main_configuration_contract.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/configuration.rs、src/routing/yaml.rs、src/error.rs
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/FLuxa_Core/target/debug/deps/test_main_configuration_contract-a7ef77a6e135ac8d --test-threads=1`
-- 执行时间：2026-10-21T19:59:51.359405+08:00
-- 实际耗时：0.04316379200000142 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_main_configuration_contract-f2d45d7507f506dc --test-threads=1`
+- 执行时间：2026-10-23T02:28:19.213729+08:00
+- 实际耗时：0.04429708299998936 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -53,7 +53,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-readonly-main-policy-final/test_main_configuration_contract.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-rename-final/test_main_configuration_contract.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

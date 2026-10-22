@@ -24,11 +24,19 @@
 //! 执行状态：由同名 Markdown 报告记录，不在源码中固化通过结论。
 
 // 一致性检查核对契约，语义检查采用独立确认的业务预期；不由当前实现生成断言。
-use fluxa_core::{
+use nodus_core::{
     error::{Error, ErrorCode, ErrorInfo},
     routing::{Config, Policy, Transport},
 };
 use std::collections::HashSet;
+// 改名只迁移源码定位中的 C 符号；历史基线文件保持原文，业务字段逐字比较。
+fn renamed_source(entry: &serde_json::Value) -> serde_json::Value {
+    let mut entry = entry.clone();
+    if entry["source"] == "src/ffi.rs fluxa_engine_command" {
+        entry["source"] = "src/ffi.rs nodus_core_command".into();
+    }
+    entry
+}
 #[test]
 fn registered_contract_and_initial_baseline_are_complete() {
     let current: Vec<_> = ErrorCode::ALL.iter().map(|code| code.contract()).collect();
@@ -45,7 +53,10 @@ fn registered_contract_and_initial_baseline_are_complete() {
         serde_json::from_str(include_str!("fixtures/error-contract-v2.json")).unwrap();
     for entry in published.as_array().unwrap() {
         assert!(
-            registered.as_array().unwrap().contains(entry),
+            registered
+                .as_array()
+                .unwrap()
+                .contains(&renamed_source(entry)),
             "新方案已登记语义不得静默删除、修改或复用"
         );
     }
@@ -53,7 +64,10 @@ fn registered_contract_and_initial_baseline_are_complete() {
         serde_json::from_str(include_str!("fixtures/error-contract-v2.4.1.json")).unwrap();
     for entry in geoip_published.as_array().unwrap() {
         assert!(
-            registered.as_array().unwrap().contains(entry),
+            registered
+                .as_array()
+                .unwrap()
+                .contains(&renamed_source(entry)),
             "v2.4.1 契约不得静默改义、改号或删除"
         );
     }
@@ -102,7 +116,7 @@ fn registered_contract_and_initial_baseline_are_complete() {
         )));
         assert_eq!(document.matches(&format!("| `{}` |", row.code)).count(), 1);
         let mut info = ErrorInfo::new(*code);
-        use fluxa_core::error::FieldName;
+        use nodus_core::error::FieldName;
         match code {
             ErrorCode::ConfigUnknownField | ErrorCode::ConfigDuplicateField => {
                 info.params.field = FieldName::new("debug")
@@ -213,7 +227,7 @@ fn fixed_integer_protocol_has_no_string_or_heap_representation() {
 
 #[tokio::test]
 async fn real_dns_deadline_and_closed_port_fail_without_policy_success() {
-    use fluxa_core::dns::{Config as DnsConfig, Query, Resolver, Server};
+    use nodus_core::dns::{Config as DnsConfig, Query, Resolver, Server};
     // 独立上游只占用 UDP 端口、不回复，预期来自“超时必须失败”契约。
     let upstream = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let resolver = Resolver::new(DnsConfig {
@@ -238,7 +252,7 @@ async fn real_dns_deadline_and_closed_port_fail_without_policy_success() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let target = listener.local_addr().unwrap().to_string();
     drop(listener);
-    let manager = fluxa_core::outbound::Manager::default();
+    let manager = nodus_core::outbound::Manager::default();
     let result = manager
         .open(
             target.parse().unwrap(),
@@ -293,7 +307,7 @@ fn nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded() {
 }
 #[test]
 fn all_abi_failures_use_segmented_codes_and_nonerrors_remain_states() {
-    use fluxa_core::error::AbiStatus;
+    use nodus_core::error::AbiStatus;
     assert_eq!(AbiStatus::Success.value(), 0);
     assert_eq!(AbiStatus::Empty.value(), 11);
     for (error, code) in [
@@ -341,7 +355,7 @@ fn every_internal_error_maps_to_the_independent_protocol_identity() {
 }
 #[test]
 fn invalid_config_keeps_snapshot_and_machine_failure() {
-    use fluxa_core::routing::{Match, Rule, runtime::GenerationInput, store::Store};
+    use nodus_core::routing::{Match, Rule, runtime::GenerationInput, store::Store};
     // 预期来自独立规范：未知、重复字段及格式版本必须拒绝并准确区分。
     for (input, expected) in [
         (
@@ -368,7 +382,7 @@ fn invalid_config_keeps_snapshot_and_machine_failure() {
         .unwrap()
         .as_nanos();
     let path = std::env::temp_dir().join(format!(
-        "fluxa-error-transaction-{}-{unique}",
+        "nodus-error-transaction-{}-{unique}",
         std::process::id()
     ));
     let store = Store::memory();
@@ -394,7 +408,7 @@ fn invalid_config_keeps_snapshot_and_machine_failure() {
 }
 #[test]
 fn diagnostics_remain_fixed_size_and_do_not_hold_error_chains() {
-    use fluxa_core::error::diagnostics::{self, DIAGNOSTIC_CAPACITY, DiagnosticSite};
+    use nodus_core::error::diagnostics::{self, DIAGNOSTIC_CAPACITY, DiagnosticSite};
     let (_, before) = diagnostics::snapshot();
     for _ in 0..DIAGNOSTIC_CAPACITY * 3 {
         diagnostics::record(Error::ResourceLimit, DiagnosticSite::Cleanup);
@@ -424,7 +438,7 @@ fn segmented_codes_have_one_category_per_prefix() {
         (24, "GEOIP"),
         (99, "INTERNAL"),
     ];
-    for retired in fluxa_core::error::RETIRED_ERROR_CODES {
+    for retired in nodus_core::error::RETIRED_ERROR_CODES {
         assert_eq!(
             ErrorCode::from_value(*retired),
             None,
@@ -450,7 +464,7 @@ fn segmented_codes_have_one_category_per_prefix() {
 }
 #[test]
 fn typed_context_is_required_bounded_and_specific_to_code() {
-    use fluxa_core::error::FieldName;
+    use nodus_core::error::FieldName;
     for invalid in [
         r#"{"code":2002,"params":{}}"#,
         r#"{"code":2002,"params":{"field":"../../secret"}}"#,
@@ -487,14 +501,14 @@ fn typed_context_is_required_bounded_and_specific_to_code() {
     ] {
         let info = error.public_info();
         let bytes = serde_json::to_vec(&info).unwrap();
-        assert!(bytes.len() <= fluxa_core::error::MAX_ERROR_BYTES);
+        assert!(bytes.len() <= nodus_core::error::MAX_ERROR_BYTES);
         assert_eq!(ErrorInfo::from_json(&bytes).unwrap(), info);
     }
     assert!(serde_json::to_vec(&ErrorInfo::new(ErrorCode::ResourceBudgetExceeded)).is_err());
 }
 #[test]
 fn safety_filter_preserves_unknown_and_duplicate_classification() {
-    use fluxa_core::routing::runtime::GenerationInput;
+    use nodus_core::routing::runtime::GenerationInput;
     for key in ["abcdefghijklmnopqrstuvwxyzabcdefg", "隐私字段", "bad.field"] {
         let input = format!("format_version: 1\nsettings: {{}}\nsources: []\n{key}: true\n");
         let error = GenerationInput::from_yaml(&input).err().unwrap();

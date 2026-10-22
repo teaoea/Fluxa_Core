@@ -6,7 +6,7 @@
 //! 前置条件：仅临时回环端口；不接管系统 VPN、不修改代理和系统证书、不访问外网。
 #[path = "test_fixture_https.rs"]
 mod support;
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     http::{self, Header},
     https::HttpsClient,
@@ -138,7 +138,7 @@ async fn request_and_response_use_real_wire_data() {
     let server = Server::start(false).await;
     let url = server.url("/echo");
     let mut cfg = config(
-        json!([{"url":url,"action":"modify-request","request":{"method":"POST","headers":{"set":{"X-New":"yes"},"remove":["X-Old"]},"query":{"set":{"source":"fluxa"},"remove":["ad"]},"body":{"text":"changed"}}}]),
+        json!([{"url":url,"action":"modify-request","request":{"method":"POST","headers":{"set":{"X-New":"yes"},"remove":["X-Old"]},"query":{"set":{"source":"nodus"},"remove":["ad"]},"body":{"text":"changed"}}}]),
     );
     cfg["rules"] = json!(["final,direct"]);
     let (client, manager) = make_client(cfg);
@@ -156,7 +156,7 @@ async fn request_and_response_use_real_wire_data() {
         .await
         .unwrap();
     let payload: Value = serde_json::from_slice(&reply.body).unwrap();
-    assert_eq!(payload["first"], "POST /echo?source=fluxa HTTP/1.1");
+    assert_eq!(payload["first"], "POST /echo?source=nodus HTTP/1.1");
     assert_eq!(payload["body"], "changed");
     assert!(
         payload["headers"]

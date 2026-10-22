@@ -24,6 +24,6 @@ iOS/iPadOS 共用 iOS 切片；iOS 模拟器、tvOS 模拟器各自独立，禁�
 
 所有产物默认只保存在本地。没有用户明确许可，不上传附件、来源清单、草稿或发布标签；源码 main 提交不构成上传许可。既有 macOS 独立附件来源清单只声明 macos-arm64、minimum_macos=13.0；全平台本地产物不能冒用 macOS 单平台清单。
 
-发行产物强制采用 fluxa-core-{os}-{arch}[-{abi}]，包内库名为 fluxa_core。--package-dir 仅为本次选中的目标生成单切片 ZIP 与 manifest.json、SHA256SUMS；不生成 Catalyst 包。Core 当前统一 main；旧脚本文件名中的 dev 仅是历史入口名称，不表示仍有 dev 分支。
+发行产物强制采用 nodus-core-{os}-{arch}[-{abi}]，包内库名为 nodus_core。--package-dir 仅为本次选中的目标生成单切片 ZIP 与 manifest.json、SHA256SUMS；不生成 Catalyst 包。Core 当前统一 main；旧脚本文件名中的 dev 仅是历史入口名称，不表示仍有 dev 分支。
 
 支持列表和构建列表分别见强制规范：开发保持全部约定平台兼容，日常只实际构建 macOS arm64。--list 仅查看完整支持矩阵，不触发其他平台构建。

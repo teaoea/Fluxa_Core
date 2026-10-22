@@ -1,5 +1,5 @@
 //! 优化构建测量生成与索引查询；不使用少量重复规则冒充十万条有效规则。
-use fluxa_core::routing::{
+use nodus_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, Snapshot, Source},
 };
@@ -60,7 +60,7 @@ fn main() {
     if let Some(position) = arguments.iter().position(|arg| arg == "--load") {
         println!("baseline_rss_kib={}", rss());
         let started = Instant::now();
-        let store = fluxa_core::routing::store::Store::open(&arguments[position + 1]).unwrap();
+        let store = nodus_core::routing::store::Store::open(&arguments[position + 1]).unwrap();
         let snapshot = store.snapshot().unwrap();
         println!(
             "cold_load_us={} cold_rss_kib={}",
@@ -129,7 +129,7 @@ fn main() {
     );
     // 重启后的查询单独采样，两种缓存使用相同规则和调用路径。
     let snapshot = if std::env::args().any(|arg| arg == "--reopen") {
-        let path = std::env::temp_dir().join(format!("fluxa-cache-query-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("nodus-cache-query-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         let input = snapshot
             .document()
@@ -137,7 +137,7 @@ fn main() {
             .iter()
             .map(|row| row.rule.clone())
             .collect();
-        let store = fluxa_core::routing::store::Store::memory();
+        let store = nodus_core::routing::store::Store::memory();
         store
             .update(snapshot.document().settings.clone(), sources(input))
             .unwrap();
@@ -152,7 +152,7 @@ fn main() {
         drop(snapshot);
         let started = Instant::now();
         let store =
-            fluxa_core::routing::store::Store::open(path.join("runtime-rules.bin")).unwrap();
+            nodus_core::routing::store::Store::open(path.join("runtime-rules.bin")).unwrap();
         let snapshot = store.snapshot().unwrap();
         println!(
             "reopen_us={} reopened_rss_kib={}",
@@ -173,15 +173,15 @@ fn main() {
             .map(|row| row.rule.clone())
             .collect();
         drop(snapshot);
-        let path = std::env::temp_dir().join(format!("fluxa-runtime-bench-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("nodus-runtime-bench-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
-        let store = fluxa_core::routing::store::Store::memory();
+        let store = nodus_core::routing::store::Store::memory();
         let start = Instant::now();
         if std::env::args().any(|arg| arg == "--background") {
-            let service = fluxa_core::routing::background::Service::new(
+            let service = nodus_core::routing::background::Service::new(
                 store,
-                std::sync::Arc::new(fluxa_core::outbound::Manager::default()),
+                std::sync::Arc::new(nodus_core::outbound::Manager::default()),
             );
             for rules in [input.clone(), input] {
                 let submitted = Instant::now();
@@ -198,10 +198,10 @@ fn main() {
                 loop {
                     let job = service.job(job.id).unwrap();
                     match job.phase {
-                        fluxa_core::routing::background::Phase::Compiling => {
+                        nodus_core::routing::background::Phase::Compiling => {
                             std::thread::sleep(std::time::Duration::from_millis(1))
                         }
-                        fluxa_core::routing::background::Phase::Succeeded => break,
+                        nodus_core::routing::background::Phase::Succeeded => break,
                         _ => panic!("后台生成失败：{:?}", job.error),
                     }
                 }
@@ -249,7 +249,7 @@ fn main() {
         );
         // 同步模式在上面的分支内关闭，异步模式由 Service 关闭。
         let reopen_started = Instant::now();
-        let reopened = fluxa_core::routing::store::Store::open(path.join("runtime-rules.bin"))
+        let reopened = nodus_core::routing::store::Store::open(path.join("runtime-rules.bin"))
             .expect("磁盘缓存必须能够重新加载");
         println!(
             "reopen_us={} reopened_rss_kib={}",
@@ -330,7 +330,7 @@ fn measure(snapshot: &Snapshot, count: usize) {
     );
 }
 
-fn print_update(number: usize, commit: &fluxa_core::routing::store::Commit) {
+fn print_update(number: usize, commit: &nodus_core::routing::store::Commit) {
     let t = &commit.timings;
     println!(
         "update={number} compile_us={} encode_us={} validate_us={} write_sync_us={} switch_us={} directory_sync_us={}",

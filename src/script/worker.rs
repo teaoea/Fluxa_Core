@@ -103,7 +103,7 @@ impl Worker {
         let done = closed.clone();
         let (sender, receiver) = mpsc::sync_channel(4);
         let task = thread::Builder::new()
-            .name("fluxa-js".into())
+            .name("nodus-js".into())
             .stack_size(2 * 1024 * 1024)
             .spawn(move || {
                 struct Finished(Arc<AtomicBool>);

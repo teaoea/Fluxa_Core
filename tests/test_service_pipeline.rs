@@ -17,7 +17,7 @@
 // 服务层与共用连接管线的真实 I/O 验证，不改动系统 DNS 或证书信任。
 #[path = "test_fixture_https.rs"]
 mod support;
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     https::HttpsClient,
     outbound::Limits,

@@ -22,7 +22,7 @@
 | `android-chrome120` | Android Chrome 120 | 明确保留旧模板 |
 | `edge`、`edge106` | Edge 106 | 固定扩展顺序、ALPS、GREASE |
 | `random` | 已支持的六种浏览器模板之一 | 在配置校验时选择，快照中的节点保持同一模板 |
-| `fluxa` | Fluxa TLS 1.3 | 原生最小模板，仅 AES-128-GCM |
+| `nodus` | Nodus TLS 1.3 | 原生最小模板，仅 AES-128-GCM |
 
 缺少 `fp` 时使用 `chrome`。未知名称，包括尚未实现的 `randomized`，明确拒绝。Android 指纹指 Chrome 浏览器，不冒充仅支持 TLS 1.2 的 Android 11 OkHttp。固定版本不表示当前所有浏览器版本完全相同，也不模拟 HTTP/2、HTTP 头、JavaScript 或操作系统。ECH 这里只是 GREASE，不是加密客户端问候服务。模板公开字段参考固定 uTLS 源码 `ff1b50fbbe9a6dff1dcb1cfc0493bd5b0f073f67`，保留其 BSD 声明；不链接 uTLS 或第三方代理内核。
 

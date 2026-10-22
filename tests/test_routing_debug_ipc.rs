@@ -143,7 +143,7 @@ mod signed_tests {
     async fn own_peer() -> (UnixStream, UnixStream) {
         // socketpair 没有 accept 身份上下文，使用真实监听/接受产生 OS 对端凭据。
         let path = std::env::temp_dir().join(format!(
-            "fluxa-peer-{}",
+            "nodus-peer-{}",
             crate::lifecycle::identifier().unwrap()
         ));
         let listener = UnixListener::bind(&path).unwrap();
@@ -156,13 +156,13 @@ mod signed_tests {
     #[tokio::test]
     async fn signed_os_peer_and_operation_permissions_use_real_unix_socket() {
         // 测试启动器给本测试二进制加 Hardened Runtime 签名；生产不存在 env 绕过入口。
-        let requirement = match std::env::var("FLUXA_DEBUG_TEST_REQUIREMENT") {
+        let requirement = match std::env::var("NODUS_DEBUG_TEST_REQUIREMENT") {
             Ok(value) => value,
             Err(_) => {
                 let (stream, _client) = own_peer().await;
                 let peer = debug_identity::inspect(&stream).unwrap();
                 assert_eq!(
-                    debug_identity::verify(&peer, "identifier fluxa-debug-test"),
+                    debug_identity::verify(&peer, "identifier nodus-debug-test"),
                     Err(Error::DebugIdentityRejected)
                 );
                 return;
@@ -173,7 +173,7 @@ mod signed_tests {
         debug_identity::verify(&peer, &requirement).unwrap();
         let key = Ed25519KeyPair::from_seed_unchecked(&[11; 32]).unwrap();
         let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
-            "fluxa-debug-auth-{}-{}",
+            "nodus-debug-auth-{}-{}",
             std::process::id(),
             crate::lifecycle::identifier().unwrap()
         ));
@@ -220,9 +220,9 @@ mod signed_tests {
                 },
             ],
         };
-        let swift = std::env::var("FLUXA_DEBUG_TEST_SWIFT").ok();
+        let swift = std::env::var("NODUS_DEBUG_TEST_SWIFT").ok();
         if swift.is_some() {
-            let swift_requirement = std::env::var("FLUXA_DEBUG_TEST_SWIFT_REQUIREMENT").unwrap();
+            let swift_requirement = std::env::var("NODUS_DEBUG_TEST_SWIFT_REQUIREMENT").unwrap();
             policy.principals.push(Principal {
                 uid: peer.uid,
                 requirement: swift_requirement,

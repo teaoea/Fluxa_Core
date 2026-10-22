@@ -28,7 +28,7 @@
 FFI 示例请求：
 
 ```json
-{"operation":"vpn_preparation_begin","yaml":"tun: {enable: true, name: fluxa0}\nrules: ['final,direct']"}
+{"operation":"vpn_preparation_begin","yaml":"tun: {enable: true, name: nodus0}\nrules: ['final,direct']"}
 ```
 
 轮询 `vpn_preparation_status` 观察 preparing/candidate-ready/failed；使用 `vpn_preparation_close` 取消并等待完成。重复 begin 拒绝；关闭后旧候选状态查询返回 9001，需要提交新意图。配置原文和节点凭据不会出现在状态摘要中。

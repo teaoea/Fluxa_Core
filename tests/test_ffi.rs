@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn script_cache_clear_is_owned_and_schema_is_strict() {
         let _gate = TEST_GATE.blocking_lock();
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let held = engine(owner.0).unwrap();
         held.busy.store(true, Ordering::Release);
         for (request, success) in [
@@ -48,7 +48,7 @@ mod tests {
         ] {
             // SAFETY: 字节常量同步有效，回复句柄只由本测试的 TestHandle 释放。
             let response = TestHandle(unsafe {
-                fluxa_engine_command_v2(owner.0, request.as_ptr(), request.len())
+                nodus_core_command_v2(owner.0, request.as_ptr(), request.len())
             });
             assert_ne!(response.0, 0);
             let value: serde_json::Value =
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn configuration_check_returns_editor_location_without_applying() {
         let _gate = TEST_GATE.blocking_lock();
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let revision = engine(owner.0)
             .unwrap()
             .outbound
@@ -76,7 +76,7 @@ mod tests {
                 .unwrap();
         // SAFETY: 请求字节在同步调用期间保持可读，响应由 TestHandle 唯一释放。
         let response =
-            TestHandle(unsafe { fluxa_engine_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+            TestHandle(unsafe { nodus_core_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
         let value: serde_json::Value =
             serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
         assert_eq!(value["success"], false);
@@ -97,7 +97,7 @@ mod tests {
                 .revision,
             revision
         );
-        assert_eq!(fluxa_engine_last_error_code(), 1001);
+        assert_eq!(nodus_core_last_error_code(), 1001);
     }
     #[test]
     fn storage_commands_reject_unentitled_hosts_and_role_injection() {
@@ -108,17 +108,17 @@ mod tests {
                 >= 2 * crate::configuration::MAX_CONFIG_BYTES + 4096
         );
         std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
-            let owner = TestHandle(fluxa_engine_create());
+            let owner = TestHandle(nodus_core_create());
             for (request, code) in [
                 (serde_json::json!({"operation":"storage_initialize"}), 1001),
                 (serde_json::json!({"operation":"storage_initialize","read_only":false}), 1001),
-                (serde_json::json!({"operation":"runtime_rules_open","directory":"/tmp/forbidden-fluxa-path"}), 1001),
+                (serde_json::json!({"operation":"runtime_rules_open","directory":"/tmp/forbidden-nodus-path"}), 1001),
                 (serde_json::json!({"operation":"configuration_load","filename":"../escape.yaml"}), 1001),
                 (serde_json::json!({"operation":"configuration_save","filename":"../escape.yaml","yaml":"rules: ['final,reject']"}), 1001),
             ] {
                 let bytes = serde_json::to_vec(&request).unwrap();
                 // SAFETY: 输入字节同步借用，响应句柄只由 TestHandle 释放一次。
-                let response = TestHandle(unsafe { fluxa_engine_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+                let response = TestHandle(unsafe { nodus_core_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
                 assert_ne!(response.0, 0);
                 let json: serde_json::Value = serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
                 assert_eq!(json["success"], false, "{json}");
@@ -132,11 +132,11 @@ mod tests {
     fn candidate_commands_are_safe_on_bounded_host_stack() {
         let _gate = TEST_GATE.blocking_lock();
         std::thread::Builder::new().stack_size(256 * 1024).spawn(|| {
-            let owner = TestHandle(fluxa_engine_create());
+            let owner = TestHandle(nodus_core_create());
             let call = |value: serde_json::Value| {
                 let bytes = serde_json::to_vec(&value).unwrap();
                 // SAFETY: 字节仅同步借用，返回句柄由测试守卫唯一释放。
-                let result = TestHandle(unsafe { fluxa_engine_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+                let result = TestHandle(unsafe { nodus_core_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
                 assert_ne!(result.0, 0);
                 serde_json::from_slice::<serde_json::Value>(&buffer(result.0).unwrap().bytes).unwrap()
             };
@@ -171,10 +171,10 @@ mod tests {
     #[test]
     fn main_dns_and_geoip_status_use_same_configuration() {
         let _gate = TEST_GATE.blocking_lock();
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let handle = owner.0;
         let home = std::env::temp_dir().join(format!(
-            "fluxa-ffi-storage-{}-{}",
+            "nodus-ffi-storage-{}-{}",
             std::process::id(),
             crate::lifecycle::identifier().unwrap()
         ));
@@ -197,7 +197,7 @@ mod tests {
             let bytes = serde_json::to_vec(&value).unwrap();
             // SAFETY: 请求缓冲区在同步 ABI 调用期间有效；返回句柄由 TestHandle 唯一释放。
             let output =
-                TestHandle(unsafe { fluxa_engine_command_v2(handle, bytes.as_ptr(), bytes.len()) });
+                TestHandle(unsafe { nodus_core_command_v2(handle, bytes.as_ptr(), bytes.len()) });
             serde_json::from_slice::<serde_json::Value>(&buffer(output.0).unwrap().bytes).unwrap()
         };
         let result = call(
@@ -226,7 +226,7 @@ mod tests {
     #[tokio::test]
     async fn main_configuration_validation_is_read_only_and_structured() {
         let _gate = TEST_GATE.lock().await;
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let initial = engine(owner.0)
             .unwrap()
             .outbound
@@ -252,7 +252,7 @@ mod tests {
             .unwrap();
             // SAFETY: 不可变请求字节在同步调用期间保持有效，不向内核转移所有权。
             let output = TestHandle(unsafe {
-                fluxa_engine_command_v2(owner.0, request.as_ptr(), request.len())
+                nodus_core_command_v2(owner.0, request.as_ptr(), request.len())
             });
             assert_ne!(output.0, 0);
             let reply: serde_json::Value =
@@ -280,7 +280,7 @@ mod tests {
     #[tokio::test]
     async fn main_configuration_apply_is_atomic_and_status_is_read_only() {
         let _gate = TEST_GATE.lock().await;
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let handle = owner.0;
         // 同步 ABI 从不带 Tokio 上下文的独立系统线程调用，异步宿主必须采用此模式，不能嵌套 block_on。
         let call = move |value: serde_json::Value| async move {
@@ -288,7 +288,7 @@ mod tests {
                 let bytes = serde_json::to_vec(&value).unwrap();
                 // SAFETY: 请求字节在同步调用期间有效，返回缓冲区由 TestHandle 确定性回收。
                 let output = TestHandle(unsafe {
-                    fluxa_engine_command_v2(handle, bytes.as_ptr(), bytes.len())
+                    nodus_core_command_v2(handle, bytes.as_ptr(), bytes.len())
                 });
                 assert_ne!(output.0, 0);
                 serde_json::from_slice::<serde_json::Value>(&buffer(output.0).unwrap().bytes)
@@ -316,7 +316,7 @@ mod tests {
         let nested = serde_json::to_vec(&serde_json::json!({"operation":"configuration_apply", "yaml":"rules: ['final,direct']"})).unwrap();
         // SAFETY: 请求只读且在整个同步调用存活；此处故意验证异步线程上的准入拒绝。
         let denied =
-            TestHandle(unsafe { fluxa_engine_command_v2(handle, nested.as_ptr(), nested.len()) });
+            TestHandle(unsafe { nodus_core_command_v2(handle, nested.as_ptr(), nested.len()) });
         let denied: serde_json::Value =
             serde_json::from_slice(&buffer(denied.0).unwrap().bytes).unwrap();
         assert_eq!(denied["success"], false);
@@ -365,11 +365,11 @@ mod tests {
         let _gate = TEST_GATE.lock().await;
         let fixture = crate::test_fixture_https::fixture().await;
         let home = std::env::temp_dir().join(format!(
-            "fluxa-ffi-provider-{}",
+            "nodus-ffi-provider-{}",
             crate::lifecycle::identifier().unwrap()
         ));
         std::fs::create_dir(&home).unwrap();
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let manager = engine(owner.0).unwrap().outbound.clone();
         let mut roots = rustls::RootCertStore::empty();
         roots.add(fixture.root.clone()).unwrap();
@@ -406,7 +406,7 @@ mod tests {
                     let request = serde_json::to_vec(&value).unwrap();
                     // SAFETY: 不变请求字节真实有效；响应句柄按所有权释放。
                     let output = TestHandle(unsafe {
-                        fluxa_engine_command_v2(handle, request.as_ptr(), request.len())
+                        nodus_core_command_v2(handle, request.as_ptr(), request.len())
                     });
                     assert_ne!(output.0, 0);
                     serde_json::from_slice::<serde_json::Value>(&buffer(output.0).unwrap().bytes)
@@ -442,7 +442,7 @@ mod tests {
     fn last_info() -> Option<ErrorInfo> {
         let mut bytes = [0; crate::error::MAX_ERROR_BYTES];
         // SAFETY: 固定数组在本同步调用中可写，无并发访问。
-        let count = unsafe { fluxa_engine_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };
+        let count = unsafe { nodus_core_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };
         (count != 0).then(|| ErrorInfo::from_json(&bytes[..count]).unwrap())
     }
     #[test]
@@ -450,7 +450,7 @@ mod tests {
         set_last_error(ErrorInfo::new(ErrorCode::ResourceBudgetExceeded));
         let mut bytes = [0; crate::error::MAX_ERROR_BYTES];
         // SAFETY: 独占固定数组在整个同步复制期间可写。
-        let count = unsafe { fluxa_engine_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };
+        let count = unsafe { nodus_core_last_error_copy(bytes.as_mut_ptr(), bytes.len()) };
         let info = ErrorInfo::from_json(&bytes[..count]).unwrap();
         assert_eq!(info.code, ErrorCode::SerializationFailed);
         clear_last_error();
@@ -458,38 +458,38 @@ mod tests {
     #[tokio::test]
     async fn error_protocol_is_thread_local_and_success_clears_stale_error() {
         let _gate = TEST_GATE.lock().await;
-        let handle = fluxa_engine_create();
+        let handle = nodus_core_create();
         assert_ne!(handle, 0);
         // SAFETY: 空指针必须在解引用前拒绝，无实际输入借用。
         // SAFETY: 空输入在解引用前拒绝。
-        let rejected = unsafe { fluxa_engine_command(handle, std::ptr::null(), 1) };
+        let rejected = unsafe { nodus_core_command(handle, std::ptr::null(), 1) };
         assert_eq!(rejected, 0);
         assert_eq!(last_info().unwrap().code, ErrorCode::InvalidInput);
         let thread = std::thread::spawn(|| {
             assert!(last_info().is_none());
-            assert_eq!(fluxa_engine_start(0), INVALID_HANDLE);
+            assert_eq!(nodus_core_start(0), INVALID_HANDLE);
             assert_eq!(last_info().unwrap().code, ErrorCode::InvalidHandle);
-            assert_eq!(fluxa_engine_last_error_code(), 1201);
+            assert_eq!(nodus_core_last_error_code(), 1201);
         });
         thread.join().unwrap();
         assert_eq!(last_info().unwrap().code, ErrorCode::InvalidInput);
         let bytes = br#"{"operation":"tun_start"}"#;
         // SAFETY: 常量字节在整个同步调用期间可读且不可变。
-        let output = unsafe { fluxa_engine_command_v2(handle, bytes.as_ptr(), bytes.len()) };
+        let output = unsafe { nodus_core_command_v2(handle, bytes.as_ptr(), bytes.len()) };
         assert_ne!(output, 0);
         assert_eq!(last_info().unwrap().code, ErrorCode::Unsupported);
         let reply: serde_json::Value =
             serde_json::from_slice(&buffer(output).unwrap().bytes).unwrap();
         assert_eq!(reply["success"], false);
         assert_eq!(reply["error_info"]["code"], 1021);
-        assert_eq!(fluxa_engine_destroy(output), OK);
+        assert_eq!(nodus_core_destroy(output), OK);
         assert!(last_info().is_none());
-        assert_eq!(fluxa_engine_destroy(handle), OK);
+        assert_eq!(nodus_core_destroy(handle), OK);
     }
     #[tokio::test]
     async fn error_query_remains_available_when_response_registry_is_full() {
         let _gate = TEST_GATE.lock().await;
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         let handle = owner.0;
         assert_ne!(handle, 0);
         let filled: Vec<_> = (0..63)
@@ -498,13 +498,13 @@ mod tests {
         let bytes = br#"{"operation":"tun_start"}"#;
         // SAFETY: 常量字节在整个同步调用期间有效。
         // SAFETY: 常量输入在同步调用期间可读且不可变。
-        let rejected = unsafe { fluxa_engine_command(handle, bytes.as_ptr(), bytes.len()) };
+        let rejected = unsafe { nodus_core_command(handle, bytes.as_ptr(), bytes.len()) };
         assert_eq!(rejected, 0);
         assert_eq!(last_info().unwrap().code, ErrorCode::ResourceLimit);
         // 查询不创建句柄，也不因容量不足而写入或覆盖原错误。
         let mut untouched = [0xab; 1];
         // SAFETY: 长度为一的数组有效且独占可写；容量不足必须保持原字节。
-        let required = unsafe { fluxa_engine_last_error_copy(untouched.as_mut_ptr(), 1) };
+        let required = unsafe { nodus_core_last_error_copy(untouched.as_mut_ptr(), 1) };
         assert!(required > 1);
         assert_eq!(untouched, [0xab]);
         assert_eq!(last_info().unwrap().code, ErrorCode::ResourceLimit);
@@ -519,20 +519,20 @@ mod tests {
     impl TestHandle {
         fn release(mut self) -> i32 {
             let handle = std::mem::take(&mut self.0);
-            fluxa_engine_destroy(handle)
+            nodus_core_destroy(handle)
         }
     }
     impl Drop for TestHandle {
         fn drop(&mut self) {
             if self.0 != 0 {
-                let _ = fluxa_engine_destroy(self.0);
+                let _ = nodus_core_destroy(self.0);
             }
         }
     }
     #[tokio::test]
     async fn legacy_validation_order_preserves_handle_before_json() {
         let _gate = TEST_GATE.lock().await;
-        let owner = TestHandle(fluxa_engine_create());
+        let owner = TestHandle(nodus_core_create());
         assert_ne!(owner.0, 0);
         // 预期来自旧接口的句柄先行契约；非法 JSON 不得绕过句柄验证。
         for (handle, input, expected) in [
@@ -551,9 +551,9 @@ mod tests {
         ] {
             // SAFETY: 测试字节在整个同步调用期间有效且不可变。
             let output =
-                TestHandle(unsafe { fluxa_engine_command(handle, input.as_ptr(), input.len()) });
+                TestHandle(unsafe { nodus_core_command(handle, input.as_ptr(), input.len()) });
             assert_ne!(output.0, 0);
-            assert_eq!(fluxa_engine_last_error_code(), expected.value());
+            assert_eq!(nodus_core_last_error_code(), expected.value());
             let reply: serde_json::Value =
                 serde_json::from_slice(&buffer(output.0).unwrap().bytes).unwrap();
             assert_eq!(reply["success"], false);
@@ -565,7 +565,7 @@ mod tests {
         let _gate = TEST_GATE.blocking_lock();
         // 模拟断言展开：测试专用守卫必须释放已登记的引擎和响应，防止连锁失败。
         let failed = std::panic::catch_unwind(|| {
-            let owner = TestHandle(fluxa_engine_create());
+            let owner = TestHandle(nodus_core_create());
             assert_ne!(owner.0, 0);
             let output = TestHandle(store(vec![1]).unwrap());
             assert_ne!(output.0, 0);
@@ -586,15 +586,15 @@ mod tests {
     #[test]
     fn abi_rejects_invalid_and_destroyed_handles() {
         let _gate = TEST_GATE.blocking_lock();
-        let handle = fluxa_engine_create();
+        let handle = nodus_core_create();
         assert_ne!(handle, 0);
-        assert_eq!(fluxa_engine_start(handle), UNSUPPORTED);
-        assert_eq!(fluxa_engine_destroy(handle), OK);
-        assert_eq!(fluxa_engine_destroy(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
+        assert_eq!(nodus_core_start(handle), UNSUPPORTED);
+        assert_eq!(nodus_core_destroy(handle), OK);
+        assert_eq!(nodus_core_destroy(handle), INVALID_HANDLE);
+        assert_eq!(nodus_core_start(handle), INVALID_HANDLE);
         // 保留既有能力，位 29 只表示候选资产准备；仍精确检查完整掩码。
         assert_eq!(
-            fluxa_engine_capabilities(),
+            nodus_core_capabilities(),
             if cfg!(target_os = "macos") {
                 3221225471
             } else {
@@ -609,10 +609,10 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..100 {
-                        let handle = fluxa_engine_create();
+                        let handle = nodus_core_create();
                         assert_ne!(handle, 0);
-                        assert_eq!(fluxa_engine_destroy(handle), OK);
-                        assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
+                        assert_eq!(nodus_core_destroy(handle), OK);
+                        assert_eq!(nodus_core_start(handle), INVALID_HANDLE);
                     }
                 })
             })
@@ -625,11 +625,11 @@ mod tests {
     fn output_buffers_obey_budget_and_handle_type() {
         let _gate = TEST_GATE.blocking_lock();
         let handle = store(vec![1; 32]).unwrap();
-        assert_eq!(fluxa_engine_start(handle), INVALID_HANDLE);
-        assert_eq!(fluxa_engine_buffer_length(handle), 32);
+        assert_eq!(nodus_core_start(handle), INVALID_HANDLE);
+        assert_eq!(nodus_core_buffer_length(handle), 32);
         assert!(store(vec![0; MAX_OUTPUT + 1]).is_none());
-        assert_eq!(fluxa_engine_destroy(handle), OK);
-        assert_eq!(fluxa_engine_buffer_length(handle), 0);
+        assert_eq!(nodus_core_destroy(handle), OK);
+        assert_eq!(nodus_core_buffer_length(handle), 0);
     }
     #[test]
     fn admission_failure_keeps_tcp_bytes_and_returns_reservations() {
@@ -642,7 +642,7 @@ mod tests {
                 let (mut socket, _) = listener.accept().unwrap();
                 socket.write_all(b"FIRSTSECOND").unwrap();
             });
-            let handle = fluxa_engine_create();
+            let handle = nodus_core_create();
             let request = serde_json::to_vec(&serde_json::json!({
                 "operation":"outbound_open", "address":address.to_string(),
                 "transport":"tcp", "policy":"direct", "timeout_ms":1000
@@ -664,14 +664,14 @@ mod tests {
             }))
             .unwrap();
             // SAFETY: 同步调用期间输入存活且只读，FFI 不保存该指针。
-            let refused = unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) };
+            let refused = unsafe { nodus_core_command(handle, request.as_ptr(), request.len()) };
             assert_eq!(refused, 0);
             drop(memory);
             if let Some(buffer) = buffers.pop() {
-                assert_eq!(fluxa_engine_destroy(buffer), OK);
+                assert_eq!(nodus_core_destroy(buffer), OK);
             }
             // SAFETY: 输入指针契约同上，释放配额后重试不会改变输入所有权。
-            let output = unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) };
+            let output = unsafe { nodus_core_command(handle, request.as_ptr(), request.len()) };
             let bytes = buffer(output).unwrap();
             let reply: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(
@@ -679,11 +679,11 @@ mod tests {
                 b"FIRSTSECOND"
             );
             drop(bytes);
-            assert_eq!(fluxa_engine_destroy(output), OK);
+            assert_eq!(nodus_core_destroy(output), OK);
             for buffer in buffers {
-                assert_eq!(fluxa_engine_destroy(buffer), OK);
+                assert_eq!(nodus_core_destroy(buffer), OK);
             }
-            assert_eq!(fluxa_engine_destroy(handle), OK);
+            assert_eq!(nodus_core_destroy(handle), OK);
         }
         // JSON 转义后的操作名称同样采用大响应上限，不能退回小预算后再执行。
         assert_eq!(output_limit(br#"{"operation":"requ\u0065st"}"#), MAX_OUTPUT);
@@ -694,7 +694,7 @@ mod tests {
         let output = store(vec![1; 32]).unwrap();
         let extra = OUTPUT.reserve(MAX_OUTPUT_MEMORY - 32).unwrap();
         drop(extra);
-        assert_eq!(fluxa_engine_destroy(output), OK);
+        assert_eq!(nodus_core_destroy(output), OK);
     }
     #[test]
     fn admission_failure_keeps_tun_return_packet() {
@@ -709,7 +709,7 @@ mod tests {
                 let (length, source) = peer.recv_from(&mut bytes).unwrap();
                 peer.send_to(&bytes[..length], source).unwrap();
             });
-            let handle = fluxa_engine_create();
+            let handle = nodus_core_create();
             let engine = engine(handle).unwrap();
             engine
                 .outbound
@@ -756,7 +756,7 @@ mod tests {
             };
             let mut output = 123;
             // SAFETY: output 对齐、可写且调用期间独占，不跨语言保存地址。
-            let status = unsafe { fluxa_engine_tun_receive(handle, &mut output) };
+            let status = unsafe { nodus_core_tun_receive(handle, &mut output) };
             assert_eq!(status, if exhaust_memory { 8002 } else { 8001 });
             assert_eq!(output, 0);
             drop(memory);
@@ -766,7 +766,7 @@ mod tests {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
             loop {
                 // SAFETY: 重试期间同样独占这个有效 u64，不与内核缓冲区重叠。
-                let status = unsafe { fluxa_engine_tun_receive(handle, &mut output) };
+                let status = unsafe { nodus_core_tun_receive(handle, &mut output) };
                 if status == 0 {
                     break;
                 }
@@ -777,18 +777,18 @@ mod tests {
             let packet = buffer(output).unwrap();
             assert!(packet.ends_with(b"retained"));
             drop(packet);
-            fluxa_engine_destroy(output);
+            nodus_core_destroy(output);
             for buffer in buffers {
                 assert_eq!(buffer.release(), OK);
             }
-            fluxa_engine_destroy(handle);
+            nodus_core_destroy(handle);
         }
     }
     #[tokio::test]
     async fn nested_runtime_does_not_detach_failed_http_calls() {
         let _gate = TEST_GATE.lock().await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let handle = fluxa_engine_create();
+        let handle = nodus_core_create();
         engine(handle)
             .unwrap()
             .outbound
@@ -807,7 +807,7 @@ mod tests {
         let request=serde_json::to_vec(&serde_json::json!({"operation":"request","method":"GET","url":format!("http://{}/",listener.local_addr().unwrap())})).unwrap();
         // SAFETY: JSON 输入在整个同步调用期间存活、只读，不保留任何跨语言借用。
         let response =
-            TestHandle(unsafe { fluxa_engine_command(handle, request.as_ptr(), request.len()) });
+            TestHandle(unsafe { nodus_core_command(handle, request.as_ptr(), request.len()) });
         // 受控拒绝应返回结构化状态错误；不再依赖嵌套 block_on panic 被 ABI 捕获为零句柄。
         let reply: serde_json::Value =
             serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
@@ -819,6 +819,6 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert_eq!(fluxa_engine_destroy(handle), 0);
+        assert_eq!(nodus_core_destroy(handle), 0);
     }
 }

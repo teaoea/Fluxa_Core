@@ -1,13 +1,13 @@
 //! 本地可运行示例：复用解析器进行独立查询，关闭后旧引用明确失败。
 //! 内部预算耗尽的确定性注入见 dns::runtime::tests，不向外部暴露资源管理权。
 //! 不访问外网、不接管系统 VPN；回环服务仅返回 example.test 的测试地址。
-use fluxa_core::{
-    dns::{Config, Query, Resolver, Server},
-    error::Error,
-};
 use hickory_resolver::proto::{
     op::{Message, MessageType},
     rr::{RData, Record, rdata::A},
+};
+use nodus_core::{
+    dns::{Config, Query, Resolver, Server},
+    error::Error,
 };
 use std::sync::Arc;
 use tokio::net::UdpSocket;

@@ -55,8 +55,8 @@ def run(binary):
         raise SystemExit("拒绝在初始网络命名空间运行，请使用 unshare --net")
     subprocess.run(["ip", "link", "set", "lo", "up"], check=True)
     tunnel = os.open("/dev/net/tun", os.O_RDWR | os.O_NONBLOCK)
-    fcntl.ioctl(tunnel, 0x400454CA, struct.pack("16sH", b"fluxa-tcp-test", 0x0001 | 0x1000))
-    for args in [["link", "set", "fluxa-tcp-test", "mtu", "1500", "up"], ["addr", "add", "198.19.0.1/32", "dev", "fluxa-tcp-test"], ["route", "add", "198.18.0.0/16", "dev", "fluxa-tcp-test"], ["-6", "addr", "add", "2001:db8:19::1/128", "dev", "fluxa-tcp-test", "nodad"], ["-6", "route", "add", "fd00:198:18::/64", "dev", "fluxa-tcp-test"]]:
+    fcntl.ioctl(tunnel, 0x400454CA, struct.pack("16sH", b"nodus-tcp-test", 0x0001 | 0x1000))
+    for args in [["link", "set", "nodus-tcp-test", "mtu", "1500", "up"], ["addr", "add", "198.19.0.1/32", "dev", "nodus-tcp-test"], ["route", "add", "198.18.0.0/16", "dev", "nodus-tcp-test"], ["-6", "addr", "add", "2001:db8:19::1/128", "dev", "nodus-tcp-test", "nodad"], ["-6", "route", "add", "fd00:198:18::/64", "dev", "nodus-tcp-test"]]:
         subprocess.run(["ip"] + args, check=True)
     dns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dns.bind(("127.0.0.1", 0))

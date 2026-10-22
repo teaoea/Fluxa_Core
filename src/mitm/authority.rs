@@ -28,7 +28,7 @@ impl Authority {
         params.distinguished_name = DistinguishedName::new();
         params
             .distinguished_name
-            .push(DnType::CommonName, "Fluxa Local Debug CA");
+            .push(DnType::CommonName, "Nodus Local Debug CA");
         params.not_before = OffsetDateTime::now_utc() - Duration::minutes(5);
         params.not_after = OffsetDateTime::now_utc() + Duration::days(1095);
         let certificate = params.self_signed(&key).map_err(|_| Error::Certificate)?;

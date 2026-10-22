@@ -1,6 +1,6 @@
 //! 默认仅使用 hosts，不下载、不改系统设置或真实用户缓存。
 //! 传入配置路径及可选资源 JSON 清单后只读加载；宿主负责资源下载和保存。
-use fluxa_core::{configuration::MAX_CONFIG_BYTES, dns::Query, outbound::Manager};
+use nodus_core::{configuration::MAX_CONFIG_BYTES, dns::Query, outbound::Manager};
 use std::{io::Read, sync::Arc};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

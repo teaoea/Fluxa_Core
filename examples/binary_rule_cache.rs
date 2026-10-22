@@ -1,12 +1,12 @@
 //! 可运行的缓存生成、重新加载及旧快照示例；不建立网络连接，不写入真实用户配置。
-use fluxa_core::routing::{
+use nodus_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, Source},
     store::Store,
 };
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory =
-        std::env::temp_dir().join(format!("fluxa-binary-example-{}", std::process::id()));
+        std::env::temp_dir().join(format!("nodus-binary-example-{}", std::process::id()));
     std::fs::create_dir(&directory)?;
     let path = directory.join("rules.bin");
     let store = Store::memory();

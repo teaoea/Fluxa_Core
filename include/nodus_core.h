@@ -1,5 +1,5 @@
-#ifndef FLUXA_ENGINE_H
-#define FLUXA_ENGINE_H
+#ifndef NODUS_CORE_H
+#define NODUS_CORE_H
 #include <stdint.h>
 #include <stddef.h>
 #ifdef __cplusplus
@@ -7,7 +7,7 @@ extern "C" {
 #endif
 /* ABI v1：值类型边界；不转移任何指针或缓冲区所有权。 */
 /* 状态码：0 成功，1 无效句柄，2 能力未实现，3 内部错误。 */
-uint32_t fluxa_engine_abi_version(void);
+uint32_t nodus_core_abi_version(void);
 /* 能力位：0 HTTPS，1 MITM，2 同步 JSON 脚本，3 通用 HTTP 调试，4 内置流量脚本；不代表代理协议已实现。 */
 // 位 11 代表配置 DNS 的域名出站，不代表 Fake-IP 连接或代理出站协议。
 // 位 9 代表纯路由决策，位 10 代表数字地址 TCP/UDP 出站，不代表代理协议或 TUN 转发。
@@ -30,36 +30,36 @@ uint32_t fluxa_engine_abi_version(void);
 // 位 25 代表 u16 错误代码、同线程查询及 command_v2 结构化错误扩展。
 // 位 27 代表正式 DOMAIN / DOMAIN-SUFFIX 与 TCP/UDP 的 AND 条件，旧能力位不改义。
 // 位 28 代表有界 TCP/UDP 数据包会话及 TCP DNS；不代表系统 VPN 已接管。
-uint64_t fluxa_engine_capabilities(void);
+uint64_t nodus_core_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
-uint64_t fluxa_engine_create(void);
-int32_t fluxa_engine_destroy(uint64_t handle);
+uint64_t nodus_core_create(void);
+int32_t nodus_core_destroy(uint64_t handle);
 /* 系统隧道及入口启动尚未实现；有效句柄返回 1021，不会伪造已连接。 */
-int32_t fluxa_engine_start(uint64_t handle);
+int32_t nodus_core_start(uint64_t handle);
 /* input 仅在调用期间借用，须指向 length 个可读且无并发写入的字节。
    返回响应缓冲区句柄，使用后调用 destroy；零表示边界或资源错误。
    响应名额/预算不足在执行前返回零，读数据尚未消费；释放旧响应后可重试。 */
-uint64_t fluxa_engine_command(uint64_t handle, const uint8_t *input, size_t length);
+uint64_t nodus_core_command(uint64_t handle, const uint8_t *input, size_t length);
 /* 与 command 共用执行、借用及预算，均返回统一 error_info。
    成功/失败仍由 success 表示；响应句柄释放约定不变。 */
-uint64_t fluxa_engine_command_v2(uint64_t handle, const uint8_t *input, size_t length);
+uint64_t nodus_core_command_v2(uint64_t handle, const uint8_t *input, size_t length);
 /* 当前调用线程的最后结构化错误；返回所需长度，无错误为零。
    空目标/容量不足不写；查询不分配、不清除。后续 ABI 操作会覆盖。
    容量足够时 output 须可写；格式及代码见 Documentation/错误代码查询表.md。 */
-size_t fluxa_engine_last_error_copy(uint8_t *output, size_t capacity);
+size_t nodus_core_last_error_copy(uint8_t *output, size_t capacity);
 /* 最低开销查询：同线程固定 u16 代码，零表示无错误；不分配、不加锁、不清除。 */
-uint16_t fluxa_engine_last_error_code(void);
-size_t fluxa_engine_buffer_length(uint64_t handle);
+uint16_t nodus_core_last_error_code(void);
+size_t nodus_core_buffer_length(uint64_t handle);
 /* 目标须在调用期可写，不能与 Rust 内存重叠；容量不足不写，返回所需长度。 */
-size_t fluxa_engine_buffer_copy(uint64_t handle, uint8_t *output, size_t capacity);
+size_t nodus_core_buffer_copy(uint64_t handle, uint8_t *output, size_t capacity);
 /* TCP/UDP 数据面：输入为一个完整 IP 包，最大 9000 字节；仅同步借用。
    generation=0 表示无 Fake-IP 代次，合成地址不能作为真实目标放行。
    状态：0 成功、11 队列空；全部失败使用 error.rs 登记的四位类别错误代码。
    查询返回受限的真实上下文；旧错误数值不再使用，客户端须同步迁移。
    receive 的 output 须可写、对齐、无并发访问；成功句柄用 destroy 释放。
    错误或队列为空时 output 为零；响应配额不足不会取走队列中的返回包。 */
-int32_t fluxa_engine_tun_submit(uint64_t handle, const uint8_t *input, size_t length, uint64_t generation);
-int32_t fluxa_engine_tun_receive(uint64_t handle, uint64_t *output);
+int32_t nodus_core_tun_submit(uint64_t handle, const uint8_t *input, size_t length, uint64_t generation);
+int32_t nodus_core_tun_receive(uint64_t handle, uint64_t *output);
 
 #ifdef __cplusplus
 }

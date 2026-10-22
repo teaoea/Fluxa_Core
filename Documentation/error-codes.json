@@ -256,7 +256,7 @@
     "effect": "不返回成功响应；释放未发布响应句柄，并记录边界失败。",
     "params": "{}（不接受任何参数键）",
     "parameters": [],
-    "source": "src/ffi.rs fluxa_engine_command",
+    "source": "src/ffi.rs nodus_core_command",
     "status": "有效"
   },
   {

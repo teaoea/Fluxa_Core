@@ -9,9 +9,10 @@ import re
 import subprocess
 import zipfile
 
-SOURCE = 'teaoea/Fluxa_Core'
-DESTINATION = 'teaoea/libfluxa-core'
-FILES = ('provenance.json', 'fluxa-core-macos-arm64.zip', 'fluxa-core-fixture-macos-arm64.zip')
+SOURCE = 'teaoea/Nodus-Core'
+DESTINATION = SOURCE
+UPLOAD_ENABLED = False  # 用户暂不处理二进制分发；以后由同一代码仓库分发。
+FILES = ('provenance.json', 'nodus-core-macos-arm64.zip', 'nodus-core-fixture-macos-arm64.zip')
 LIMITS = dict(zip(FILES, (16384, 80 * 1024 * 1024, 20 * 1024 * 1024)))
 
 
@@ -20,7 +21,7 @@ class GitHub:
         if not token:
             raise ValueError('缺少 GitHub 发布授权；禁止回退至其他仓库或匿名伪成功')
         self.env = {key: value for key, value in os.environ.items()
-                    if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'FLUXA_BINARY_PUBLISH_TOKEN')}
+                    if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'NODUS_BINARY_PUBLISH_TOKEN')}
         self.env.update(GH_TOKEN=token, GH_HOST='github.com', GH_PROMPT_DISABLED='1')
 
     def command(self, *args, payload=None):
@@ -71,9 +72,9 @@ def verify_archive(path, framework):
                 raise ValueError('附件包含非法路径')
             if Path(item.filename).suffix.lower() in forbidden or Path(item.filename).name in ('Cargo.toml', 'Cargo.lock', 'Package.swift'):
                 raise ValueError('公开附件包含实现源码或构建脚本')
-            if framework and not item.filename.startswith('FluxaEngine.xcframework/'):
+            if framework and not item.filename.startswith('NodusEngine.xcframework/'):
                 raise ValueError('框架附件根目录不匹配')
-            if not framework and item.filename != 'fluxa-test-fixture':
+            if not framework and item.filename != 'nodus-test-fixture':
                 raise ValueError('测试服务附件只能包含编译后的独立程序')
             total += item.file_size
             if total > 200 * 1024 * 1024:
@@ -124,9 +125,11 @@ def publish(source, version, run, writer, directory):
         raise ValueError('来源证明不匹配本次门禁提交')
     if record['platforms'] != ['macos-arm64'] or record['minimum_macos'] != '13.0':
         raise ValueError('平台声明不匹配实际构建')
+    if not UPLOAD_ENABLED:
+        raise ValueError('本轮未启用 Nodus 二进制分发；上传保持禁用')
     repo = writer.api(f'repos/{DESTINATION}')
-    if repo['full_name'] != DESTINATION or repo['private']:
-        raise ValueError('分发目标必须是约定的公开仓库')
+    if repo['full_name'] != DESTINATION:
+        raise ValueError('分发目标必须是约定的 Nodus 源码仓库')
     existing = writer.api(f'repos/{DESTINATION}/releases/tags/{tag}', missing=True)
     if existing is not None:
         validate_assets(existing)
@@ -161,7 +164,7 @@ def publish(source, version, run, writer, directory):
                      + '内核源码：' + source + '\n\n本机验证记录摘要：' + run + '\n\n不发布 crates.io，不更新稳定版 latest。\n')
     writer.release('create', tag, *(str(directory / name) for name in FILES), '--repo', DESTINATION,
                    '--verify-tag', '--target', anchor, '--draft', '--prerelease', '--latest=false',
-                   '--title', 'libfluxa_core ' + version + '（不稳定测试）', '--notes-file', str(notes))
+                   '--title', 'nodus_core ' + version + '（不稳定测试）', '--notes-file', str(notes))
     check = directory / 'uploaded'; check.mkdir()
     writer.download(DESTINATION, tag, check)
     verify_files(check, record)
@@ -171,7 +174,7 @@ def publish(source, version, run, writer, directory):
 
 
 def main():
-    source = os.environ.get('FLUXA_DEV_SOURCE', '')
+    source = os.environ.get('NODUS_DEV_SOURCE', '')
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     branch = subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()
     if source != actual or branch != 'main':
@@ -179,18 +182,18 @@ def main():
     if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all']):
         raise ValueError('发布时源码不再干净，拒绝上传')
     version = re.search(r'^version = "([^"]+)"', Path('Cargo.toml').read_text(), re.M)[1]
-    verification = os.environ.get('FLUXA_DEV_VERIFICATION', '')
+    verification = os.environ.get('NODUS_DEV_VERIFICATION', '')
     if not verification:
         raise ValueError('缺少本机验证记录')
     checked = subprocess.check_output(['python3', 'Tools/verify-manual-release.py', verification], text=True).strip()
-    if checked != os.environ.get('FLUXA_DEV_RUN'):
+    if checked != os.environ.get('NODUS_DEV_RUN'):
         raise ValueError('上传摘要与本机验证记录不一致')
-    writer = GitHub(os.environ.get('FLUXA_BINARY_PUBLISH_TOKEN'))
+    writer = GitHub(os.environ.get('NODUS_BINARY_PUBLISH_TOKEN'))
     import sys
     if len(sys.argv) != 2:
         raise ValueError('必须指定本次构建附件目录')
     directory = Path(sys.argv[1]).resolve(strict=True)
-    tag = publish(source, version, os.environ.get('FLUXA_DEV_RUN', ''), writer, directory)
+    tag = publish(source, version, os.environ.get('NODUS_DEV_RUN', ''), writer, directory)
     print('固定公开仓库测试附件分发校验通过：' + tag)
 
 

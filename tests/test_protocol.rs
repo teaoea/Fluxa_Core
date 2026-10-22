@@ -13,7 +13,7 @@
 
 // 配置与实际独立协议互通测试；对端只用于测试，不链接第三方代理内核。
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     protocol::{self, config::Profile},
 };
@@ -23,7 +23,7 @@ fn profile() -> Profile {
     Profile {
         id: "test".into(),
         uri: format!(
-            "vless://78b9e2b4-2d8f-4be1-9fca-8f203dc14a90@127.0.0.1:443?security=reality&type=tcp&encryption=none&flow=xtls-rprx-vision&sni=example.com&pbk={}&sid=12345678&fp=fluxa",
+            "vless://78b9e2b4-2d8f-4be1-9fca-8f203dc14a90@127.0.0.1:443?security=reality&type=tcp&encryption=none&flow=xtls-rprx-vision&sni=example.com&pbk={}&sid=12345678&fp=nodus",
             URL_SAFE_NO_PAD.encode(public.as_bytes())
         ),
     }
@@ -35,7 +35,7 @@ fn strict_configuration_and_supported_combination() {
     assert_eq!(n.short_id, [0x12, 0x34, 0x56, 0x78, 0, 0, 0, 0]);
     assert_eq!(n.port, 443);
     for (from, to) in [
-        ("fp=fluxa", "fp=unknown"),
+        ("fp=nodus", "fp=unknown"),
         ("type=tcp", "type=ws"),
         ("security=reality", "security=tls"),
         ("flow=xtls-rprx-vision", "flow=other"),
@@ -48,7 +48,7 @@ fn strict_configuration_and_supported_combination() {
         bad.uri = bad.uri.replace(from, to);
         assert!(bad.validate().is_err(), "{from}");
     }
-    for tail in ["&fp=fluxa", "&unknown=1"] {
+    for tail in ["&fp=nodus", "&unknown=1"] {
         let mut bad = p.clone();
         bad.uri.push_str(tail);
         assert!(bad.validate().is_err());
@@ -61,8 +61,8 @@ fn strict_configuration_and_supported_combination() {
 #[tokio::test]
 #[ignore = "需要 check-protocol.sh 启动的固定版本独立 REALITY 服务端"]
 async fn independent_peer_data_authentication_and_tls13() {
-    let path = std::env::var("FLUXA_PROTOCOL_PROFILE").expect("必须提供临时测试配置");
-    let fixture_path = std::env::var("FLUXA_PROTOCOL_FIXTURE").unwrap();
+    let path = std::env::var("NODUS_PROTOCOL_PROFILE").expect("必须提供临时测试配置");
+    let fixture_path = std::env::var("NODUS_PROTOCOL_FIXTURE").unwrap();
     let fixture: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture_path).unwrap()).unwrap();
     let profile: Profile = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();

@@ -20,7 +20,11 @@
 // 完整 IP 包进入同一 Rust 会话；真实 DNS 上游与 UDP 对端验证映射衔接。
 #[path = "test_fixture_dns.rs"]
 mod support;
-use fluxa_core::{
+use hickory_resolver::proto::{
+    op::{Message, Query, ResponseCode},
+    rr::{Name, RecordType},
+};
+use nodus_core::{
     dns::{Config, Resolver, Server, fake_ip},
     error::Error,
     outbound::{Limits, Manager},
@@ -29,10 +33,6 @@ use fluxa_core::{
         parse,
         udp::{Options, Session, encode},
     },
-};
-use hickory_resolver::proto::{
-    op::{Message, Query, ResponseCode},
-    rr::{Name, RecordType},
 };
 use std::{
     net::SocketAddr,
@@ -88,7 +88,7 @@ fn setup(resolver: Arc<Resolver>, capacity: usize) -> (Arc<Manager>, Session) {
     .unwrap();
     (manager, session)
 }
-fn request(name: &str, kind: RecordType, ipv6: bool) -> fluxa_core::tun::udp::Packet {
+fn request(name: &str, kind: RecordType, ipv6: bool) -> nodus_core::tun::udp::Packet {
     let mut message = Message::query();
     message.metadata.id = 0x1234;
     message.metadata.recursion_desired = true;
@@ -382,9 +382,9 @@ async fn mapping_quota_wrong_owner_udp_block_and_restart() {
         .configure_routing(Some(Arc::new(
             Router::compile(Routing {
                 fallback: Policy::Direct,
-                rules: vec![fluxa_core::routing::Rule {
+                rules: vec![nodus_core::routing::Rule {
                     protocol: None,
-                    r#type: fluxa_core::routing::Match::Transport,
+                    r#type: nodus_core::routing::Match::Transport,
                     value: "udp".into(),
                     policy: Policy::Reject,
                     outbound: None,
@@ -477,7 +477,7 @@ async fn ordinary_mapping_before_and_after_tun_remains_owned_and_never_collides(
         )
     };
     let ordinary = make();
-    let query = |name: &str| fluxa_core::dns::Query {
+    let query = |name: &str| nodus_core::dns::Query {
         name: name.into(),
         query_type: "A".into(),
     };

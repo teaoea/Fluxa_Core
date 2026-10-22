@@ -43,7 +43,7 @@ mod public_contract {
     // `src/budget.rs` 在 `src/lib.rs` 中是私有模块（`mod budget;`），`ByteBudget` 与 `ByteLease` 均为
     // `pub(crate)`。按《Rust 测试文件头注释强制规范》第八条，不得为编写测试而扩大生产 API 可见性，
     // 因此本文件不直接构造预算对象，而是经公开准入路径覆盖其可观测行为：
-    // `fluxa_core::routing::runtime::{memory_usage, MemoryUsage}` 与 `Snapshot::generate`。
+    // `nodus_core::routing::runtime::{memory_usage, MemoryUsage}` 与 `Snapshot::generate`。
     //
     // ## 测试内容
     // 1. `budget_lifecycle_releases_quota_and_rejects_overflow`：持有快照时准入占用上升、释放后归还到基线；
@@ -64,8 +64,8 @@ mod public_contract {
     // 2 项已实现、含有效断言且实际执行：**2 通过 / 0 失败**。
     // 已确认：快照释放后准入占用精确回到基线（用 `assert_eq` 而非区间判断），拒绝与重试均不泄漏配额。
 
-    use fluxa_core::error::Error;
-    use fluxa_core::routing::{
+    use nodus_core::error::Error;
+    use nodus_core::routing::{
         Config, Match, Policy, Rule,
         runtime::{Layer, Snapshot, Source, memory_usage},
     };

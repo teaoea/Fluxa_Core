@@ -1,4 +1,4 @@
-# Fluxa Core
+# Nodus
 
 作者：可莉唯一的狗
 
@@ -20,9 +20,16 @@
 
 内核二进制使用[本机手动发布流程](Documentation/本机手动发布.md)，不依赖 GitHub Actions 发布。
 
-
 2.8.0-dev 本轮新增原生条件复写、声明式插件及命名 JS 管线，`scripts.name: response` 可由 `js: response` 精确引用，不要求 .js 后缀。主配置优先、数字 ID 优先级、宿主授权只读绑定及缓存清理约束见 [插件与脚本](Documentation/插件与脚本.md)；本机 TLS 与测试夹具不代表系统 VPN 或完整主配置 MITM 启动验收。
 
 Apple 平台最低版本、ARM64 架构与本地构建入口见 [Apple 平台构建](Documentation/Apple平台构建.md)；强制约束见 [全平台系统支持的最低版本](AGENTS/全平台系统支持的最低版本.md)。不支持 Intel Mac、Mac Catalyst、watchOS 和 visionOS；产物不自动上传。
 
 配置文件字段、错误代码和编辑器行号定位见 [配置检查 API](Documentation/API/配置文件检查.md)。
+
+## Nodus 命名约定
+
+内核源码已开源：[teaoea/Nodus-Core](https://github.com/teaoea/Nodus-Core)。
+Rust package 为 `Nodus-Core`，库及 Clang 模块为 `nodus_core`，C ABI 使用 `nodus_core_*`；头文件为 `nodus_core.h` 与 `nodus_debug_ipc.h`。
+Apple 容器为 `NodusEngine.xcframework`，发行文件采用 `nodus-core-{os}-{arch}[-{abi}]`。
+这是接口改名，客户端必须配套重新编译；不提供旧符号或旧原生指纹名称别名。二进制分发暂不启用，后续在本源码仓库分发。
+历史测试报告及冻结错误契约保留原文，不作为当前命名的调用示例。Fluxa 仅指独立 App 或历史记录。

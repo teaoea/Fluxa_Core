@@ -14,7 +14,7 @@
 //! 测试依据：主配置原子验证、统一错误体系及公开参数安全要求。
 //!
 //! 前置条件：无外部网络、节点凭据、监听端口或 VPN 权限。
-use fluxa_core::{configuration::Document, error::ErrorInfo};
+use nodus_core::{configuration::Document, error::ErrorInfo};
 #[test]
 fn configuration_errors_preserve_integer_protocol_and_do_not_expose_values() {
     for (text, code) in [
@@ -67,7 +67,7 @@ fn validation_summary_is_not_running_status() {
 /// 独立预期：协议 > 端口 > 域名，且组合条件同时检查后缀标签边界与实际端口/传输。
 #[test]
 fn compiled_scalar_rules_obey_scoped_conditions_and_final() {
-    use fluxa_core::routing::{Policy, Target, Transport};
+    use nodus_core::routing::{Policy, Target, Transport};
     let yaml = "rules: ['protocol,tcp,example.com,direct', 'port,53,example.com,reject', 'domain-suffix,example.com,reject', 'final,direct']";
     let snapshot = Document::from_yaml(yaml)
         .unwrap()
@@ -101,7 +101,7 @@ fn compiled_scalar_rules_obey_scoped_conditions_and_final() {
 /// PSL 包含私有后缀，关键词不得越过注册标签观察子域名、后缀或单标签主机。
 #[test]
 fn keywords_match_only_the_registrable_tenant_label() {
-    use fluxa_core::routing::{Policy, Target, Transport};
+    use nodus_core::routing::{Policy, Target, Transport};
     for (keyword, host, expected) in [
         ("foo", "a.foo.github.io", Policy::Reject),
         ("github", "a.foo.github.io", Policy::Direct),
@@ -137,7 +137,7 @@ fn keywords_match_only_the_registrable_tenant_label() {
 /// 指定但未具备能力时返回真实错误，不能伪装成成功、UDP 匹配或忽略 GeoIP。
 #[test]
 fn unavailable_rule_dependencies_fail_explicitly() {
-    use fluxa_core::error::Error;
+    use nodus_core::error::Error;
     let input = "rules: ['protocol,quic,example.com,direct', 'final,direct']";
     // 已接入 QUIC 组合条件；编译可成功，但必须由实际报文入口选择，不能据 UDP 或端口猜测。
     let quic = Document::from_yaml(input)
@@ -146,7 +146,7 @@ fn unavailable_rule_dependencies_fail_explicitly() {
         .unwrap();
     assert_eq!(
         quic.document().rules[0].rule.r#type,
-        fluxa_core::routing::Match::DomainQuic
+        nodus_core::routing::Match::DomainQuic
     );
     let geoip = "geoip: {enabled: true, url: 'https://example.com/db.mmdb'}\nrules: ['geoip,CN,direct', 'final,reject']";
     assert!(matches!(
@@ -168,7 +168,7 @@ fn unavailable_rule_dependencies_fail_explicitly() {
 
 #[tokio::test]
 async fn committed_main_configuration_controls_new_requests_and_keeps_live_connection() {
-    use fluxa_core::{
+    use nodus_core::{
         error::Error,
         outbound::{Family, Manager, RoutedTarget},
         routing::{Target, Transport},
@@ -216,7 +216,7 @@ async fn committed_main_configuration_controls_new_requests_and_keeps_live_conne
 }
 #[test]
 fn main_configuration_atomically_publishes_nodes_rules_and_limits() {
-    use fluxa_core::{
+    use nodus_core::{
         outbound::Manager,
         routing::{Policy, Target, Transport},
     };
@@ -257,7 +257,7 @@ rules: ['final,node']
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn os_process_rule_controls_actual_outbound_without_request_claim() {
-    use fluxa_core::{
+    use nodus_core::{
         error::Error,
         outbound::{Family, Manager, RoutedTarget},
         routing::{Policy, Target, Transport},

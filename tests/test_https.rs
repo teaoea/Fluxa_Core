@@ -21,7 +21,7 @@ use crate::test_fixture_https as support;
 mod public_contract {
     // 真实 TLS 集成验证；不关闭证书验证，不使用外网或保存私钥。
     use super::support;
-    use fluxa_core::{error::Error, http::Header, https::HttpsClient};
+    use nodus_core::{error::Error, http::Header, https::HttpsClient};
     use rustls::RootCertStore;
 
     fn client(fixture: &support::Fixture) -> HttpsClient {

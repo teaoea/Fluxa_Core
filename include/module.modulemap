@@ -1,8 +1,8 @@
-module fluxa_core {
-  header "fluxa_engine.h"
+module nodus_core {
+  header "nodus_core.h"
   export *
   explicit module DebugIPC {
-    header "fluxa_debug_ipc.h"
+    header "nodus_debug_ipc.h"
     export *
   }
 }

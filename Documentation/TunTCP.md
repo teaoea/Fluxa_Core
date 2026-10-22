@@ -2,13 +2,13 @@
 
 作者：可莉唯一的狗。
 
-本阶段在 dev 实现有界 TCP 流与返回 IP 包，与 UDP 共用 DNS/Fake-IP、规则及出站；不引入外部 TCP 栈。本阶段不创建系统 VPN，不绕过《VPN启动技术规范》中的检查、确认和四阶段接管。`tun_start` 与 `fluxa_engine_start` 仍明确拒绝系统隧道启动。
+本阶段在 dev 实现有界 TCP 流与返回 IP 包，与 UDP 共用 DNS/Fake-IP、规则及出站；不引入外部 TCP 栈。本阶段不创建系统 VPN，不绕过《VPN启动技术规范》中的检查、确认和四阶段接管。`tun_start` 与 `nodus_core_start` 仍明确拒绝系统隧道启动。
 
 ## 接口与职责
 
 Rust 的 `tun::session::Session` 提供 `new`、`submit`、`receive` 和异步 `close`；TCP 状态机、报文编解码与流工作任务保持内部可见，未为测试扩大公开 API。旧 `tun::udp::Session` 入口继续复用同一 UDP 实现。
 
-C ABI 仍为版本 2，新增能力位 28 表示 TCP/UDP 数据包会话，位 25 的结构化错误协议含义不变。控制命令新增 `tun_open` / `tun_close`；包数据继续走既有 `fluxa_engine_tun_submit` / `fluxa_engine_tun_receive`，不使用 JSON/Base64 搬运包。成功提交只表示通过校验并进入有界队列，不代表远端连接或系统 VPN 成功。
+C ABI 仍为版本 2，新增能力位 28 表示 TCP/UDP 数据包会话，位 25 的结构化错误协议含义不变。控制命令新增 `tun_open` / `tun_close`；包数据继续走既有 `nodus_core_tun_submit` / `nodus_core_tun_receive`，不使用 JSON/Base64 搬运包。成功提交只表示通过校验并进入有界队列，不代表远端连接或系统 VPN 成功。
 
 Swift 封装及测试仅位于 Fluxa 的 `Packages/FluxaKernelBridge/`。`NativeTunClient` 只传配置、提交/读取字节及关闭意图，不实现 TCP、DNS、规则、状态机或资源管理。生产构建仍只使用固定远程二进制；没有能力位 28 的旧二进制明确拒绝新入口，不因 Swift 源码存在就声称功能已安装。
 

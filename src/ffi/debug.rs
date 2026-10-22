@@ -41,7 +41,7 @@ fn parse<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
 /// # Safety
 /// input 必须在调用期间指向 length 个可读字节，不能并发写入；借用不保存。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_debug_ipc_start(
+pub unsafe extern "C" fn nodus_core_debug_ipc_start(
     handle: u64,
     input: *const u8,
     length: usize,
@@ -85,7 +85,7 @@ unsafe fn input_bytes<'a>(input: *const u8, length: usize) -> Result<&'a [u8], E
 /// # Safety
 /// 输入只在同步调用期间借用，调用方保证可读且无并发写入。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_debug_ipc_connect(input: *const u8, length: usize) -> u64 {
+pub unsafe extern "C" fn nodus_core_debug_ipc_connect(input: *const u8, length: usize) -> u64 {
     clear_last_error();
     catch_unwind(AssertUnwindSafe(|| {
         let result = (|| {
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn fluxa_engine_debug_ipc_connect(input: *const u8, length
 /// # Safety
 /// 输入为 Debug 请求 JSON；响应仍用内核缓冲区句柄，不转移裸指针。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fluxa_engine_debug_ipc_command(
+pub unsafe extern "C" fn nodus_core_debug_ipc_command(
     handle: u64,
     input: *const u8,
     length: usize,

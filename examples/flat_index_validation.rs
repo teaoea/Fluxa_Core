@@ -1,6 +1,6 @@
 //! 六项索引缺陷修复的可运行示例：合法哈希碰撞、规则来源和缓存恢复。
 //! 仅创建独占临时规则目录，不监听网络，不接管 VPN，不修改用户配置。
-use fluxa_core::routing::{
+use nodus_core::routing::{
     Config, Match, Policy, Rule, Target, Transport,
     runtime::{Layer, Source},
     store::Store,
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
     let path = std::env::temp_dir().join(format!(
-        "fluxa-flat-example-{}-{unique}",
+        "nodus-flat-example-{}-{unique}",
         std::process::id()
     ));
     std::fs::create_dir(&path)?;

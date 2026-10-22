@@ -2,7 +2,7 @@
 #[cfg(target_os = "macos")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use fluxa_core::routing::debug::ipc::{Client, Request};
+    use nodus_core::routing::debug::ipc::{Client, Request};
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.len() != 5 {
         return Err("参数：端点绝对路径 凭证绝对路径 服务UID 服务代码签名requirement 授权秒数；路径不得经过符号链接".into());

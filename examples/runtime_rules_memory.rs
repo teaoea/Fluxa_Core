@@ -1,5 +1,5 @@
 //! 资源估算压力示例：唯一多标签后缀与长关键词；达到预算时受控拒绝。
-use fluxa_core::routing::{
+use nodus_core::routing::{
     Config, Match, Policy, Rule,
     runtime::{Layer, Snapshot, Source},
 };

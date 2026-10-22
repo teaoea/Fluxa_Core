@@ -10,9 +10,9 @@
 
 # 配置文件头注释
 # 项目地址
-# GitHub：https://github.com/teaoea/fluxa-app
+# GitHub：https://github.com/teaoea/Nodus-Core
 # 问题反馈地址，反馈问题是需提交日志
-# Issues：https://github.com/teaoea/fluxa-app/issues
+# Issues：https://github.com/teaoea/Nodus-Core/issues
 
 # 日志记录等级
 # 存放位置：App Group Container/log/silent（日志等级）/（年-月-日）/（整点小时）.jsonl
@@ -82,7 +82,7 @@ proxies:
     sni: example.com
     pbk: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE # 仅用于格式验证的虚构公钥，连接前必须替换
     sid: "01" # 格式示例，连接前替换为服务端真实 short id
-    fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 fluxa。默认 chrome133 模板
+    fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 nodus。默认 chrome133 模板
 
 # 策略组
 proxy-groups: []
@@ -100,7 +100,7 @@ proxy-groups: []
 plugin-providers:
   - name: 插件集名称 #
     category: 插件集分类
-    url: https://example.com/fluxa/plugins.yaml # 插件集订阅地址
+    url: https://example.com/nodus/plugins.yaml # 插件集订阅地址
     enabled: false # 插件集是否启用，false 不启用，true 启用
     update-time: "12:00" #插件集每日更新的时间，必须使用带引号的 HH:mm，使用设备本地时区。省略此字段则不自动更新，仅在第一次导入时更新一次
 
@@ -117,12 +117,12 @@ plugin-providers:
 # 忽略不符合要求的规则，不影响同一订阅中其他合法规则的加载
 rule-providers:
   - name: direct # 指定规则集名称，禁止重复，必填
-    url: https://example.com/fluxa/direct.yaml # 规则集订阅地址，必填
+    url: https://example.com/nodus/direct.yaml # 规则集订阅地址，必填
     policy: direct # 规则集内的规则流量处理策略，可选值：[direct、reject、代理节点名称]，必填项
     enable: false # 规则集是否启用，false 不启用，true 启用
     update-time: "12:00" # 规则集每日更新的时间，必须使用带引号的 HH:mm，使用设备本地时区
   - name: reject
-    url: https://example.com/fluxa/reject.yaml
+    url: https://example.com/nodus/reject.yaml
     policy: reject
     enable: true
 
@@ -303,7 +303,7 @@ rewrites:
     request: # 请求修改内容
       headers: # 请求头修改操作
         set: # 设置或覆盖请求头
-          X-Custom-Header: Fluxa # 设置自定义请求头
+          X-Custom-Header: Nodus # 设置自定义请求头
         remove: # 删除指定请求头
           - X-Tracking-ID # 删除 X-Tracking-ID
 

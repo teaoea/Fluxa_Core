@@ -86,7 +86,7 @@ fn unicode_and_crlf_offsets_match_editor_units() {
 #[test]
 fn file_errors_never_have_fake_lines_or_repair() {
     let path = std::env::temp_dir().join(format!(
-        "fluxa-check-{}-{}.yaml",
+        "nodus-check-{}-{}.yaml",
         std::process::id(),
         crate::lifecycle::identifier().unwrap()
     ));

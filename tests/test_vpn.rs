@@ -38,7 +38,7 @@ fn client(f: &crate::test_fixture_https::Fixture) -> HttpsClient {
 }
 fn remote(port: u16, extra: &str) -> String {
     format!(
-        "tun: {{enable: true, name: fluxa0}}\nrule-providers:\n  - {{name: one, url: 'https://localhost:{port}/provider-one', policy: reject, enable: true}}\n{extra}rules: ['domain,localhost,direct', 'final,direct']"
+        "tun: {{enable: true, name: nodus0}}\nrule-providers:\n  - {{name: one, url: 'https://localhost:{port}/provider-one', policy: reject, enable: true}}\n{extra}rules: ['domain,localhost,direct', 'final,direct']"
     )
 }
 fn policy(manager: &Manager, host: &str) -> Policy {
@@ -65,7 +65,7 @@ async fn local_candidate_is_not_activation_and_does_not_replace_live_rules() {
         .apply_configuration("rules: ['domain,ads.example,reject','final,direct']")
         .unwrap();
     let candidate =
-        Preparation::begin("tun: {enable: true, name: fluxa0}\nrules: ['final,direct']").unwrap();
+        Preparation::begin("tun: {enable: true, name: nodus0}\nrules: ['final,direct']").unwrap();
     let status = completed(&candidate).await;
     assert_eq!(status.phase, Phase::CandidateReady);
     assert!(!status.activation_permitted);
@@ -106,7 +106,7 @@ async fn invalid_input_and_unsupported_modes_fail_without_partial_candidate() {
 async fn host_sources_are_read_only_and_keep_policy() {
     let _gate = GATE.lock().await;
     let root = std::env::temp_dir().join(format!(
-        "fluxa-vpn-readonly-{}",
+        "nodus-vpn-readonly-{}",
         crate::lifecycle::identifier().unwrap()
     ));
     std::fs::create_dir(&root).unwrap();

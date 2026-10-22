@@ -44,9 +44,9 @@ mod public_contract {
     // - `src/routing/store.rs`：`Store::open` / `update` / `snapshot` / `close`。
     // - `src/routing/runtime.rs`：`Snapshot::generate` / `Snapshot::evaluate` / `memory_usage`。
     //
-    // 公开接口：`fluxa_core::routing::{Config, Match, Policy, Rule, Target, Transport}`、
-    // `fluxa_core::routing::runtime::{Layer, Snapshot, Source, memory_usage}`、
-    // `fluxa_core::routing::store::Store`、`fluxa_core::error::Error`。
+    // 公开接口：`nodus_core::routing::{Config, Match, Policy, Rule, Target, Transport}`、
+    // `nodus_core::routing::runtime::{Layer, Snapshot, Source, memory_usage}`、
+    // `nodus_core::routing::store::Store`、`nodus_core::error::Error`。
     //
     // ## 测试内容
     // 场景用例（函数名即断言目标）：
@@ -87,8 +87,8 @@ mod public_contract {
     //
     // 原六项失败的历史证据保留在 Git 历史和报告中；本次结果仅见同名报告。
 
-    use fluxa_core::error::Error;
-    use fluxa_core::routing::{
+    use nodus_core::error::Error;
+    use nodus_core::routing::{
         Config, Match, Policy, Rule, Target, Transport,
         runtime::{Layer, Snapshot, Source, memory_usage},
         store::Store,
@@ -191,7 +191,7 @@ mod public_contract {
     fn temp_dir(tag: &str) -> TestDirectory {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "fluxa-flat-{tag}-{}-{}",
+            "nodus-flat-{tag}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -271,7 +271,7 @@ mod public_contract {
     fn sha256(data: &[u8]) -> [u8; DIGEST_BYTES] {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "fluxa-sha-{}-{}",
+            "nodus-sha-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -652,7 +652,7 @@ mod public_contract {
 
     // ---------------------------------------------------------------- 场景 06
 
-    fn keyword_decision(rules: Vec<Rule>, domain: &str) -> fluxa_core::routing::Decision {
+    fn keyword_decision(rules: Vec<Rule>, domain: &str) -> nodus_core::routing::Decision {
         let dir = temp_dir("keyword");
         let snapshot = flat_snapshot(&dir, rules);
         snapshot

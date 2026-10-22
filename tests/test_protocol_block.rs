@@ -13,7 +13,7 @@
 //!
 //! 执行状态：由同名 Markdown 报告记录，不在源码中固化通过结论。
 
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     outbound::{Family, Limits, Manager, RoutedTarget},
     routing::{
@@ -167,7 +167,7 @@ async fn transport_reject_cannot_be_bypassed_by_modes() {
 }
 #[test]
 fn duplicate_sources_and_binary_cache_restore_guard() {
-    let dir = std::env::temp_dir().join(format!("fluxa-quic-rules-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("nodus-quic-rules-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let sources = vec![
         Source {

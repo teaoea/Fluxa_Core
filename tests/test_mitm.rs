@@ -20,7 +20,7 @@
 // 真实双向 TLS 与 CONNECT 集成验证；不关闭证书检查、不修改系统信任。
 #[path = "test_fixture_https.rs"]
 mod support;
-use fluxa_core::{
+use nodus_core::{
     error::Error,
     http::{self, Header},
     https::HttpsClient,
@@ -50,7 +50,7 @@ fn ca_client(authority: &Authority, fixture: &support::Fixture) -> HttpsClient {
         fixture,
     )
 }
-async fn captured(captures: &CaptureStore) -> fluxa_core::mitm::capture::Capture {
+async fn captured(captures: &CaptureStore) -> nodus_core::mitm::capture::Capture {
     timeout(Duration::from_secs(2), async {
         loop {
             if let Some(capture) = captures.peek().unwrap() {

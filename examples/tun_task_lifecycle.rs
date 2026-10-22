@@ -1,6 +1,6 @@
 //! 本地 UDP 短流示例：顺序创建和结束 48 条流，不改系统网络或接管 VPN。
 //! 内部任务节点回收和登记上限由私有单元测试断言；示例不充当 RSS/压力验收。
-use fluxa_core::{
+use nodus_core::{
     outbound::{Limits, Manager},
     routing::{Config, Policy, Router},
     tun::udp::{Options, Session, encode},
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 tokio::task::yield_now().await;
             }
-            Ok::<_, fluxa_core::error::Error>(())
+            Ok::<_, nodus_core::error::Error>(())
         })
         .await??;
         // 只读观察实际连接退出，不接管内核任务表或代替内核执行回收。
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             while !manager.status()?.sessions.is_empty() {
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
-            Ok::<_, fluxa_core::error::Error>(())
+            Ok::<_, nodus_core::error::Error>(())
         })
         .await??;
     }

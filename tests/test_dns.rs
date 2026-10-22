@@ -23,7 +23,7 @@
 // 每项检查使用真正套接字，不用模拟返回值替代 DNS 互通。
 #[path = "test_fixture_dns.rs"]
 mod support;
-use fluxa_core::{
+use nodus_core::{
     dns::{Config, Query, Resolver, Server},
     error::Error,
 };
@@ -335,8 +335,8 @@ async fn dnssec_signed_root_valid_tampered_expired_and_untrusted() {
     assert!(untrusted.resolve(query("valid.", "A")).await.is_err());
 }
 
-fn fake_config(capacity: usize) -> fluxa_core::dns::fake_ip::Config {
-    fluxa_core::dns::fake_ip::Config {
+fn fake_config(capacity: usize) -> nodus_core::dns::fake_ip::Config {
+    nodus_core::dns::fake_ip::Config {
         ipv4_range: "198.18.0.0/24".into(),
         ipv6_range: "fd00:198:18::/64".into(),
         capacity,
@@ -345,7 +345,7 @@ fn fake_config(capacity: usize) -> fluxa_core::dns::fake_ip::Config {
 }
 #[test]
 fn fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse() {
-    use fluxa_core::dns::fake_ip::Table;
+    use nodus_core::dns::fake_ip::Table;
     let table = Table::new(fake_config(2)).unwrap();
     let (first, cached) = table.allocate("Example.test.", false).unwrap().unwrap();
     assert!(!cached);
@@ -386,7 +386,7 @@ fn fake_ip_stability_reverse_families_exclusions_and_reset_no_reuse() {
 }
 #[test]
 fn fake_ip_range_alignment_capacity_and_exhaustion() {
-    use fluxa_core::dns::fake_ip::Table;
+    use nodus_core::dns::fake_ip::Table;
     for bad in [
         "192.0.2.0/24",
         "198.18.0.1/24",
@@ -458,7 +458,7 @@ async fn fake_ip_dns_does_not_contact_upstream_and_never_claims_dnssec() {
 
 #[test]
 fn fake_ip_concurrent_reuse_is_unique_and_reversible() {
-    use fluxa_core::dns::fake_ip::Table;
+    use nodus_core::dns::fake_ip::Table;
     let table = std::sync::Arc::new(Table::new(fake_config(32)).unwrap());
     let workers: Vec<_> = (0..4)
         .map(|_| {

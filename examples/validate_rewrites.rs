@@ -1,5 +1,5 @@
 //! 只验证新复写声明；不访问共享目录、不执行 JS、不启动监听或解密。
-use fluxa_core::configuration::Document;
+use nodus_core::configuration::Document;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let yaml = r#"
 rules: ['final,reject']
@@ -21,7 +21,7 @@ rewrites:
         remove: [X-Tracking-ID]
       method: POST
       query:
-        set: {source: fluxa}
+        set: {source: nodus}
         remove: [tracking_id]
       body:
         text: '{"enabled":true}'

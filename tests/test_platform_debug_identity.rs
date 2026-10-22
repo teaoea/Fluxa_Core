@@ -17,7 +17,7 @@ mod file_tests {
     fn private_seed_rejects_wrong_permissions_symlinks_and_wrong_size() {
         use std::os::unix::fs::{PermissionsExt, symlink};
         let directory = std::env::temp_dir().canonicalize().unwrap().join(format!(
-            "fluxa-debug-file-{}-{}",
+            "nodus-debug-file-{}-{}",
             std::process::id(),
             crate::lifecycle::identifier().unwrap()
         ));

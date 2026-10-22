@@ -1,5 +1,5 @@
 //! 真实节点 HTTPS 探针：凭据从有界临时文件读取，仅报告状态与长度。
-use fluxa_core::{
+use nodus_core::{
     dns,
     error::{Error, Result},
     https::HttpsClient,

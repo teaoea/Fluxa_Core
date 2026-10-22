@@ -20,7 +20,7 @@
 // 以下保留迁移前的用例说明；历史执行状态不代表当前版本，当前结果仅见同名报告。
 mod public_contract {
     // 路由是纯决策，验证匹配边界、失败原子性、共享快照和资源回收，不伪造连接成功。
-    use fluxa_core::{error::Error, routing::*};
+    use nodus_core::{error::Error, routing::*};
     use std::sync::Arc;
     fn rule(kind: Match, value: &str, policy: Policy) -> Rule {
         Rule {

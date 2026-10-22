@@ -23,7 +23,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!(
-            "fluxa-js-test-{}-{}",
+            "nodus-js-test-{}-{}",
             std::process::id(),
             crate::lifecycle::identifier().unwrap()
         ));

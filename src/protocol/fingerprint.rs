@@ -7,7 +7,7 @@ use ring::{
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fingerprint {
-    Fluxa,
+    Nodus,
     Chrome,
     Chrome131,
     Chrome133,
@@ -21,7 +21,7 @@ pub enum Fingerprint {
 impl Fingerprint {
     pub fn parse(value: &str) -> Result<Self> {
         Ok(match value {
-            "fluxa" => Self::Fluxa,
+            "nodus" => Self::Nodus,
             "chrome120" => Self::Chrome,
             "chrome131" => Self::Chrome131,
             "chrome" | "chrome133" => Self::Chrome133,
@@ -50,7 +50,7 @@ impl Fingerprint {
     }
     pub fn version(self) -> &'static str {
         match self {
-            Self::Fluxa => "Fluxa TLS 1.3",
+            Self::Nodus => "Nodus TLS 1.3",
             Self::Chrome => "Chrome 120",
             Self::Chrome131 => "Chrome 131",
             Self::Chrome133 => "Chrome 133",
@@ -133,7 +133,7 @@ pub fn build(kind: Fingerprint, sni: &str, share: &[u8; 32]) -> Result<Material>
     };
     let firefox = kind == Fingerprint::Firefox;
     let apple = matches!(kind, Fingerprint::Safari | Fingerprint::Ios);
-    let native = kind == Fingerprint::Fluxa;
+    let native = kind == Fingerprint::Nodus;
     let chrome = matches!(
         kind,
         Fingerprint::Chrome

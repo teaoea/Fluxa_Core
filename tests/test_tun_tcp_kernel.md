@@ -1,6 +1,6 @@
 # 测试报告：test_tun_tcp_kernel
 
-<!-- fluxa-test-report:{"status": "NOT RUN", "discovered": [], "results": {}, "note": "本次 Rust 执行未运行此目标；夹具不作为独立测试用例，外部/Swift 需对应执行器。", "fingerprint": "23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243", "time": "2026-10-21T19:59:51.359405+08:00", "attempt": 1, "suite": "test_tun_tcp_kernel", "file": "tests/test_tun_tcp_kernel.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"status": "NOT RUN", "discovered": [], "results": {}, "note": "本次 Rust 执行未运行此目标；夹具不作为独立测试用例，外部/Swift 需对应执行器。", "fingerprint": "e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5", "time": "2026-10-23T02:28:19.213729+08:00", "attempt": 1, "suite": "test_tun_tcp_kernel", "file": "tests/test_tun_tcp_kernel.py", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -9,10 +9,10 @@
 - 执行机制：python_integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
 - 实际命令：``
-- 执行时间：2026-10-21T19:59:51.359405+08:00
+- 执行时间：2026-10-23T02:28:19.213729+08:00
 - 实际耗时：未执行 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "1a798addfabd84db3e26bdccf2794318eba7e1ce", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"FLUXA_DEBUG_TEST_REQUIREMENT": false, "FLUXA_DEBUG_TEST_SWIFT": false, "FLUXA_PROTOCOL_PROFILE": false, "FLUXA_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`23e34507a613c48170087b90501299e7bca9fe06332f55ac09e5a298857e3243`
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5`
 - 总体状态：**NOT RUN**
 - 原始进程退出状态：未执行
 
@@ -45,7 +45,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/fluxa-readonly-main-policy-final/test_tun_tcp_kernel.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-rename-final/test_tun_tcp_kernel.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

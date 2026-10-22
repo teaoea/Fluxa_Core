@@ -1,7 +1,7 @@
 # Default configuration
 
 # Issue tracker. Include logs when reporting a problem.
-# Issues: https://github.com/teaoea/fluxa-app/issues
+# Issues: https://github.com/teaoea/Nodus-Core/issues
 
 # silent: disable logging.
 # info: record all log levels, including debug, warn, and error.

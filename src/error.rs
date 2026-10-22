@@ -173,7 +173,7 @@ define_codes! {
     /// C ABI 值句柄不存在、类型不符或已释放；不包含对象地址。
     InvalidHandle => (1201, "无效 ABI 句柄", "ABI", "C ABI 值句柄不存在、类型不符或已释放；不包含对象地址。", "ABI 在注册表查找所需类型失败。", "拒绝访问该对象，不解析为另一个对象。", "src/ffi.rs engine、udp_session、destroy"),
     /// 已执行操作的响应不能按既定协议编码；不保证当前业务操作未发生，不能盲目重试。
-    SerializationFailed => (1202, "响应序列化失败", "ABI", "已执行操作的响应不能按既定协议编码；不保证当前业务操作未发生，不能盲目重试。", "serde_json::to_writer 的非预算序列化错误。", "不返回成功响应；释放未发布响应句柄，并记录边界失败。", "src/ffi.rs fluxa_engine_command"),
+    SerializationFailed => (1202, "响应序列化失败", "ABI", "已执行操作的响应不能按既定协议编码；不保证当前业务操作未发生，不能盲目重试。", "serde_json::to_writer 的非预算序列化错误。", "不返回成功响应；释放未发布响应句柄，并记录边界失败。", "src/ffi.rs nodus_core_command"),
     /// XUDP 报文的会话、标志或来源不符合已绑定目标约束；不表示命中规则 REJECT。
     ProtocolViolation => (1401, "代理协议约束违反", "PROTOCOL", "XUDP 返回报文的会话、标志或来源违反单目标绑定约束，不能作为合法报文交付。", "decode 检测非零会话、未知标志或返回来源不等于绑定目标。", "拒绝报文并终止该失败连接；不放宽验证，也不声称规则 REJECT。", "src/protocol/datagram.rs decode"),
     /// YAML 事件解析器拒绝语法，未构造有效配置。
@@ -974,7 +974,7 @@ impl fmt::Display for Error {
             Self::InvalidState => "资源状态不允许此操作",
             Self::Unsupported => "请求的能力尚未支持",
             Self::Script => "脚本执行失败或结果不是有效 JSON 数据",
-            Self::Rejected => "请求被 Fluxa 规则拒绝",
+            Self::Rejected => "请求被 Nodus 规则拒绝",
             Self::ProtocolViolation => "代理报文违反会话或目标绑定约束",
             Self::GeoipInvalidUrl => "GeoIP URL 格式非法",
             Self::GeoipUrlScheme => "GeoIP URL 协议不允许",

@@ -1,5 +1,5 @@
 //! 整数错误协议与已授权 Rust 字段迁移示例；不发起网络请求或读取配置。
-use fluxa_core::{
+use nodus_core::{
     error::{Error, ErrorCode, ErrorInfo},
     mitm::capture::Capture,
     routing::background::{Job, Phase},

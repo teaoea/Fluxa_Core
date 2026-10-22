@@ -41,7 +41,7 @@ mod tests {
     fn path() -> PathBuf {
         // 生命周期编号只保证本进程唯一；测试目录增加进程与时间，不能读入旧测试产物。
         std::env::temp_dir().join(format!(
-            "fluxa-background-{}-{}-{}",
+            "nodus-background-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

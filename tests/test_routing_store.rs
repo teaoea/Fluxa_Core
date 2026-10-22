@@ -10,7 +10,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "fluxa-store-{}",
+            "nodus-store-{}",
             crate::lifecycle::identifier().unwrap()
         ));
         std::fs::create_dir(&path).unwrap();
