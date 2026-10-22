@@ -69,3 +69,11 @@
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
+
+## Nodus 改名后的独立 C ABI 核验
+
+- macOS arm64 宿主实际编译、链接并执行 C 程序，包含 `nodus_core.h`、`nodus_debug_ipc.h`；创建、能力查询、销毁断言通过，退出 0。
+- Rust 自有 Mach-O 对象导出共 16 个 `nodus_core_*` 符号，未导出旧前缀；日志 `/private/tmp/nodus-symbols-final.log`。
+- 编译及运行记录：`/private/tmp/nodus-abi-compile-final.log`、`/private/tmp/nodus-abi-run-final.log`。临时可执行程序在核验后清理，保留测试源及日志。
+- 此为当前 macOS 宿主的 Debug 静态库链接验证，不代表 macOS 13 运行、Apple Framework 成品、Swift/App 接入、Network Extension 或真实系统 VPN 验收。
+- 首次整包 nm 检查遇到 Xcode 无法解析 Rust 标准库的较新 LLVM 位码；随后仅提取内核自有 Mach-O 对象完成上述符号检查。原始工具错误保留于 `/private/tmp/nodus-nm-errors.log`。
