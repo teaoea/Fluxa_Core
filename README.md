@@ -30,6 +30,6 @@ Apple 平台最低版本、ARM64 架构与本地构建入口见 [Apple 平台构
 
 内核源码已开源：[teaoea/Nodus-Core](https://github.com/teaoea/Nodus-Core)。
 Rust package 为 `Nodus-Core`，库及 Clang 模块为 `nodus_core`，C ABI 使用 `nodus_core_*`；头文件为 `nodus_core.h` 与 `nodus_debug_ipc.h`。
-Apple 容器为 `NodusEngine.xcframework`，发行文件采用 `nodus-core-{os}-{arch}[-{abi}]`。
+Apple 容器为 `NodusCore.xcframework`，发行文件采用 `nodus-core-{os}-{arch}[-{abi}]`。
 这是接口改名，客户端必须配套重新编译；不提供旧符号或旧原生指纹名称别名。二进制分发暂不启用，后续在本源码仓库分发。
 历史测试报告及冻结错误契约保留原文，不作为当前命名的调用示例。Fluxa 仅指独立 App 或历史记录。

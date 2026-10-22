@@ -73,7 +73,7 @@ class DevReleaseTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='nodus-publish-contract-')
         self.addCleanup(self.tmp.cleanup); self.home = Path(self.tmp.name)
         self.assets = self.home/'assets'; self.assets.mkdir()
-        for name, member in [(publisher.FILES[1], 'NodusEngine.xcframework/macos-arm64/nodus_core.framework/nodus_core'), (publisher.FILES[2], 'nodus-test-fixture')]:
+        for name, member in [(publisher.FILES[1], 'NodusCore.xcframework/macos-arm64/nodus_core.framework/nodus_core'), (publisher.FILES[2], 'nodus-test-fixture')]:
             with zipfile.ZipFile(self.assets/name, 'w') as archive: archive.writestr(member, b'fixed binary fixture')
         self.record = {'version':VERSION,'tag':'v'+VERSION+'.'+SOURCE,'source_commit':SOURCE,
             'unstable':True,'platforms':['macos-arm64'],'minimum_macos':'13.0',
@@ -118,7 +118,7 @@ class DevReleaseTests(unittest.TestCase):
         self.assertEqual(self.remote.calls,[])
     def test_implementation_sources_never_become_public(self):
         with zipfile.ZipFile(self.assets/publisher.FILES[1], 'a') as archive:
-            archive.writestr('NodusEngine.xcframework/src/lib.rs', 'private implementation')
+            archive.writestr('NodusCore.xcframework/src/lib.rs', 'private implementation')
         self.record['framework_sha256']=publisher.digest(self.assets/publisher.FILES[1]); self.save_record()
         with self.assertRaises(ValueError): self.publish()
         self.assertEqual(self.remote.calls,[])
@@ -210,7 +210,7 @@ class DevReleaseTests(unittest.TestCase):
             target=self.home/'bin'/name;target.write_text(script);target.chmod(0o755)
         result=subprocess.run(['bash','build-macos.sh'],cwd=self.repo,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
         self.assertEqual(result.returncode,0,result.stdout)
-        notices=self.repo/'Vendor/NodusEngine.xcframework/Resources/Notices'
+        notices=self.repo/'Vendor/NodusCore.xcframework/Resources/Notices'
         for name in ['LICENSE','LICENSE.md']:
             self.assertEqual((notices/name).read_bytes(),(ROOT/name).read_bytes())
         self.assertEqual((notices/'third-party').read_text(),'第三方声明')

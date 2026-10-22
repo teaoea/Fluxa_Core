@@ -75,9 +75,9 @@ def build(selected, output):
             with (framework / 'Info.plist').open('wb') as stream:
                 plistlib.dump(info, stream)
             args += ['-framework', str(framework)]
-        args += ['-output', str(temporary / 'NodusEngine.xcframework')]
+        args += ['-output', str(temporary / 'NodusCore.xcframework')]
         subprocess.run(args, cwd=ROOT, check=True)
-        shutil.move(str(temporary / 'NodusEngine.xcframework'), output)
+        shutil.move(str(temporary / 'NodusCore.xcframework'), output)
     print('本地框架：' + str(output), flush=True)
 
 
@@ -102,7 +102,7 @@ def package_slices(framework, directory):
                 raise ValueError('产物含未支持的平台或 ABI')
             name = 'nodus-core-' + os_name + '-arm64' + ('-' + abi if abi else '')
             identifier = library['LibraryIdentifier']
-            container = staging / name / 'NodusEngine.xcframework'
+            container = staging / name / 'NodusCore.xcframework'
             container.mkdir(parents=True)
             shutil.copytree(framework / identifier, container / identifier)
             selected_info = dict(info, AvailableLibraries=[library])
@@ -136,7 +136,7 @@ def main():
     parser.add_argument('--platform', action='append', choices=[row[0] for row in PLATFORMS])
     parser.add_argument('--package-dir', type=Path, help='可选：按强制命名逐切片生成本地 ZIP 与清单')
     parser.add_argument('--list', action='store_true', help='输出支持矩阵；不构建、不访问网络')
-    parser.add_argument('--output', type=Path, default=ROOT / 'Vendor/NodusEngine.xcframework')
+    parser.add_argument('--output', type=Path, default=ROOT / 'Vendor/NodusCore.xcframework')
     args = parser.parse_args()
     selected = build_platforms(args.platform)
     if args.list:

@@ -60,7 +60,7 @@ class ApplePlatformsTests(unittest.TestCase):
             self.assertEqual((output/'sentinel').read_text(),'保留')
     def test_package_names_and_contents(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary);framework=root/'NodusEngine.xcframework';framework.mkdir()
+            root=Path(temporary);framework=root/'NodusCore.xcframework';framework.mkdir()
             library={'LibraryIdentifier':'ios-arm64-simulator','LibraryPath':'nodus_core.framework','SupportedArchitectures':['arm64'],'SupportedPlatform':'ios','SupportedPlatformVariant':'simulator'}
             with (framework/'Info.plist').open('wb') as stream:
                 plistlib.dump({'AvailableLibraries':[library],'XCFrameworkFormatVersion':'1.0'},stream)
@@ -71,8 +71,8 @@ class ApplePlatformsTests(unittest.TestCase):
             output=root/'packages';builder.package_slices(framework,output)
             self.assertEqual({p.name for p in output.iterdir()},{'nodus-core-ios-arm64-simulator.zip','manifest.json','SHA256SUMS'})
             with zipfile.ZipFile(output/'nodus-core-ios-arm64-simulator.zip') as archive:
-                self.assertIn('NodusEngine.xcframework/ios-arm64-simulator/nodus_core.framework/nodus_core',archive.namelist())
-                info=plistlib.loads(archive.read('NodusEngine.xcframework/Info.plist'))
+                self.assertIn('NodusCore.xcframework/ios-arm64-simulator/nodus_core.framework/nodus_core',archive.namelist())
+                info=plistlib.loads(archive.read('NodusCore.xcframework/Info.plist'))
                 self.assertEqual(info['AvailableLibraries'],[library])
             record=json.loads((output/'manifest.json').read_text())[0]
             self.assertEqual((record['os'],record['arch'],record['abi'],record['minimum']),('ios','arm64','simulator','16.0'))

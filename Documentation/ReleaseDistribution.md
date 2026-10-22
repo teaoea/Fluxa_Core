@@ -16,7 +16,7 @@
 
 Release 唯一附件白名单：
 
-- `NodusEngine.xcframework.zip`：静态框架、必要公开 ABI 声明和许可证。
+- `NodusCore.xcframework.zip`：静态框架、必要公开 ABI 声明和许可证。
 - `nodus-test-fixture-macos-arm64.zip`：编译后的独立测试服务。
 - `provenance.json`：版本、源码、平台、门禁链接及两份 ZIP 的 SHA-256。
 

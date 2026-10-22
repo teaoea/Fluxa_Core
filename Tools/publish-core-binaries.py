@@ -72,7 +72,7 @@ def verify_archive(path, framework):
                 raise ValueError('附件包含非法路径')
             if Path(item.filename).suffix.lower() in forbidden or Path(item.filename).name in ('Cargo.toml', 'Cargo.lock', 'Package.swift'):
                 raise ValueError('公开附件包含实现源码或构建脚本')
-            if framework and not item.filename.startswith('NodusEngine.xcframework/'):
+            if framework and not item.filename.startswith('NodusCore.xcframework/'):
                 raise ValueError('框架附件根目录不匹配')
             if not framework and item.filename != 'nodus-test-fixture':
                 raise ValueError('测试服务附件只能包含编译后的独立程序')
