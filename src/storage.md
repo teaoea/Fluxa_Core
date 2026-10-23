@@ -40,7 +40,7 @@ Apple 共享组仍由宿主按项目约定申请 `group.app.fluxa.ios`。路径�
 
 `default_config.yaml` 与 `default_config_en.yaml` 是默认模板，`storage::default_configuration(language)` 只返回内容；中文设备语言选择中文，其他语言回退英语。默认兜底为 `final,direct`。App 决定何时创建、保存位置、名称及覆盖策略，Core 不决定目录中有没有配置。
 
-`storage::read_configuration(path)` 只读加载并严格校验现有绝对路径；`Manager::apply_configuration_file(path, resources)` 候选准备成功后才发布网络配置。配置错误或资源失败保留现有有效运行配置和原始文件；Core 不自行修改宿主先前保存的错误文件。正文检查、字段和编辑器位置见 [配置文件检查 API](../Documentation/API/ffi_api.md)。
+`storage::read_configuration(path)` 只读加载并严格校验现有绝对路径；`Manager::apply_configuration_file(path, resources)` 候选准备成功后才发布网络配置。配置错误或资源失败保留现有有效运行配置和原始文件；Core 不自行修改宿主先前保存的错误文件。正文检查、字段和编辑器位置见 [配置文件检查 API](../Documentation/API/External/ffi_api.md)。
 
 旧 `storage_initialize`、`configuration_save` 和隐式共享容器加载已移除。能力位 30 不再声明；位 31 表示纯模板和宿主授权文件只读能力。旧客户端必须同步迁移，不能把旧保存请求当作成功。回滚需要恢复整组客户端与二进制，不能混用。
 

@@ -23,3 +23,5 @@
 ## 真实网络前置检查
 
 Controller 的 begin_preflight／preflight_status 复用同一事务槽，真实探测与未就绪边界见[preflight.md](vpn/preflight.md)。候选准备成功仍不代表完整前置检查通过。
+
+平台证据的纯校验由[platform_check](vpn/platform_check.md)负责；只向Preflight补充无敏感摘要，不改变候选准备的接管资格，也不增加生产证据构造入口。

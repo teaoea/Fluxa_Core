@@ -51,7 +51,7 @@ fn main() {
 
 ### 通过 C ABI 接入
 
-将匹配目标平台的内核静态库与 [公开头文件](include/nodus_core.h) 链接到使用方程序，通过头文件声明的接口创建句柄、调用能力、复制结果并释放资源。配置检查的请求和响应示例见 [C ABI 配置检查 API](Documentation/API/ffi_api.md)。
+将匹配目标平台的内核静态库与 [公开头文件](include/nodus_core.h) 链接到使用方程序，通过头文件声明的接口创建句柄、调用能力、复制结果并释放资源。配置检查的请求和响应示例见 [C ABI 配置检查 API](Documentation/API/External/ffi_api.md)。
 
 ### 运行配置检查示例
 
@@ -66,9 +66,11 @@ cargo run --locked --example validate_main_configuration -- default_config.yaml
 ## 文档
 
 - [API 文档](Documentation/API/README.md)
-- [配置检查 Rust API](Documentation/API/configuration/check_api.md)
-- [错误代码与参数](Documentation/API/error_api.md)
+- [配置检查 Rust API](Documentation/API/External/configuration/check_api.md)
+- [错误代码与参数](Documentation/API/External/error_api.md)
 
 ## 许可证
 
 作者：可莉唯一的狗。自有代码采用 [MIT 许可证](LICENSE)；第三方依赖及许可说明见 [LICENSE.md](LICENSE.md)。
+
+平台权限与能力结果新增受约束的[只读诊断契约](Documentation/API/External/vpn/platform_check_api.md)。当前缺少真实平台证据时仍拒绝接管，网络检查成功不代表权限或防回环已经通过。

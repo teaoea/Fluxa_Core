@@ -20,7 +20,7 @@ check_yaml 接收未格式化的原始 UTF-8 文本，复用 Document 的严格�
 
 沿用主配置输入长度、深度、字段、重复键和预算要求，返回首个问题。代码不写回或修复正文，不遍历下载插件资源，诊断成功不构成网络启动许可。原文换行、中文、表情和 CRLF 必须保持，异步调用方仅对同一版本正文使用偏移。
 
-公开签名和例子见 [check_api.md](../../Documentation/API/configuration/check_api.md)；[test_configuration_check.rs](../../tests/test_configuration_check.rs) 及 [同名文档](../../tests/test_configuration_check.md) 保存实际字段、Unicode、只读和错误位置验证。位置算法正确不等于所有业务配置或外部资源均已验收。
+公开签名和例子见 [check_api.md](../../Documentation/API/External/configuration/check_api.md)；[test_configuration_check.rs](../../tests/test_configuration_check.rs) 及 [同名文档](../../tests/test_configuration_check.md) 保存实际字段、Unicode、只读和错误位置验证。位置算法正确不等于所有业务配置或外部资源均已验收。
 
 ## 禁止行为（不允许做什么）
 

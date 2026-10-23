@@ -1,4 +1,5 @@
 //! 接收宿主明确指定的现有配置和HTTPS目标，只运行前置检查；无默认外部网址。
+//! 报告包含平台子检查诊断；缺真实平台证据时仍错误退出，不接管VPN。
 use nodus_core::{
     error::Error,
     storage::{self, Resources},

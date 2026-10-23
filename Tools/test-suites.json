@@ -1632,6 +1632,27 @@
         "compiled_requirements_respect_mode_and_sources",
         "read_only_rule_resources_are_enforced_and_unchanged"
       ]
+    },
+    {
+      "id": "test_vpn_platform_check",
+      "file": "tests/test_vpn_platform_check.rs",
+      "kind": "unit",
+      "sources": [
+        "src/vpn/platform_check.rs"
+      ],
+      "module": "test_vpn_platform_check",
+      "declared_cases": [
+        "absent_adapter_never_passes",
+        "matching_observations_only_validate_platform_subset",
+        "foreign_request_platform_and_time_are_rejected",
+        "consumed_cancelled_expired_requests_fail_closed",
+        "revoked_or_wrong_source_identity_cannot_authorize",
+        "permission_and_required_capabilities_are_distinct",
+        "egress_coverage_requires_exact_protected_routes",
+        "unresolved_and_empty_egress_are_not_equivalent",
+        "inputs_are_bounded_before_copy_and_challenges_differ",
+        "serialized_assessment_cannot_leak_or_restore_proof"
+      ]
     }
   ]
 }

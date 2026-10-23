@@ -51,7 +51,7 @@ A successful check validates the configuration without applying it or starting n
 
 ### Through the C ABI
 
-Link the native static library for the target platform and its matching [public header](include/nodus_core.h). Use the declared interfaces to create handles, invoke operations, copy results, and release resources. See the [configuration-check C ABI](Documentation/API/ffi_api.md) for request and response examples.
+Link the native static library for the target platform and its matching [public header](include/nodus_core.h). Use the declared interfaces to create handles, invoke operations, copy results, and release resources. See the [configuration-check C ABI](Documentation/API/External/ffi_api.md) for request and response examples.
 
 ### Run the configuration-check example
 
@@ -66,9 +66,11 @@ The example reads the specified YAML file and prints a validation summary. Inval
 ## Documentation
 
 - [API documentation](Documentation/API/README.md)
-- [Configuration-check Rust API](Documentation/API/configuration/check_api.md)
-- [Error codes and parameters](Documentation/API/error_api.md)
+- [Configuration-check Rust API](Documentation/API/External/configuration/check_api.md)
+- [Error codes and parameters](Documentation/API/External/error_api.md)
 
 ## License
 
 Author: 可莉唯一的狗. Core source is licensed under [MIT](LICENSE). See [LICENSE.md](LICENSE.md) for third-party dependency notices.
+
+Platform checks now have a [read-only diagnostic contract](Documentation/API/External/vpn/platform_check_api.md). Production still refuses takeover without a real platform evidence source; network success does not establish permission or loop protection.

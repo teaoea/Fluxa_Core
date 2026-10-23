@@ -1,9 +1,11 @@
 # FFI 配置检查 API
 
+- API 分类：外部调用 API；仅承诺本文已说明的公开入口。
+
 - 来源源码：`src/ffi.rs`；配置诊断由 `src/configuration/check.rs` 实现。
 - 入口：`nodus_core_command_v2`，operation 为 `configuration_check` 或 `configuration_check_file`。
 - 契约：ABI 2，开发接口；本页只覆盖配置检查命令，不宣称所有 FFI 操作已经文档化。
-- Rust API、源位置与编辑器换算见 [check_api.md](configuration/check_api.md)；内部实现见 [src/ffi.md](../../src/ffi.md)。
+- Rust API、源位置与编辑器换算见 [check_api.md](configuration/check_api.md)；内部实现见 [src/ffi.md](../../../src/ffi.md)。
 
 
 配置检查是只读操作。Core 负责读取、严格解析和校验主配置，返回首个错误的位置与固定整数错误代码；不创建、修复、覆盖或保存文件，不应用配置，不启动监听或 VPN，也不改变当前有效运行配置。

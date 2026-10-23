@@ -134,6 +134,17 @@ async fn strict_input_rejects_before_admission() {
     let report = finished(&owner, id).await;
     assert_eq!(outcome(&report, Check::Configuration), Outcome::Failed);
     assert_eq!(f.provider.requests.load(Ordering::SeqCst), 0);
+    let id = start(
+        &owner,
+        "rules: ['final,direct']\nplatform-check: {permission: granted, activation-permitted: true}",
+        format!("https://localhost:{}/provider-probe", f.port),
+        client(&f),
+    );
+    let report = finished(&owner, id).await;
+    assert_eq!(outcome(&report, Check::Configuration), Outcome::Failed);
+    assert!(report.platform_check.is_none());
+    assert!(!report.activation_permitted);
+    assert_eq!(f.provider.requests.load(Ordering::SeqCst), 0);
 }
 #[tokio::test]
 async fn real_https_is_not_full_permission_or_authorization() {
@@ -150,6 +161,17 @@ async fn real_https_is_not_full_permission_or_authorization() {
     assert!(report.network_checks_passed);
     assert!(!report.activation_permitted);
     assert_eq!(report.transaction, id);
+    let platform = report.platform_check.unwrap();
+    assert_eq!(platform.transaction, id);
+    assert_eq!(
+        platform.reason,
+        Some(super::super::platform_check::Reason::MissingAdapter)
+    );
+    assert_eq!(
+        platform.permission,
+        super::super::platform_check::CheckState::Unavailable
+    );
+
     assert!(
         !serde_json::to_string(&report)
             .unwrap()

@@ -1,5 +1,7 @@
 # VPN 四阶段事务驱动 Rust API
 
+- API 分类：外部调用 API；仅承诺本文已说明的公开入口。
+
 - 来源源码：`src/vpn/transaction.rs`。
 - 入口：`Controller::{begin,current_status,status,stop,retry_cleanup}`及只读`Status`。
 - 契约版本：Nodus-Core 2.9.0-dev；开发接口，当前没有生产Steps实现，无C ABI入口或接管能力位，不可用于启动系统VPN。
@@ -19,7 +21,7 @@ let status = controller.current_status()?;
 
 begin仅接受密封Steps，外部Rust调用者不能自行实现Sealed或提供“全部检查成功”的替身；当前生产没有可构造的驱动。期限必须在(0,120秒]，返回ID仅表示受理。stop按ID请求取消并等待确定清理；重复调用共享结果，原阶段失败不被清理成功覆盖。retry_cleanup只重试保留事务的清理，不重新启动；Unknown状态清理成功后才能恢复为Restored。旧ID、已有活动/清理失败事务、非恢复状态均拒绝InvalidState。
 
-未来FFI及可信平台桥必须由Core验证同次配置、授权、检查及实际系统结果；此API不接受JSON成功标志，也不承诺当前已经接通任何平台权限或数据路径。详细算法与生命周期见[src/vpn/transaction.md](../../src/vpn/transaction.md)。
+未来FFI及可信平台桥必须由Core验证同次配置、授权、检查及实际系统结果；此API不接受JSON成功标志，也不承诺当前已经接通任何平台权限或数据路径。详细算法与生命周期见[src/vpn/transaction.md](../../../../src/vpn/transaction.md)。
 
 ## 完成后的资源边界
 

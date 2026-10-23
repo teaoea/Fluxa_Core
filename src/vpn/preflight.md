@@ -39,3 +39,7 @@ Driver 是密封 Steps 的内核实现。外部不能实现步骤或提交“检
 可运行示例：`examples/vpn_preflight.rs`。对应测试：`tests/test_vpn_preflight.rs`；同名报告记录真实回环 DNS/TLS、拒绝、缺覆盖、证书与响应失败、只读规则以及取消证据。代码测试不证明真实 VLESS/REALITY 远端互通、所有地址族、最低系统或实际系统 VPN。
 
 尚未实现：系统 VPN 权限／平台能力核验、系统路由防回环证据、完整峰值及系统 FD 余量、可信无节点授权，以及后续 Prepare／Commit／Verify。完整“真实启动前置检查”仍受这些缺口阻塞；本轮交付网络内核检查部分，不增加 C ABI 或接管能力位，不更新 App 二进制。
+
+## 平台证据契约接入（2.11.0-dev）
+
+网络检查后的平台拒绝路径统一经过[platform_check](platform_check.md)。Report.platform_check是新增的无敏感数据摘要。当前无生产证据源、尚未固定物理出站范围，传None明确表示未知；不能因空清单、探测成功或配置的权限字段推进Prepare。整体失败仍为Unsupported，预算Partial和可信无节点授权缺口保持。实际权限与系统能力接线仍待验收。

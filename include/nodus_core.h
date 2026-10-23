@@ -78,4 +78,4 @@ int32_t nodus_core_tun_receive(uint64_t handle, uint64_t *output);
    configuration_check 接收 yaml；configuration_check_file 接收宿主授权的现有绝对 path。
    失败保留固定 error_info，并在 configuration_issue 中提供 field 和可空 position。
    position.line/column 从 1 开始，utf16_offset 从 0 开始；编辑器据偏移换算自动换行显示位置。
-   完整请求、Schema、错误及权限边界见 Documentation/API/配置文件检查.md。 */
+   完整请求、Schema、错误及权限边界见 Documentation/API/External/ffi_api.md。 */

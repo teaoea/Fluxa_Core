@@ -18,7 +18,7 @@ define_codes! 集中生成显式固定整数、ErrorCode 和契约元数据；Er
 
 ## 一致性与验证入口
 
-[error_api.md](../Documentation/API/error_api.md) 和机器快照由 [error_contract.rs](../examples/error_contract.rs) 从同一权威元数据生成；模板只承载说明文字。--check 检查协议、Schema 和文档一致，历史冻结契约用于兼容性验证，不可通过覆盖基线掩盖改义。实际用例见 [test_error_contract.rs](../tests/test_error_contract.rs)、[test_error.rs](../tests/test_error.rs) 及各自同名测试文档。生成一致和代码数目相同不等于业务错误分类已经独立验收。
+[error_api.md](../Documentation/API/External/error_api.md) 和机器快照由 [error_contract.rs](../examples/error_contract.rs) 从同一权威元数据生成；模板只承载说明文字。--check 检查协议、Schema 和文档一致，历史冻结契约用于兼容性验证，不可通过覆盖基线掩盖改义。实际用例见 [test_error_contract.rs](../tests/test_error_contract.rs)、[test_error.rs](../tests/test_error.rs) 及各自同名测试文档。生成一致和代码数目相同不等于业务错误分类已经独立验收。
 
 ## 禁止行为（不允许做什么）
 

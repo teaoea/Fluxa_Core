@@ -60,6 +60,7 @@ pub struct Report {
     pub network_checks_passed: bool,
     pub activation_permitted: bool,
     pub geoip_status: Option<crate::geoip::Status>,
+    pub platform_check: Option<super::platform_check::Assessment>,
 }
 impl Default for Report {
     fn default() -> Self {
@@ -89,6 +90,7 @@ impl Default for Report {
             network_checks_passed: false,
             activation_permitted: false,
             geoip_status: None,
+            platform_check: None,
         }
     }
 }
@@ -245,7 +247,12 @@ impl Driver {
             }
         })
     }
-    async fn inspect(&self, current: &mut Check) -> Result<()> {
+    async fn inspect(
+        &self,
+        current: &mut Check,
+        transaction: u64,
+        cancel: &Cancellation,
+    ) -> Result<()> {
         let input = self
             .input
             .lock()
@@ -355,12 +362,39 @@ impl Driver {
         self.update(|r| r.network_checks_passed = true)?;
         // 分模块预算实际生效，但当前没有系统 FD/内存余量及完整启动峰值证明。
         self.finding(Check::ResourceBudget, Outcome::Partial, None)?;
-        for check in [
-            Check::Permission,
-            Check::SystemCapability,
-            Check::LoopProtection,
+        // 真实平台接线尚未提供：不从配置、URL或网络成功伪造平台证据。
+        // 必要物理出站地址尚未由平台准备流程固定，None明确表示未解析而非空集合。
+        let mut request = super::platform_check::Request::new(
+            transaction,
+            strategy,
+            dns,
+            None,
+            std::time::Instant::now(),
+        )?;
+        let assessment = request.unavailable(std::time::Instant::now(), cancel.requested());
+        self.update(|r| r.platform_check = Some(assessment))?;
+        for (check, status) in [
+            (Check::Permission, assessment.permission),
+            (Check::SystemCapability, assessment.system_capability),
+            (Check::LoopProtection, assessment.loop_protection),
         ] {
-            self.finding(check, Outcome::Unavailable, Some(Error::Unsupported))?;
+            let outcome = match status {
+                super::platform_check::CheckState::NotRun => Outcome::NotRun,
+                super::platform_check::CheckState::Passed => Outcome::Passed,
+                super::platform_check::CheckState::Unavailable => Outcome::Unavailable,
+                super::platform_check::CheckState::Rejected => Outcome::Failed,
+            };
+            let error = matches!(outcome, Outcome::Unavailable | Outcome::Failed).then_some(
+                if assessment.reason == Some(super::platform_check::Reason::Cancelled) {
+                    Error::Cancelled
+                } else {
+                    Error::Unsupported
+                },
+            );
+            self.finding(check, outcome, error)?;
+        }
+        if assessment.reason == Some(super::platform_check::Reason::Cancelled) {
+            return Err(Error::Cancelled);
         }
         // 此轮不实现可信本地授权或平台接线；绝不让网络成功推进到 Prepare。
         Err(Error::Unsupported)
@@ -374,10 +408,11 @@ impl Steps for Driver {
             if cancel.requested() {
                 return Err(Error::Cancelled);
             }
+            let activity = cancel.clone();
             let result = tokio::select! {
                 biased;
                 _ = cancel.notified() => Err(Error::Cancelled),
-                result = self.inspect(&mut current) => result,
+                result = self.inspect(&mut current, transaction, &activity) => result,
             };
             if let Err(error) = result {
                 let network_passed = self

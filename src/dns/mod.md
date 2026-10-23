@@ -104,7 +104,7 @@ C ABI 提供 dns_service_start/stop/status；运行中重配置明确拒绝。�
 
 ## 错误协议示例与失败边界
 
-有效解析器的 `Resolver::respond(&[], true)` 返回标准 FORMERR 报文，这是 DNS 协议负响应，不是错误默认放行；退休或关闭实例先返回 `Error::InvalidState`（9001），不能继续提供 FORMERR 服务。构造响应的编码失败返回 `Error::DnsResponse`（5002），无回复上游超时使用 `DnsTimeout`（5001），统计锁中毒使用 `Internal`（9901），系统明确报告内存不足使用 `ResourceLimit`（8001），静态字节预算准入失败使用 `ResourceBudgetExceeded`（8002）。不得返回空报文伪造成功。当前代码与参数契约以 `src/error.rs` 和 [错误代码查询表](../../Documentation/API/error_api.md) 为准。实际测试及同名报告通过 `python3 Tools/test_reports.py --run --suite test_dns_mod --suite test_dns_service --suite test_error_contract` 更新。
+有效解析器的 `Resolver::respond(&[], true)` 返回标准 FORMERR 报文，这是 DNS 协议负响应，不是错误默认放行；退休或关闭实例先返回 `Error::InvalidState`（9001），不能继续提供 FORMERR 服务。构造响应的编码失败返回 `Error::DnsResponse`（5002），无回复上游超时使用 `DnsTimeout`（5001），统计锁中毒使用 `Internal`（9901），系统明确报告内存不足使用 `ResourceLimit`（8001），静态字节预算准入失败使用 `ResourceBudgetExceeded`（8002）。不得返回空报文伪造成功。当前代码与参数契约以 `src/error.rs` 和 [错误代码查询表](../../Documentation/API/External/error_api.md) 为准。实际测试及同名报告通过 `python3 Tools/test_reports.py --run --suite test_dns_mod --suite test_dns_service --suite test_error_contract` 更新。
 
 ## 解析器配置替换与退休（F-01）
 

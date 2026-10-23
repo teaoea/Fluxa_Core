@@ -26,8 +26,8 @@ destroy 先撤销注册表身份和新操作准入，再逐项尝试独立关闭
 
 ## 对应 API、示例与测试
 
-- [ffi_api.md](../Documentation/API/ffi_api.md)：已编写的配置检查 C ABI 请求／响应。
-- [error_api.md](../Documentation/API/error_api.md)：固定错误协议与参数 Schema。
+- [ffi_api.md](../Documentation/API/External/ffi_api.md)：已编写的配置检查 C ABI 请求／响应。
+- [error_api.md](../Documentation/API/External/error_api.md)：固定错误协议与参数 Schema。
 - [ffi_error_query.rs](../examples/ffi_error_query.rs)：长度查询、容量不足与释放。
 - [ffi_response_retry.rs](../examples/ffi_response_retry.rs)：输出预算与无损重试。
 - [test_ffi.rs](../tests/test_ffi.rs) 及 [同名文档](../tests/test_ffi.md)：实际边界和关闭回归；执行证据不等同于最低系统、真实权限或系统 VPN 验收。

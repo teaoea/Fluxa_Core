@@ -39,12 +39,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     match std::env::args().nth(1).as_deref() {
         Some("--write") => {
-            std::fs::write("Documentation/API/error_api.json", json)?;
-            std::fs::write("Documentation/API/error_api.md", document)?;
+            std::fs::write("Documentation/API/External/error_api.json", json)?;
+            std::fs::write("Documentation/API/External/error_api.md", document)?;
         }
         Some("--check") => {
-            if std::fs::read_to_string("Documentation/API/error_api.json")? != json
-                || std::fs::read_to_string("Documentation/API/error_api.md")? != document
+            if std::fs::read_to_string("Documentation/API/External/error_api.json")? != json
+                || std::fs::read_to_string("Documentation/API/External/error_api.md")? != document
             {
                 return Err("错误契约、Schema 或查询表不一致；请审查后重新生成".into());
             }

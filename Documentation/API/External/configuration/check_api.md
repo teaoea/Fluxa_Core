@@ -1,5 +1,7 @@
 # 配置检查 Rust API
 
+- API 分类：外部调用 API；仅承诺本文已说明的公开入口。
+
 - 来源源码：`src/configuration/check.rs`，由 `src/configuration.rs` 重导出。
 - 入口：`configuration::check_yaml`、`configuration::check_file`；返回 `Result<Summary, Box<CheckIssue>>`。
 - 契约：当前开发中的只读诊断接口；检查成功不应用配置，不接管网络，不证明节点或系统能力可用。
@@ -37,6 +39,6 @@ match result {
 
 ## 实现与验证入口
 
-- [check.md](../../../src/configuration/check.md)：定位与诊断实现。
-- [test_configuration_check.md](../../../tests/test_configuration_check.md)：字段、只读文件、Unicode 和换行诊断的真实执行记录。
-- [test_ffi.md](../../../tests/test_ffi.md)：FFI JSON 与位置传递；结果以相应实际版本和源码指纹为准。
+- [check.md](../../../../src/configuration/check.md)：定位与诊断实现。
+- [test_configuration_check.md](../../../../tests/test_configuration_check.md)：字段、只读文件、Unicode 和换行诊断的真实执行记录。
+- [test_ffi.md](../../../../tests/test_ffi.md)：FFI JSON 与位置传递；结果以相应实际版本和源码指纹为准。

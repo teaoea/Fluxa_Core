@@ -1,5 +1,7 @@
 # 真实网络前置检查 Rust API
 
+- API 分类：外部调用 API；仅承诺本文已说明的公开入口。
+
 - 来源源码：`src/vpn/preflight.rs`；公开调度入口实现于 `src/vpn/transaction.rs`。
 - 契约版本：Nodus-Core 2.10.0-dev，开发接口，无新增 C ABI。
 - 入口：`Controller::begin_preflight`、`Controller::preflight_status`；停止仍使用 `Controller::stop`。
@@ -33,4 +35,8 @@ Finding 的 check 为 configuration、rules-and-assets、geoip、dns、required-
 
 stop请求取消并等待确定清理。用户取消为Cancelled，监督期限为NetworkTimeout；内部子检查可能因期限收到取消，Finding显示Cancelled而整体failure显示NetworkTimeout。已成功的子检查不是可复用授权或启动凭证。真实平台启动、授权和故障恢复仍需后续实现。
 
-完整可运行示例见`examples/vpn_preflight.rs`；实现、目标及禁止行为见[preflight.md](../../src/vpn/preflight.md)。
+完整可运行示例见`examples/vpn_preflight.rs`；实现、目标及禁止行为见[preflight.md](../../../../src/vpn/preflight.md)。
+
+## 2.11.0-dev 平台诊断增量
+
+Report兼容新增platform_check可选字段，详见[platform_check_api.md](platform_check_api.md)。没有到达平台检查时为null；已执行网络检查但缺平台生产者时三项Unavailable。字段不是授权证据，activation_permitted仍为false；无新增C ABI接口。

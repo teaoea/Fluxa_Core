@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Nodus-Core"
-version = "2.10.0-dev"
+version = "2.11.0-dev"
 dependencies = [
  "aho-corasick",
  "base64",

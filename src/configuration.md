@@ -388,7 +388,7 @@ transparent-png 是 1×1 RGBA 全透明 PNG。minimal-mp4 是用于去广告的�
 
 当前实现和可复制示例统一见 [插件与脚本](configuration/plugins.md)。`scripts` 仅接受单个对象，`name` 必填；`js: response`、`scripts.name: response`、URL 末尾为 `response.js` 是合法组合。配置引用以 name 为准，不要求 `.js` 后缀，不根据 URL 猜测名称。`js-ttl` 位于 action: script 的规则内，单位秒，省略 3600，不再解析 JS 头注释中的缓存声明。完整解析示例已同步；默认模板以根目录中英文文件为准，不主动订阅占位 URL。
 
-字段级只读诊断、固定错误代码及前端行号约定见 [配置检查 API](../Documentation/API/ffi_api.md)。
+字段级只读诊断、固定错误代码及前端行号约定见 [配置检查 API](../Documentation/API/External/ffi_api.md)。
 
 ## 禁止行为（不允许做什么）
 
