@@ -38,20 +38,19 @@ input => ({status: input.status, body: input.body.toUpperCase()})
 
 ## App Store 约束
 
-按 Apple [审核指南 2.5.2 与 4.7](https://developer.apple.com/cn/app-store/review/guidelines/)设计：原第三阶段只接入应用随附脚本；当前 dev 已按用户要求增加声明式远程资源，由 Core 下载到真实共享容器、按 when 和命名绑定调用，格式见《插件与脚本》。这不增加任何原生系统能力，也不代表 App 分发版本已完成接入或审核。核心库的源码执行接口本身不能鉴别来源，分发客户端必须在配置/插件导入层执行来源与能力政策。同步 execute 源码门面不负责下载；远程安装属于独立资源事务。未修改客户端 UI、系统功能或 App 接入。
+按 Apple [审核指南 2.5.2 与 4.7](https://developer.apple.com/cn/app-store/review/guidelines/)设计：原第三阶段只接入应用随附脚本；当前开发版本已按用户要求增加声明式远程资源，由 App 下载保存后明确授权 Core 只读加载、按 when 和命名绑定调用，格式见《插件与脚本》。这不增加任何原生系统能力，也不代表 App 分发版本已完成接入或审核。核心库的源码执行接口本身不能鉴别来源，分发客户端必须在配置/插件导入层执行来源与能力政策。同步 execute 源码门面不负责下载；远程安装属于独立资源事务。未修改客户端 UI、系统功能或 App 接入。
 
 受限解释器不自动意味着符合全部审核要求。提交版本仍需要完整披露、隐私与 VPN 要求、实际功能检查和 Apple 审核；不存在测试通过即可保证过审的结论。
 
 ## 验证
 
+Swift 已迁至 App 仓库，旧根目录检查命令不再适用，见 [Swift 适配与验证](Swift适配与验证.md)。
+
 ```sh
-cargo test --manifest-path ./Cargo.toml --offline
-bash ./check-ffi.sh script
-bash ./check-ffi.sh all
+python3 Tools/test_reports.py --run --evidence-dir /private/tmp/nodus-local-tests
 bash ./build-macos.sh
-swift test --package-path .
 ```
 
 Rust 验证 JSON 转换、中文、null、原型键、非法结果、超时、递归、内存耗尽、环境隔离、无环境 IO、大小/深度/节点和全局配额。实际 Swift 客户端链接 Rust 静态库验证 JSON 转换、超时与内存失败恢复、隔离、null 和重复生命周期，并回归 HTTPS/MITM。macOS package 测试通过真实二进制调用，不以模拟实现替代。
 
-当前只验收本机 macOS ARM64。最低 macOS 14 的实际运行、其他架构和 Apple 平台、UI 接入及 App Store 审核未验收。本轮已接入规则条件、命名绑定、按需源缓存、工作线程与请求/响应管线，具体约束、默认 js-ttl 和测试边界见 [插件与脚本](插件与脚本.md)。历史第三阶段验证不能替代本轮最终指纹的测试报告。
+当前只验收本机 macOS ARM64。当前最低 macOS 13 的实际运行、其他架构和 Apple 平台、UI 接入及 App Store 审核未验收。本轮已接入规则条件、命名绑定、按需源缓存、工作线程与请求/响应管线，具体约束、默认 js-ttl 和测试边界见 [插件与脚本](插件与脚本.md)。历史第三阶段验证不能替代本轮最终指纹的测试报告。

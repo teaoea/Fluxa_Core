@@ -2,7 +2,7 @@
 
 作者：可莉唯一的狗。
 
-[English](../README_ENGLISH.md)
+[English](Overview_ENGLISH.md)
 
 `nodus_core` 是使用 Rust 开发的跨平台网络内核，提供统一的网络处理与资源管理能力。
 
@@ -34,13 +34,13 @@
 
 ## 许可
 
-自有代码采用 MIT，详见 [许可声明](../LICESE.md)。
+自有代码采用 MIT，详见 [许可声明](../LICENSE.md)。
 
 共用 TCP/UDP 出站支持数字地址、配置 DNS 的域名及带代次的 Fake-IP 连接，提供双向数据、半关闭、超时、取消和实际路由执行；HTTP/HTTPS/MITM 共用同一连接管线。详见 [Outbound.md](Outbound.md) 和 [Routing.md](Routing.md)。
 
 共用连接提供有界会话状态、流量统计、自动空闲回收和原子网络配置；旧连接及在途请求保留原快照，新请求使用新配置。详情见 Outbound.md。
 
-规则订阅采用 Clash classical `payload`，类型严格使用 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、IP-CIDR（统一支持 IPv4/IPv6）；动作由订阅 policy/outbound 指定。合并后的规则保存至 runtime-rules.bin，匹配直接使用二进制平铺索引；格式与范围见 [BinaryRuleCache.md](BinaryRuleCache.md)。订阅示例见 [rules.yaml](../rules.yaml)。
+规则订阅采用 Clash classical `payload`，类型严格使用 DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、IP-CIDR（统一支持 IPv4/IPv6）；动作由订阅 policy/outbound 指定。合并后的规则保存至 runtime-rules.bin，匹配直接使用二进制平铺索引；格式与范围见 [RuntimeRules.md](RuntimeRules.md)。订阅示例见 [rules.yaml](../rules.yaml)。
 
 离线 GeoIP：有界读取 MMDB 并查询 IPv4/IPv6，提供免费公网 IP 回显与 TCP 建连测量。数据库与网络结果均不可信，失败返回明确错误。详见 [GeoIP.md](GeoIP.md)。
 
@@ -68,10 +68,10 @@ v2.2.1 修复普通 API 与 TUN 地址池的交叉复用，历史地址退役、
 
 按用户要求全部已有接口统一新方案，ABI 版本为 2，旧错误编号不再兼容；command 与 `nodus_core_command_v2` 均返回结构化字段，`nodus_core_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
 
-运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](../AGENTS/错误代码体系设计.md)。
+运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test test_error_contract` 核验契约与独立语义；Swift 接入及旧脚本迁移状态见 [Swift 适配与验证](Swift适配与验证.md)。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](../AGENTS/错误代码体系设计.md)。
 
 未完成任务与当前暂停状态见 [TODO.md](TODO.md)。
 
-- Debug 专用本地 IPC、身份与逐操作授权、期限及 Rust/C/Swift 迁移见 [安全契约](Debug本地IPC安全契约.md)；本轮 dev 源码交付及未测平台见对应验收记录。
+- Debug 专用本地 IPC、身份与逐操作授权、期限及 Rust/C/Swift 迁移见 [安全契约](Debug本地IPC安全契约.md)；当前 main 开发源码交付及未测平台见对应验收记录。
 
 主配置 DNS/GeoIP 异步启用、资产路径、地址族和原子提交见 [DNSGeoIP编排.md](DNSGeoIP编排.md)。纯解析、回环验证和系统 VPN 验收分别记录。

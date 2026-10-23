@@ -17,7 +17,7 @@ Author: 可莉唯一的狗.
 - UDP/TCP DNS, DoT/DoH, configurable upstreams, positive/negative caching, DNSSEC, Fake-IP mappings, and access-controlled LAN DNS service.
 - Runtime rule generation, normalization, deduplication, proven full-coverage pruning, and indexed matching. Domain targets use domain rules first; a domain match skips IP rules. Missing or unsupported proxy outbounds fail explicitly.
 - Shared TCP/UDP outbounds, cancellation, half-close, idle expiry, and atomic configuration snapshots.
-- The legacy UTC schedule helper remains separate. Main rule providers use the device local calendar and bounded HTTPS downloads; without a schedule they download on first import and explicit refresh, reusing cache after restart. On resume, only the most recent missed occurrence is handled; missed days are not replayed as separate jobs.
+- Main configuration and resource files are downloaded, scheduled, saved, and authorized by the host. Core only reads explicitly supplied resources and maintains bounded in-memory execution state; it does not persist caches or schedule disk downloads.
 - TUN packet inspection and checksum validation. Bounded UDP forwarding is supported; TCP and system tunnels remain unsupported.
 
 ## Configuration examples
@@ -26,7 +26,7 @@ The complete host configuration examples are in the repository root:
 
 - [example_config.yaml](../example_config.yaml): current complete example, with Chinese comments.
 
-Use `update-time: "12:00"` for a daily update at 12:00 UTC. Omit the field to disable automatic updates. Individual updates and Update All are manual actions. The removed `update-interval-hours` field is rejected. Failed attempts retain the previous content and retry with a minimum 60-second backoff; a successful catch-up is not repeated. Schedules require a running host and network access; they do not promise operating-system wakeup while the host is closed or suspended.
+Main resource update times use the device local calendar and are implemented by the host. The separate legacy UTC scheduling helper does not define main resource update semantics. See [Subscriptions.md](Subscriptions.md).
 
 Configuration fields and both complete examples are updated together. See [Subscriptions.md](Subscriptions.md), [RuntimeRules.md](RuntimeRules.md), [DNS.md](DNS.md), and [Outbound.md](Outbound.md) for semantics and current limitations.
 
@@ -34,9 +34,9 @@ Configuration fields and both complete examples are updated together. See [Subsc
 
 TUN forwarding, gateway operation, and additional proxy protocols remain in development. VLESS + TCP + REALITY + Vision is implemented for TCP outbounds; Single-target XUDP datagrams are supported over the same transport. General Mux, TCP TUN forwarding and system tunnels remain unsupported.
 
-Original code is licensed under MIT; see [LICESE.md](../LICESE.md). Third-party dependencies retain their upstream licenses.
+Original code is licensed under MIT; see [LICENSE.md](../LICENSE.md). Third-party dependencies retain their upstream licenses.
 
-The independent legacy subscription API uses Clash classical payload. Main rule providers use lowercase rules and metadata policy, as described in Subscriptions.md. 合并规则使用 runtime-rules.bin 二进制平铺缓存，加载不重建匹配索引；见 BinaryRuleCache.md。 See [rules.yaml](../rules.yaml).
+The independent legacy subscription API uses Clash classical payload. Main rule providers use lowercase rules and metadata policy, as described in Subscriptions.md. 合并规则使用 runtime-rules.bin 二进制平铺缓存，加载不重建匹配索引；见 RuntimeRules.md。 See [rules.yaml](../rules.yaml).
 
 Offline GeoIP uses bounded MMDB loading and IPv4/IPv6 lookup, with fixed free public-IP echo endpoints and TCP connection timing. Databases are supplied separately by the host. Failures are explicit; these features do not imply system TUN support. See GeoIP.md for resource limits, privacy and licensing.
 
@@ -67,7 +67,7 @@ FFI reserves a response slot, byte quota, and serialization buffer before execut
 
 按用户要求全部已有接口统一新方案，ABI 版本为 2，旧错误编号不再兼容；command 与 `nodus_core_command_v2` 均返回结构化字段，`nodus_core_last_error_code` 在同一线程直接读取整数，零是无错误状态，不分配、不加锁。错误 JSON 查询也不分配响应句柄。能力位 25 声明该扩展。
 
-运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test error_contract` 核验契约与独立语义；`bash check-ffi.sh error_code` 执行真实 Swift FFI。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](../AGENTS/错误代码体系设计.md)。
+运行 `cargo run --example error_protocol` 查看整数分类、往返和 Job/Capture 字段迁移；运行 `cargo run --example error_contract -- --check` 及 `cargo test --test test_error_contract` 核验契约与独立语义；Swift 接入及旧脚本迁移状态见 [Swift 适配与验证](Swift适配与验证.md)。测试不等于全平台或系统 VPN 验收，公开协议见 [错误代码查询表](错误代码查询表.md)，实际验证范围见 `tests/` 中的同名报告。开发强制遵循 [错误体系规范](../AGENTS/错误代码体系设计.md)。
 
 未完成任务与当前暂停状态见 [TODO.md](TODO.md)。
 

@@ -742,6 +742,32 @@ fn error_status(error: Error) -> i32 {
     set_last_error(error.public_info());
     tun_status(error)
 }
+// 固定兜底字节由错误代码权威定义生成；契约变化在编译期拒绝，不在 C ABI 运行时 expect。
+const ABI_ENCODING_FAILURE: &[u8] = match ErrorCode::SerializationFailed.json_bytes() {
+    Some(bytes) => bytes,
+    None => panic!("ABI 固定编码失败契约必须没有必填上下文"),
+};
+/// 错误查询不能因编码失败或 unwind 伪装成没有错误，不分配响应句柄。
+fn encode_abi_error<T: Serialize>(value: &T, buffer: &mut [u8]) -> Option<usize> {
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut writer = std::io::Cursor::new(buffer);
+        serde_json::to_writer(&mut writer, value).ok()?;
+        Some(writer.position() as usize)
+    }))
+    .ok()
+    .flatten()
+}
+/// 单个关闭失败或 unwind 不能阻止其他独立资源执行关闭；返回首个错误，其余仅记受限诊断。
+fn shutdown_step(first_error: &mut Option<Error>, close: impl FnOnce() -> Result<(), Error>) {
+    let result = catch_unwind(AssertUnwindSafe(close)).unwrap_or(Err(Error::Internal));
+    if let Err(error) = result {
+        crate::error::diagnostics::record(
+            error,
+            crate::error::diagnostics::DiagnosticSite::Cleanup,
+        );
+        first_error.get_or_insert(error);
+    }
+}
 struct BusyGuard<'a>(&'a AtomicBool);
 impl Drop for BusyGuard<'_> {
     fn drop(&mut self) {
@@ -1915,68 +1941,50 @@ pub extern "C" fn nodus_core_destroy(handle: u64) -> i32 {
                 return INTERNAL_ERROR;
             }
         };
-        if resource.is_some() {
-            #[cfg(unix)]
-            if let Some(Resource::DebugClient(client)) = &resource {
-                let client = client.clone();
-                if let Err(error) = run_network(async move { client.close().await }) {
-                    return error_status(error);
-                }
-            }
-            if let Some(Resource::Engine(engine)) = &resource {
-                #[cfg(unix)]
-                {
-                    let closed = (|| {
-                        let mut slot = engine.debug_ipc.lock().map_err(|_| Error::Internal)?;
-                        if let Some(service) = slot.as_mut() {
-                            runtime()?.block_on(service.close())?;
-                        }
-                        slot.take();
-                        Ok::<_, Error>(())
-                    })();
-                    if let Err(error) = closed {
-                        return error_status(error);
-                    }
-                }
-                engine.vpn_closed.store(true, Ordering::Release);
-                if let Err(error) = engine.close_vpn_preparation() {
-                    return error_status(error);
-                }
-                if let Err(error) = engine.close_tun() {
-                    return error_status(error);
-                }
-                if let Err(error) = finish_shutdown(engine.outbound.stop()) {
-                    return error_status(error);
-                }
-                let dns = match engine.outbound.network_snapshot() {
-                    Ok(snapshot) => snapshot.resolver.clone(),
-                    Err(error) => return error_status(error),
-                };
-                if let Some(resolver) = dns
-                    && let Err(error) = finish_shutdown(resolver.close())
-                {
-                    return error_status(error);
-                }
-                if let Err(error) = engine.close_dns_service() {
-                    return error_status(error);
-                }
-                let closed_proxy = (|| {
-                    let mut proxy = engine.proxy.lock().map_err(|_| Error::Internal)?;
-                    if let Some(service) = proxy.take() {
-                        finish_shutdown(service.stop())?;
-                    }
-                    Ok::<_, Error>(())
-                })();
-                if let Err(error) = closed_proxy {
-                    return error_status(error);
-                }
-            }
-            drop(resource);
-            OK
-        } else {
+        let Some(resource) = resource else {
             set_last_error(ErrorInfo::new(ErrorCode::InvalidHandle));
-            INVALID_HANDLE
+            return INVALID_HANDLE;
+        };
+        let mut first_error = None;
+        #[cfg(unix)]
+        if let Resource::DebugClient(client) = &resource {
+            shutdown_step(&mut first_error, || {
+                let client = client.clone();
+                run_network(async move { client.close().await })
+            });
         }
+        if let Resource::Engine(engine) = &resource {
+            // 先撤销准备准入，即使首个服务锁已中毒也不能继续创建候选资产。
+            engine.vpn_closed.store(true, Ordering::Release);
+            #[cfg(unix)]
+            shutdown_step(&mut first_error, || {
+                let mut slot = engine.debug_ipc.lock().map_err(|_| Error::Internal)?;
+                if let Some(service) = slot.as_mut() {
+                    runtime()?.block_on(service.close())?;
+                }
+                slot.take();
+                Ok(())
+            });
+            shutdown_step(&mut first_error, || engine.close_vpn_preparation());
+            shutdown_step(&mut first_error, || engine.close_tun());
+            shutdown_step(&mut first_error, || finish_shutdown(engine.outbound.stop()));
+            shutdown_step(&mut first_error, || {
+                if let Some(resolver) = &engine.outbound.network_snapshot()?.resolver {
+                    finish_shutdown(resolver.close())?;
+                }
+                Ok(())
+            });
+            shutdown_step(&mut first_error, || engine.close_dns_service().map(|_| ()));
+            shutdown_step(&mut first_error, || {
+                let mut proxy = engine.proxy.lock().map_err(|_| Error::Internal)?;
+                if let Some(service) = proxy.take() {
+                    finish_shutdown(service.stop())?;
+                }
+                Ok(())
+            });
+        }
+        drop(resource);
+        first_error.map_or(OK, error_status)
     }))
     .unwrap_or_else(|_| {
         set_last_error(Error::Internal.public_info());
@@ -2102,20 +2110,15 @@ pub unsafe extern "C" fn nodus_core_last_error_copy(output: *mut u8, capacity: u
         return 0;
     };
     let mut buffer = [0u8; crate::error::MAX_ERROR_BYTES];
-    let mut writer = std::io::Cursor::new(buffer.as_mut_slice());
-    let result = serde_json::to_writer(&mut writer, &info);
-    let length = writer.position() as usize;
-    let bytes = if result.is_ok() {
+    let bytes = if let Some(length) = encode_abi_error(&info, &mut buffer) {
         &buffer[..length]
     } else {
-        // 编码异常仍返回失败对象，不能用零伪装成没有错误；原失败留在受控诊断。
+        // 编码错误或 unwind 仍返回固定失败对象，原失败保持在线程本地并记受限诊断。
         crate::error::diagnostics::record_code(
             info.code,
             crate::error::diagnostics::DiagnosticSite::Abi,
         );
-        ErrorCode::SerializationFailed
-            .json_bytes()
-            .expect("无上下文的固定编码失败契约")
+        ABI_ENCODING_FAILURE
     };
     if !output.is_null() && capacity >= bytes.len() {
         // SAFETY: 源在同步复制期间有效；已检查容量，目标可写性由宿主保证。

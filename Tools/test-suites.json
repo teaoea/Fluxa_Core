@@ -160,7 +160,9 @@
         "output_buffers_obey_budget_and_handle_type",
         "admission_failure_keeps_tcp_bytes_and_returns_reservations",
         "admission_failure_keeps_tun_return_packet",
-        "nested_runtime_does_not_detach_failed_http_calls"
+        "nested_runtime_does_not_detach_failed_http_calls",
+        "destroy_continues_after_failed_close_with_retained_engine",
+        "error_query_contains_serializer_panic_and_preserves_state"
       ]
     },
     {

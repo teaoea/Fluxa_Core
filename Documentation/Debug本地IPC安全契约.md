@@ -1,6 +1,6 @@
 # Debug 本地 IPC 安全契约
 
-作者：可莉唯一的狗。适用：dev 专用 Debug 控制；App 接入另行交付。
+作者：可莉唯一的狗。适用：独立认证授权的 Debug 控制（与源码分支、二进制通道无关）；App 接入另行交付。
 
 ## 强制安全边界
 
@@ -43,7 +43,7 @@ IPC grant 的期限为 1–3600 秒；每条规则 TTL 必填且 1–3600 秒，
 - Rust：`Service::start(policy_file, private_directory, manager)` 由内核启动受控监听；`Service::close().await` 等待关闭。`Client::connect(..., grant_seconds).await` 完成双向身份验证和签名证明，`client.command(&Request::Status {}).await` 发出专用请求。
 - C ABI：`nodus_core_debug_ipc_start`、`nodus_core_debug_ipc_connect`、`nodus_core_debug_ipc_command`；客户端句柄不是业务引擎句柄。响应和客户端句柄沿用内核 destroy 契约。
 - Swift：`NativeDebugClient(endpoint:credential:serverUID:serverRequirement:lifetimeSeconds:)`；`replace`、`clear`、`status`、`close`、`audit` 只编码请求并显示内核权威结果。
-- Rust 运行示例见 `examples/debug_ipc.rs`；原 `Session::new()/replace` 和 `.with_debug()` 直接构造方式不再公开。dev API 按不稳定契约调整，禁止从 dev 发布到 crates.io；main 未改变。
+- Rust 运行示例见 `examples/debug_ipc.rs`；原 `Session::new()/replace` 和 `.with_debug()` 直接构造方式不再公开。源码统一 main，未正式发布的开发 API 按已确认契约调整；所有分支永久禁止 crates.io。
 
 专用请求例子：
 

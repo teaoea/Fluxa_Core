@@ -5,6 +5,8 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - error_query_contains_serializer_panic_and_preserves_state：编码 panic 被捕获，查询容量不足不写入也不清除原错误。
+//! - destroy_continues_after_failed_close_with_retained_engine：毒化准备槽后仍停止出站并释放真实代理监听，旧 Arc 不保持活动资源。
 //! - storage_commands_reject_unentitled_hosts_and_role_injection：真实小栈 ABI 拒绝无共享组宿主、越界文件名与自报写权限。
 //! - candidate_commands_are_safe_on_bounded_host_stack：256 KiB 实际 ABI 命令分发、候选查询与关闭。
 //! - http_request_works_on_bounded_host_stack：256 KiB 宿主栈可构造请求并获得真实校验错误，不溢出或触网。
@@ -33,6 +35,88 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[test]
+    fn error_query_contains_serializer_panic_and_preserves_state() {
+        struct Panicking;
+        impl Serialize for Panicking {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                panic!("仅注入错误编码器 unwind");
+            }
+        }
+        let mut buffer = [0u8; crate::error::MAX_ERROR_BYTES];
+        assert_eq!(encode_abi_error(&Panicking, &mut buffer), None);
+        assert_eq!(
+            ErrorInfo::from_json(ABI_ENCODING_FAILURE).unwrap().code,
+            ErrorCode::SerializationFailed
+        );
+        set_last_error(ErrorInfo::new(ErrorCode::InvalidHandle));
+        // SAFETY: 空目标只查询长度，不能被解引用。
+        let needed = unsafe { nodus_core_last_error_copy(std::ptr::null_mut(), 0) };
+        assert!(needed > 1);
+        let mut short = [0xa5u8; 1];
+        // SAFETY: 独占一字节目标在同步调用期间有效；容量不足必须完全不写入。
+        let short_length = unsafe { nodus_core_last_error_copy(short.as_mut_ptr(), short.len()) };
+        assert_eq!(short_length, needed);
+        assert_eq!(short, [0xa5]);
+        assert_eq!(
+            nodus_core_last_error_code(),
+            ErrorCode::InvalidHandle.value()
+        );
+        clear_last_error();
+    }
+    #[test]
+    fn destroy_continues_after_failed_close_with_retained_engine() {
+        let _gate = TEST_GATE.blocking_lock();
+        let handle = nodus_core_create();
+        let held = engine(handle).unwrap();
+        held.outbound
+            .configure_network(
+                None,
+                Some(Arc::new(
+                    crate::routing::Router::compile(crate::routing::Config {
+                        mode: crate::routing::Mode::Direct,
+                        ..Default::default()
+                    })
+                    .unwrap(),
+                )),
+                crate::outbound::Limits::default(),
+            )
+            .unwrap();
+        let proxy = runtime()
+            .unwrap()
+            .block_on(MitmProxy::start(
+                0,
+                &[],
+                Arc::new(Authority::generate().unwrap()),
+                HttpsClient::with_roots(rustls::RootCertStore::empty())
+                    .unwrap()
+                    .with_network(held.outbound.clone()),
+                held.captures.clone(),
+                false,
+            ))
+            .unwrap();
+        let port = proxy.port();
+        *held.proxy.lock().unwrap() = Some(proxy);
+        let poisoned = catch_unwind(AssertUnwindSafe(|| {
+            let _slot = held.vpn_preparation.lock().unwrap();
+            panic!("仅毒化当前测试引擎的准备槽");
+        }));
+        assert!(poisoned.is_err());
+        assert_eq!(nodus_core_destroy(handle), INTERNAL_ERROR);
+        assert_eq!(nodus_core_last_error_code(), ErrorCode::Internal.value());
+        assert!(held.vpn_closed.load(Ordering::Acquire));
+        // 旧 Arc 仍然存活，不能依赖 Engine/Manager 的 Drop 才撤销权限。
+        assert!(matches!(
+            held.outbound
+                .configure_network(None, None, crate::outbound::Limits::default()),
+            Err(Error::InvalidState)
+        ));
+        let rebound = std::net::TcpListener::bind(("127.0.0.1", port));
+        assert!(rebound.is_ok(), "失败关闭后仍须等待后续代理监听真正释放");
+        assert!(held.proxy.lock().unwrap().is_none());
+        assert!(engine(handle).is_err());
+        assert_eq!(nodus_core_destroy(handle), INVALID_HANDLE);
+    }
     #[test]
     fn script_cache_clear_is_owned_and_schema_is_strict() {
         let _gate = TEST_GATE.blocking_lock();

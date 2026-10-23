@@ -28,14 +28,14 @@ Rust 使用 rcgen 生成独立的 ECDSA CA，根证书有效期约 3 年，路�
 
 ## 客户端与验收
 
+当前 Swift 归属、旧检查脚本状态及二进制接入见 [Swift 适配与验证](Swift适配与验证.md)。
+
 `NativeMitmClient` 通过实际 C ABI 提供：根证书、导出/恢复安全存储身份、设置上游额外根、启动、停止、peek 日志与 acknowledge。`NativeHttpsClient` 可经本机 CONNECT 端口发起 HTTPS，所有网络和 TLS 在 Rust 内执行，无失败直连回退。内部 JSON 只用于 ABI，用户配置仍使用 YAML。
 
 ```sh
-cargo test --manifest-path ./Cargo.toml --offline
+python3 Tools/test_reports.py --run --evidence-dir /private/tmp/nodus-local-tests
 cargo clippy --manifest-path ./Cargo.toml --offline --all-targets -- -D warnings
-bash ./check-ffi.sh all
 bash ./build-macos.sh
-swift test --package-path .
 ```
 
 2026-10-09，macOS ARM64 主机：Rust 验证真实双向 TLS、完整请求/响应捕获、关闭正文捕获、未匹配域名保留原证书、上游和下游证书拒绝、跨 Host 拒绝、chunked 请求、HEAD/重定向、CA 恢复、错配私钥拒绝和停止关闭活动连接。Swift 实际客户端 FFI 验证启动、请求、日志读取/确认、信任与 CA 身份、重复启动拒绝、停止幂等、停止后不回退直连。HTTPS 阶段一并回归。另通过 macOS ARM64 Release XCFramework 实际链接的 Swift package 身份恢复测试。

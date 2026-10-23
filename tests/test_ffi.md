@@ -1,6 +1,6 @@
 # 测试报告：test_ffi
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-221a120c6527c41c", "::test_ffi::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.7808060000000019, "status": "PASS", "discovered": ["ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles", "ffi::test_ffi::tests::configuration_check_returns_editor_location_without_applying", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored", "ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection"], "results": {"ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet": "PASS", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles": "PASS", "ffi::test_ffi::tests::configuration_check_returns_editor_location_without_applying": "PASS", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error": "PASS", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full": "PASS", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity": "PASS", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error": "PASS", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json": "PASS", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only": "PASS", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured": "PASS", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration": "PASS", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls": "PASS", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type": "PASS", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored": "PASS", "ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict": "PASS", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection": "PASS"}, "fingerprint": "e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5", "time": "2026-10-23T02:28:19.213729+08:00", "attempt": 1, "suite": "test_ffi", "file": "tests/test_ffi.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403", "::test_ffi::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.7176470829999957, "status": "PASS", "discovered": ["ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles", "ffi::test_ffi::tests::configuration_check_returns_editor_location_without_applying", "ffi::test_ffi::tests::destroy_continues_after_failed_close_with_retained_engine", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error", "ffi::test_ffi::tests::error_query_contains_serializer_panic_and_preserves_state", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored", "ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection"], "results": {"ffi::test_ffi::tests::abi_rejects_invalid_and_destroyed_handles": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tcp_bytes_and_returns_reservations": "PASS", "ffi::test_ffi::tests::admission_failure_keeps_tun_return_packet": "PASS", "ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::concurrent_owners_release_their_own_handles": "PASS", "ffi::test_ffi::tests::configuration_check_returns_editor_location_without_applying": "PASS", "ffi::test_ffi::tests::destroy_continues_after_failed_close_with_retained_engine": "PASS", "ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error": "PASS", "ffi::test_ffi::tests::error_query_contains_serializer_panic_and_preserves_state": "PASS", "ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full": "PASS", "ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity": "PASS", "ffi::test_ffi::tests::http_request_works_on_bounded_host_stack": "PASS", "ffi::test_ffi::tests::invalid_internal_error_encoding_does_not_become_no_error": "PASS", "ffi::test_ffi::tests::legacy_validation_order_preserves_handle_before_json": "PASS", "ffi::test_ffi::tests::main_configuration_apply_is_atomic_and_status_is_read_only": "PASS", "ffi::test_ffi::tests::main_configuration_validation_is_read_only_and_structured": "PASS", "ffi::test_ffi::tests::main_dns_and_geoip_status_use_same_configuration": "PASS", "ffi::test_ffi::tests::nested_runtime_does_not_detach_failed_http_calls": "PASS", "ffi::test_ffi::tests::output_buffers_obey_budget_and_handle_type": "PASS", "ffi::test_ffi::tests::provider_commands_use_real_tls_and_keep_process_rules_ignored": "PASS", "ffi::test_ffi::tests::script_cache_clear_is_owned_and_schema_is_strict": "PASS", "ffi::test_ffi::tests::storage_commands_reject_unentitled_hosts_and_role_injection": "PASS"}, "fingerprint": "d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345", "time": "2026-10-23T16:26:16.867832+08:00", "attempt": 1, "suite": "test_ffi", "file": "tests/test_ffi.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/ffi.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-221a120c6527c41c ::test_ffi:: --test-threads=1`
-- 执行时间：2026-10-23T02:28:19.213729+08:00
-- 实际耗时：0.7808060000000019 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403 ::test_ffi:: --test-threads=1`
+- 执行时间：2026-10-23T16:26:16.867832+08:00
+- 实际耗时：0.7176470829999957 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -26,7 +26,9 @@
 | `ffi::test_ffi::tests::candidate_commands_are_safe_on_bounded_host_stack` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::concurrent_owners_release_their_own_handles` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::configuration_check_returns_editor_location_without_applying` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `ffi::test_ffi::tests::destroy_continues_after_failed_close_with_retained_engine` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::error_protocol_is_thread_local_and_success_clears_stale_error` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `ffi::test_ffi::tests::error_query_contains_serializer_panic_and_preserves_state` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::error_query_remains_available_when_response_registry_is_full` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::failed_test_assertion_returns_owned_response_capacity` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `ffi::test_ffi::tests::http_request_works_on_bounded_host_stack` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
@@ -43,9 +45,9 @@
 
 ## 执行汇总
 
-- 实际发现：20
-- 实际执行完成：20
-- 通过：20
+- 实际发现：22
+- 实际执行完成：22
+- 通过：22
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -65,15 +67,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-rename-final/test_ffi.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-fixes-final/test_ffi.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
-
-## Nodus 改名后的独立 C ABI 核验
-
-- macOS arm64 宿主实际编译、链接并执行 C 程序，包含 `nodus_core.h`、`nodus_debug_ipc.h`；创建、能力查询、销毁断言通过，退出 0。
-- Rust 自有 Mach-O 对象导出共 16 个 `nodus_core_*` 符号，未导出旧前缀；日志 `/private/tmp/nodus-symbols-final.log`。
-- 编译及运行记录：`/private/tmp/nodus-abi-compile-final.log`、`/private/tmp/nodus-abi-run-final.log`。临时可执行程序在核验后清理，保留测试源及日志。
-- 此为当前 macOS 宿主的 Debug 静态库链接验证，不代表 macOS 13 运行、Apple Framework 成品、Swift/App 接入、Network Extension 或真实系统 VPN 验收。
-- 首次整包 nm 检查遇到 Xcode 无法解析 Rust 标准库的较新 LLVM 位码；随后仅提取内核自有 Mach-O 对象完成上述符号检查。原始工具错误保留于 `/private/tmp/nodus-nm-errors.log`。

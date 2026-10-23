@@ -48,11 +48,7 @@ python3 Tools/test_reports.py --run --suite test_tun_ip
 `tests/test_tun_ip.rs` 独立构造 IPv4/IPv6 包并启动本机 UDP 对端；尾片先到时对端不能收到数据，首片到齐后
 必须收到完整 24 字节正文。非法/重叠输入不能提前拨号，关闭后继续提交必须失败。
 
-真实 Swift FFI 在 Fluxa 仓库执行：
-
-```sh
-NODUS_CORE_ROOT=/实际受测内核目录 bash Packages/FluxaKernelBridge/check-ffi.sh all
-```
+历史 Swift FFI 在 Fluxa 仓库执行。当前目录、旧 ABI 脚本的迁移状态与真实宿主验证边界见 [Swift 适配与验证](Swift适配与验证.md)。
 
 `test_ffi_tun_tcp.swift` 在 20 次 TCP 生命周期中把 1000 字节应用正文拆成乱序 IP 片段，经真实回环或独立代理
 对端往返后逐字节核对。上述源码联调不是 App 的生产本地依赖。

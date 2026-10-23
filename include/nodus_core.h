@@ -33,6 +33,8 @@ uint32_t nodus_core_abi_version(void);
 uint64_t nodus_core_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t nodus_core_create(void);
+/* 句柄立即失效；按顺序尝试全部独立关闭步骤并等待可完成的释放。
+   任一步失败返回首个错误，其他失败记受限诊断；失败不能视为全部资源关闭成功。 */
 int32_t nodus_core_destroy(uint64_t handle);
 /* 系统隧道及入口启动尚未实现；有效句柄返回 1021，不会伪造已连接。 */
 int32_t nodus_core_start(uint64_t handle);

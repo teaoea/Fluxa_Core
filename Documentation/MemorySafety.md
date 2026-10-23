@@ -53,3 +53,11 @@ Fake-IP 业务没有新增 unsafe；映射使用受 Mutex 保护的值类型树�
 ## 共用服务连接管线（v1.3.0）
 
 HTTP/HTTPS/MITM 已统一使用配置 DNS、实际路由和受管理连接；取消、空闲回收及资源所有权均沿用共用管线。未配置能力明确拒绝，TLS 信任与域名解密范围不改变。实现、发布来源及完整验证边界见 [Outbound.md](Outbound.md)。
+
+## ABI 错误查询与失败关闭
+
+`nodus_core_last_error_copy` 的编码在 unwind 边界内完成；编码错误或 panic 使用由 error.rs 生成并在编译期核验的固定 SerializationFailed JSON。查询不分配句柄、不清除原线程错误；空目标或容量不足不写入。
+
+`nodus_core_destroy` 先从注册表撤销句柄和 VPN 准备准入，再按既有顺序尝试所有独立关闭步骤。单步错误或 unwind 不跳过后续步骤；最终返回首个真实错误，其余仅记录有界清理诊断。不恢复中毒锁，不把失败视为所有资源都已关闭；重复 destroy 仍报无效句柄。旧 Arc 保留不构成继续使用活动出站或代理监听的授权。
+
+示例 `cargo run --example ffi_error_query` 演示错误长度查询、容量不足不写入和句柄释放，不启动系统 VPN 或修改系统设置。真实失败关闭回归与结果见 `tests/test_ffi.rs` 及同名测试报告。

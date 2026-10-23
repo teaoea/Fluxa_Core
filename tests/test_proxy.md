@@ -1,6 +1,6 @@
 # 测试报告：test_proxy
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_proxy-a1d9765884f42552", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.11817962499999624, "status": "PASS", "discovered": ["http_rewrites_chunked_upload_and_records_original_request", "https_uses_same_rewrite_and_capture_pipeline", "invalid_rules_and_unimplemented_lan_are_rejected_before_listening", "rejection_is_exact_and_upstream_failure_never_falls_back", "replacement_expansion_is_bounded_before_allocation", "traffic_script_runs_on_http_and_https_and_captures_processed_body", "traffic_scripts_validate_configuration_and_bound_processing"], "results": {"http_rewrites_chunked_upload_and_records_original_request": "PASS", "https_uses_same_rewrite_and_capture_pipeline": "PASS", "invalid_rules_and_unimplemented_lan_are_rejected_before_listening": "PASS", "rejection_is_exact_and_upstream_failure_never_falls_back": "PASS", "replacement_expansion_is_bounded_before_allocation": "PASS", "traffic_script_runs_on_http_and_https_and_captures_processed_body": "PASS", "traffic_scripts_validate_configuration_and_bound_processing": "PASS"}, "fingerprint": "e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5", "time": "2026-10-23T02:28:19.213729+08:00", "attempt": 1, "suite": "test_proxy", "file": "tests/test_proxy.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_proxy-f55f3a22a2567bc9", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.0842673340000033, "status": "PASS", "discovered": ["http_rewrites_chunked_upload_and_records_original_request", "https_uses_same_rewrite_and_capture_pipeline", "invalid_rules_and_unimplemented_lan_are_rejected_before_listening", "rejection_is_exact_and_upstream_failure_never_falls_back", "replacement_expansion_is_bounded_before_allocation", "traffic_script_runs_on_http_and_https_and_captures_processed_body", "traffic_scripts_validate_configuration_and_bound_processing"], "results": {"http_rewrites_chunked_upload_and_records_original_request": "PASS", "https_uses_same_rewrite_and_capture_pipeline": "PASS", "invalid_rules_and_unimplemented_lan_are_rejected_before_listening": "PASS", "rejection_is_exact_and_upstream_failure_never_falls_back": "PASS", "replacement_expansion_is_bounded_before_allocation": "PASS", "traffic_script_runs_on_http_and_https_and_captures_processed_body": "PASS", "traffic_scripts_validate_configuration_and_bound_processing": "PASS"}, "fingerprint": "d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345", "time": "2026-10-23T16:26:16.867832+08:00", "attempt": 1, "suite": "test_proxy", "file": "tests/test_proxy.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：共享测试夹具；不是独立覆盖承诺
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_proxy-a1d9765884f42552 --test-threads=1`
-- 执行时间：2026-10-23T02:28:19.213729+08:00
-- 实际耗时：0.11817962499999624 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "69e48b634fd25eff4d80577996322b751f6a1e17", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`e7dc7bb22d839384bd6a5a9665770e06100a46e88d35ddbf533eb904d38875e5`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_proxy-f55f3a22a2567bc9 --test-threads=1`
+- 执行时间：2026-10-23T16:26:16.867832+08:00
+- 实际耗时：0.0842673340000033 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -52,7 +52,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-rename-final/test_proxy.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-fixes-final/test_proxy.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

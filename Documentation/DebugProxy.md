@@ -13,7 +13,7 @@ bash ./build-macos.sh
 bash ../Fluxa/Scripts/check.sh
 ```
 
-旧版本构建器仅打包本机 macOS 架构，部署目标为 14.0；当前 ARM64 多平台构建入口及最低系统以 [Apple 平台构建](Apple平台构建.md) 为准。Swift package 自动链接现有切片；App/Network Extension 后续通过同一包接入，但移动平台、其他架构切片与真实隧道尚未交付。缺少对应原生库时门面报错，不能宣称跨平台运行已验收。生成文件位于本仓库 ./Vendor/，不提交 GitHub；完整检查重新生成原生库，避免使用旧缓存。
+当前仅构建 macOS arm64，最低部署目标为 13.0，容器为 NodusCore.xcframework；支持列表与构建列表见 [Apple 平台构建](Apple平台构建.md)。Swift 只读取 App 项目内已复制并校验的成品，不触发 Rust 构建或回退旧包。历史的 macOS 14.0 构建目标不作为当前最低版本；最低系统真实运行、Network Extension 与其他平台验收仍需独立证据。
 
 ## 请求与代理
 
@@ -37,7 +37,7 @@ Rust 管理有界捕获队列，Swift 每轮最多消费 64 条，通过 peek/ac
 
 Rust 新增真实 HTTP/TLS 转发及改写测试，与已有 HTTPS/MITM/JS 回归测试共用一个 Rust 回环服务。Swift 客户端集成测试直接调用 Rust 库，验证 HTTP/HTTPS、证书拒绝、解密改写、公开证书导出、完整日志和停止行为；没有 Swift 网络服务器或模拟 FFI 替代。统一 FFI 检查另行验证生命周期、HTTPS、MITM 和 JS。
 
-这里只记录本机 macOS ARM64 验证，最低 macOS 14、其他架构、Network Extension、浏览器系统信任、移动真机及 App Store 审核尚未验收。
+这里只记录本机 macOS ARM64 验证，当前最低 macOS 13、其他架构、Network Extension、浏览器系统信任、移动真机及 App Store 审核尚未验收。
 
 ## 共用服务连接管线（v1.3.0）
 
