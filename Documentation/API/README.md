@@ -7,5 +7,6 @@
 | `src/configuration/check.rs` | [check_api.md](configuration/check_api.md) | 只读配置检查、诊断及源位置 |
 | `src/ffi.rs` | [ffi_api.md](ffi_api.md) | 配置检查 C ABI 命令；其他命令未在本页承诺文档化 |
 | `src/error.rs` | [error_api.md](error_api.md) | 固定错误协议、Schema 及 [机器契约](error_api.json) |
+| `src/vpn/transaction.rs` | [transaction_api.md](../vpn/transaction_api.md) | 事务驱动 Rust 接口，尚无系统启动能力 |
 
-配置检查不应用配置、不启动 VPN。其他 API 后续按真实实现补充。
+配置检查不应用配置、不启动 VPN；事务文档中的状态也不代替系统数据路径验收。其他 API 后续按真实实现补充。

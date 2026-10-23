@@ -1587,6 +1587,27 @@
         "file_errors_never_have_fake_lines_or_repair",
         "checking_does_not_apply_or_change_error_codes"
       ]
+    },
+    {
+      "id": "test_vpn_transaction",
+      "file": "tests/test_vpn_transaction.rs",
+      "kind": "unit",
+      "sources": [
+        "src/vpn/transaction.rs"
+      ],
+      "module": "test_vpn_transaction",
+      "declared_cases": [
+        "four_stages_verify_before_running_and_stop_once",
+        "each_stage_failure_cleans_and_preserves_cause",
+        "cancellation_during_commit_waits_for_completion_then_restores",
+        "rollback_failure_retains_slot_and_explicit_retry",
+        "deadline_signals_cancellation_without_detaching_work",
+        "old_transaction_cannot_stop_new_start",
+        "controller_drop_cancels_running_work",
+        "limits_reject_before_execution",
+        "panicking_step_still_rolls_back",
+        "terminal_cleanup_releases_steps_and_failure_retains_recovery"
+      ]
     }
   ]
 }

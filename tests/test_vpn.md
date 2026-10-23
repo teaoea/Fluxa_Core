@@ -1,6 +1,6 @@
 # 测试报告：test_vpn
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403", "::test_vpn::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.2229487909999932, "status": "PASS", "discovered": ["vpn::test_vpn::close_releases_slot_with_old_reference_alive", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success", "vpn::test_vpn::host_sources_are_read_only_and_keep_policy", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules", "vpn::test_vpn::nonexistent_default_node_fails_without_candidate_or_direct_fallback", "vpn::test_vpn::slots_are_bounded_before_background_work", "vpn::test_vpn::total_deadline_rejects_invalid_duration_before_work"], "results": {"vpn::test_vpn::close_releases_slot_with_old_reference_alive": "PASS", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate": "PASS", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success": "PASS", "vpn::test_vpn::host_sources_are_read_only_and_keep_policy": "PASS", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate": "PASS", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules": "PASS", "vpn::test_vpn::nonexistent_default_node_fails_without_candidate_or_direct_fallback": "PASS", "vpn::test_vpn::slots_are_bounded_before_background_work": "PASS", "vpn::test_vpn::total_deadline_rejects_invalid_duration_before_work": "PASS"}, "fingerprint": "d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345", "time": "2026-10-23T16:26:16.867832+08:00", "attempt": 1, "suite": "test_vpn", "file": "tests/test_vpn.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-8399fc01bd4f1237", "::test_vpn::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.2757196670000006, "status": "PASS", "discovered": ["vpn::test_vpn::close_releases_slot_with_old_reference_alive", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success", "vpn::test_vpn::host_sources_are_read_only_and_keep_policy", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules", "vpn::test_vpn::nonexistent_default_node_fails_without_candidate_or_direct_fallback", "vpn::test_vpn::slots_are_bounded_before_background_work", "vpn::test_vpn::total_deadline_rejects_invalid_duration_before_work"], "results": {"vpn::test_vpn::close_releases_slot_with_old_reference_alive": "PASS", "vpn::test_vpn::failure_of_second_source_never_publishes_partial_candidate": "PASS", "vpn::test_vpn::geoip_failure_is_error_not_disabled_success": "PASS", "vpn::test_vpn::host_sources_are_read_only_and_keep_policy": "PASS", "vpn::test_vpn::invalid_input_and_unsupported_modes_fail_without_partial_candidate": "PASS", "vpn::test_vpn::local_candidate_is_not_activation_and_does_not_replace_live_rules": "PASS", "vpn::test_vpn::nonexistent_default_node_fails_without_candidate_or_direct_fallback": "PASS", "vpn::test_vpn::slots_are_bounded_before_background_work": "PASS", "vpn::test_vpn::total_deadline_rejects_invalid_duration_before_work": "PASS"}, "fingerprint": "a9a7c5f1f766dccced8fab47462550d12fd300ee94da91bb7a05779ee42ec509", "time": "2026-10-23T21:28:20.957371+08:00", "attempt": 2, "suite": "test_vpn", "file": "tests/test_vpn.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b8c30c0e31631aadda5c4cd97c17e8f8b800cc2", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/vpn.rs、src/providers.rs、src/configuration.rs、src/outbound/configuration.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403 ::test_vpn:: --test-threads=1`
-- 执行时间：2026-10-23T16:26:16.867832+08:00
-- 实际耗时：0.2229487909999932 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-8399fc01bd4f1237 ::test_vpn:: --test-threads=1`
+- 执行时间：2026-10-23T21:28:20.957371+08:00
+- 实际耗时：0.2757196670000006 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "8b8c30c0e31631aadda5c4cd97c17e8f8b800cc2", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`a9a7c5f1f766dccced8fab47462550d12fd300ee94da91bb7a05779ee42ec509`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -54,7 +54,15 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-fixes-final/test_vpn.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-transaction-resource-regression/test_vpn.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。
+
+<!-- nodus-test-documentation:begin -->
+## 测试目的、目标与本轮范围
+
+目的：确保新增四阶段事务驱动不破坏既有隔离候选准备及关闭契约。
+目标：候选不发布活动配置或授予接管权；非法配置、只读资源错误和准备失败保留真实错误；取消及重复关闭确定释放候选槽，旧对象不恢复活动权限。
+方法：本套件原有9项断言完整执行，与新事务的10项分开归属；原始命令、结果、版本和指纹见上方实际报告。只做隔离候选及本地夹具验证，不接管系统 VPN。性能测试不适用，不以普通执行耗时作为性能验收。
+<!-- nodus-test-documentation:end -->

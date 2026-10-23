@@ -1,4 +1,6 @@
 //! VPN 前置检查第一阶段：隔离准备候选资产，不发布到现有管理器，不授予接管权限。
+/// 四阶段驱动尚未注册到生产 FFI，不能替代系统接管验收。
+pub mod transaction;
 use crate::{
     budget::{ByteBudget, ByteLease},
     configuration::{Document, Summary},

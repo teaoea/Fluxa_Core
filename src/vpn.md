@@ -10,6 +10,7 @@
 
 例：`Preparation::begin("tun: {enable: true, name: nodus0}\nrules: ['final,direct']")`后查询status，最终显式await close。该例只是候选准备，无节点仍需要后续可信授权。对应测试`tests/test_vpn.rs`及同名报告包含隔离配置、文件错误、关闭和槽位回收。候选不能替代真实出站/DNS探测、权限/预算/防回环检查或系统验证。
 
+新增四阶段驱动位于子模块transaction，其真实实现、状态机与未接入范围见[transaction.md](vpn/transaction.md)。现有候选API没有因此改变为系统启动API。
 
 ## 目标（想达成什么）
 
