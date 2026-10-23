@@ -239,6 +239,20 @@ def _save_report_locked(row, record, env, directory):
     results = record.get('results', {})
     counts = collections.Counter(results.values())
     report = ROOT / Path(row['file']).with_suffix('.md')
+    # 同名文档也承载手工目的、验收标准及历史性能资料；仅刷新执行报告。
+    manual = ''
+    if report.exists():
+        previous_text = report.read_text()
+        begin = '<!-- nodus-test-documentation:begin -->'
+        end = '<!-- nodus-test-documentation:end -->'
+        if begin in previous_text or end in previous_text:
+            if previous_text.count(begin) != 1 or previous_text.count(end) != 1:
+                raise ValueError('测试文档保留区标记数量错误，拒绝覆盖')
+            start = previous_text.index(begin)
+            finish = previous_text.index(end) + len(end)
+            if previous_text.index(end) < start:
+                raise ValueError('测试文档保留区标记顺序错误，拒绝覆盖')
+            manual = previous_text[start:finish]
     # 更新前保存真实旧报告，不删除已知失败和历史证据。
     old = directory / (row['id'] + '.previous.md')
     if report.exists() and not old.exists():
@@ -282,6 +296,8 @@ def _save_report_locked(row, record, env, directory):
               '- 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。', '']
     if record.get('status') in ('FAIL', 'COMPILE ERROR', 'TIMEOUT', 'INTERRUPTED'):
         lines += ['## 异常原始输出节选', '', '最小重现：`python3 Tools/test_reports.py --run --suite ' + row['id'] + '`（Rust 套件）；外部套件使用上方真实命令。', '', '```text', record.get('output', '未取得输出；不能推断失败原因。')[-12000:], '```', '', '节选不替代完整日志；输入及独立预期可追踪到上表同名函数。', '']
+    if manual:
+        lines += [manual, '']
     temporary = report.with_suffix('.md.tmp')
     temporary.write_text('\n'.join(lines))
     temporary.replace(report)

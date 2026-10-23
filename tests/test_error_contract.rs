@@ -42,7 +42,7 @@ fn registered_contract_and_initial_baseline_are_complete() {
     let current: Vec<_> = ErrorCode::ALL.iter().map(|code| code.contract()).collect();
     let json = serde_json::to_value(current).unwrap();
     let registered: serde_json::Value =
-        serde_json::from_str(include_str!("../Documentation/error-codes.json")).unwrap();
+        serde_json::from_str(include_str!("../Documentation/API/error_api.json")).unwrap();
     let baseline: serde_json::Value =
         serde_json::from_str(include_str!("fixtures/error-contract-v1.json")).unwrap();
     assert_eq!(
@@ -72,7 +72,7 @@ fn registered_contract_and_initial_baseline_are_complete() {
         );
     }
     let mut seen = HashSet::new();
-    let document = include_str!("../Documentation/错误代码查询表.md");
+    let document = include_str!("../Documentation/API/error_api.md");
     for code in ErrorCode::ALL {
         // 新增代码也必须带说明性中文注释，不能只登记名称而遗漏源码契约。
         let source = include_str!("../src/error.rs");

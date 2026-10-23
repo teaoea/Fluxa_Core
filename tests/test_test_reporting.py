@@ -1,8 +1,8 @@
 # 测试文件：tests/test_test_reporting.py
 # 测试类型：单元测试、执行器失败保全与证据一致性回归
 # 测试对象：Tools/test_reports.py 的报告执行契约，不虚构 src 源文件映射
-# 测试内容：test_nonzero_is_never_pass、test_missing_and_ignored_are_not_full_pass、test_exact_case_ownership、test_timeout_retains_child_status、test_signaled_external_process_never_returns_success、test_unrun_collection_cannot_overwrite_actual_external_result、test_support_fixture_cannot_be_counted_as_passing_suite、test_named_external_suites_require_actual_cases、test_compile_failure_and_report_failure_keep_nonzero
-# 测试依据：《测试文件与报告统一管理原则》第十八、十九、二十六条；失败不得变成功。
+# 测试内容：test_nonzero_is_never_pass、test_missing_and_ignored_are_not_full_pass、test_exact_case_ownership、test_timeout_retains_child_status、test_signaled_external_process_never_returns_success、test_unrun_collection_cannot_overwrite_actual_external_result（含手工文档保全、失败刷新和损坏标记拒绝）、test_support_fixture_cannot_be_counted_as_passing_suite、test_named_external_suites_require_actual_cases、test_compile_failure_and_report_failure_keep_nonzero
+# 测试依据：《测试文件与报告的管理》第十八、十九、二十六条；失败不得变成功。
 # 前置条件：Python 标准库，不依赖外网；临时子进程均由本测试清理。
 import argparse
 import importlib.util
@@ -69,6 +69,27 @@ class ReportingContract(unittest.TestCase):
                 self.assertEqual(report.read_text(), before)
                 metadata = json.loads(re.search(r'<!-- nodus-test-report:(.*) -->', before)[1])
                 self.assertEqual(metadata['status'], 'PASS')
+                # 真实重跑必须更新结果，同时原样保留手工目的和历史证据引用。
+                manual = '<!-- nodus-test-documentation:begin -->\n## 测试目的\n保全历史证据引用。\n<!-- nodus-test-documentation:end -->'
+                report.write_text(before + '\n' + manual + '\n')
+                failed = dict(record, status='FAIL', results={'process': 'FAIL'}, exit_code=1)
+                reporting.save_report(row, failed, {'ci_run_id': None}, evidence)
+                refreshed = report.read_text()
+                self.assertEqual(refreshed.count(manual), 1)
+                metadata = json.loads(re.search(r'<!-- nodus-test-report:(.*) -->', refreshed)[1])
+                self.assertEqual(metadata['status'], 'FAIL')
+                self.assertEqual(metadata['exit_code'], 1)
+                # 标记损坏应拒绝更新，不能吞掉数据或把原有失败变成成功。
+                for invalid in (
+                    refreshed.replace('<!-- nodus-test-documentation:end -->', ''),
+                    refreshed + '<!-- nodus-test-documentation:begin -->',
+                    '<!-- nodus-test-documentation:end --><!-- nodus-test-documentation:begin -->',
+                ):
+                    report.write_text(invalid)
+                    with self.assertRaises(ValueError):
+                        reporting.save_report(row, record, {'ci_run_id': None}, evidence)
+                    self.assertEqual(report.read_text(), invalid)
+
 
     def test_support_fixture_cannot_be_counted_as_passing_suite(self):
         args = argparse.Namespace(external='test_fixture', command=['ignored'])

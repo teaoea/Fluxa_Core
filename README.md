@@ -1,35 +1,74 @@
-# Nodus
+# Nodus Core
 
-作者：可莉唯一的狗
+[English](README_ENGLISH.md)
 
-自有代码采用 MIT，许可记录见 [LICENSE.md](LICENSE.md)。
+Nodus Core 是一个使用 Rust 编写的网络内核，可嵌入网络代理、VPN 和网络调试工具，为使用方提供统一的配置校验、流量规则、域名解析、连接处理和流量改写能力。
 
-技术说明统一保存在 [Documentation](Documentation/Overview.md)，包括 [错误代码查询](Documentation/错误代码查询表.md)、[开发强制规范](AGENTS/错误代码体系设计.md)、[规则性能测试](Documentation/规则性能测试.md)、[API 与版本强制规范](AGENTS/API全生命周期管理.md)、[版本示例](Documentation/Versioning.md) 和 [发布流程](Documentation/Publishing.md)。
+Nodus Core 以库的形式使用，通过 Rust API 或 C ABI 接入程序。配置文件及插件、脚本、规则和 GeoIP 等资源由使用方提供，内核负责只读解析、校验和执行。
 
-当前未完成事项及暂停状态统一见 [TODO](Documentation/TODO.md)。
+## 主要能力
 
-主配置规则提供者使用小写 `rules` 正文，宿主负责更新时间与磁盘文件，Rust 负责只读校验、编译和内存发布；接口、示例及尚未接入的范围见 [规则提供者生命周期](Documentation/Subscriptions.md)。
+- **配置校验**：检查 YAML 语法、字段、重复配置和引用关系，返回错误代码、字段路径及源文件位置。
+- **规则与路由**：按本地、插件和远程规则决定 DIRECT、PROXY 或 REJECT，支持域名、IP、端口及协议等条件。
+- **DNS 与 GeoIP**：提供 DNS 解析、Fake-IP 映射和离线 IP 地理信息查询。
+- **连接与协议**：管理连接、取消与资源释放，支持 HTTP／HTTPS 请求以及 VLESS、REALITY、Vision 和 XUDP 的已实现组合。
+- **流量改写**：提供 HTTPS MITM、条件复写、声明式插件和受限 JavaScript 执行。
+- **数据包处理**：提供有界的 IPv4／IPv6、TCP／UDP 数据包会话能力，供需要数据面处理的程序调用。
 
-主配置 DNS 与 GeoIP 已接入内核异步事务：逐上游独立期限、专用 DNS 出站、地址族选择、只读 Ready 数据库编译及内存原子发布。接口、示例和真实验证边界见 [DNS/GeoIP 编排](Documentation/DNSGeoIP编排.md)。系统代理、局域网共享及文件日志执行仍暂存 TODO。
+系统 VPN 的权限、接口和路由接管需要使用方接入相应平台能力；仅链接本库不会自动建立系统 VPN。
 
-## VPN 隔离候选准备（开发接口）
+## 使用方式
 
-2.6.0-dev 提供有界、可取消的候选资产准备，复用配置、DNS/GeoIP 与提供者规则编译，不发布到当前管理器、不改写正式缓存。候选就绪不等于必要链路可用、前置检查通过、用户授权或系统 VPN 启动。参见 [候选准备说明](Documentation/VPN候选准备.md) 和 examples/vpn_candidate.rs。
+### 在 Rust 项目中使用
 
-共享容器、目录、文件和默认配置创建由 App／宿主管理，Core 只提供模板和只读消费；职责、扩展只读及真实验证边界见 [共享存储](Documentation/共享存储.md)。
+在使用方的 `Cargo.toml` 中加入 Git 依赖：
 
-内核二进制使用[本机手动发布流程](Documentation/本机手动发布.md)，不依赖 GitHub Actions 发布。
+```toml
+[dependencies]
+nodus_core = { package = "Nodus-Core", git = "https://github.com/teaoea/Nodus-Core", branch = "main" }
+```
 
-2.8.0-dev 本轮新增原生条件复写、声明式插件及命名 JS 管线，`scripts.name: response` 可由 `js: response` 精确引用，不要求 .js 后缀。主配置优先、数字 ID 优先级、宿主授权只读绑定及缓存清理约束见 [插件与脚本](Documentation/插件与脚本.md)；本机 TLS 与测试夹具不代表系统 VPN 或完整主配置 MITM 启动验收。
+下面的示例检查一份默认直连配置，并在失败时取得具体字段和位置：
 
-Apple 平台最低版本、ARM64 架构与本地构建入口见 [Apple 平台构建](Documentation/Apple平台构建.md)；强制约束见 [全平台系统支持的最低版本](AGENTS/全平台系统支持的最低版本.md)。不支持 Intel Mac、Mac Catalyst、watchOS 和 visionOS；产物不自动上传。
+```rust
+use nodus_core::configuration::check_yaml;
 
-配置文件字段、错误代码和编辑器行号定位见 [配置检查 API](Documentation/API/配置文件检查.md)。
+fn main() {
+    let yaml = "rules:\n  - final,direct\n";
+    match check_yaml(yaml) {
+        Ok(summary) => println!("配置有效，规则数量：{}", summary.rule_count),
+        Err(issue) => {
+            eprintln!("错误代码：{}，字段：{}", issue.error_info.code.value(), issue.field);
+            if let Some(position) = &issue.position {
+                eprintln!("位置：第 {} 行，第 {} 列", position.line, position.column);
+            }
+        }
+    }
+}
+```
 
-## Nodus 命名约定
+检查成功表示配置通过校验，不会应用配置或启动网络。可从 [中文默认模板](default_config.yaml) 或 [英文默认模板](default_config_en.yaml) 开始编写配置。
 
-内核源码已开源：[teaoea/Nodus-Core](https://github.com/teaoea/Nodus-Core)。
-Rust package 为 `Nodus-Core`，库及 Clang 模块为 `nodus_core`，C ABI 使用 `nodus_core_*`；头文件为 `nodus_core.h` 与 `nodus_debug_ipc.h`。
-Apple 容器为 `NodusCore.xcframework`，发行文件采用 `nodus-core-{os}-{arch}[-{abi}]`。
-这是接口改名，客户端必须配套重新编译；不提供旧符号或旧原生指纹名称别名。二进制分发暂不启用，后续在本源码仓库分发。
-历史测试报告及冻结错误契约保留原文，不作为当前命名的调用示例。Fluxa 仅指独立 App 或历史记录。
+### 通过 C ABI 接入
+
+将匹配目标平台的内核静态库与 [公开头文件](include/nodus_core.h) 链接到使用方程序，通过头文件声明的接口创建句柄、调用能力、复制结果并释放资源。配置检查的请求和响应示例见 [C ABI 配置检查 API](Documentation/API/ffi_api.md)。
+
+### 运行配置检查示例
+
+```sh
+git clone https://github.com/teaoea/Nodus-Core.git
+cd Nodus-Core
+cargo run --locked --example validate_main_configuration -- default_config.yaml
+```
+
+该示例读取指定 YAML 文件并输出校验摘要；配置错误时返回错误信息，不启动监听或 VPN。
+
+## 文档
+
+- [API 文档](Documentation/API/README.md)
+- [配置检查 Rust API](Documentation/API/configuration/check_api.md)
+- [错误代码与参数](Documentation/API/error_api.md)
+
+## 许可证
+
+作者：可莉唯一的狗。自有代码采用 [MIT 许可证](LICENSE)；第三方依赖及许可说明见 [LICENSE.md](LICENSE.md)。

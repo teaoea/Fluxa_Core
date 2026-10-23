@@ -1,0 +1,397 @@
+# configuration.rs 代码说明
+
+## 职责（干嘛的）
+
+对应源码：`src/configuration.rs`。本页说明实现职责、数据流程和边界；公开调用的请求／响应契约单独维护于 `Documentation/`，开发约束维护于 `AGENTS/`。
+
+## 目标（想达成什么）
+
+严格解析 YAML 主配置，完成字段与跨字段验证，并准备受限、可失败保全的运行输入。
+
+## 主要流程与模块协作
+
+Document 复用严格 YAML 解码，models 定义字段，rules 编译正式规则，rewrites 编译 URL／条件／动作，plugins 加载授权资源；check 输出带位置诊断，发布与启动的额外条件独立验证。
+
+## 输入、输出与失败边界
+
+输入来自受约束的配置、明确授权的资源或校验后的网络数据；各入口的实际类型、字段和值域以下文及对应源码为准。正常结果只能说明该模块完成其职责，不能推定网络接管、其他模块初始化或外部权限已经成功。非法输入、协议错误、系统故障、取消和资源不足沿用 `src/error.rs` 的真实分类；不静默改为 DIRECT，也不修复或覆盖外部配置。
+
+活动资源由 Core 的会话身份、有效租约、取消及明确关闭操作管理；只读快照引用不构成活动权限。内存与任务的实际存活期计入对应预算。具体模块没有活动任务时，不因本说明增加后台线程或额外权限。
+
+## 测试与示例入口
+
+对应测试及实际结果：[test_configuration.rs](../tests/test_configuration.rs)、[test_configuration.md](../tests/test_configuration.md)。
+
+真实示例入口：[geoip_configuration.rs](../examples/geoip_configuration.rs)、[validate_main_configuration.rs](../examples/validate_main_configuration.rs)、[validate_rewrites.rs](../examples/validate_rewrites.rs)、[shared_storage.rs](../examples/shared_storage.rs)。
+
+性能结果及执行记录保存在对应测试文档；下文涉及旧版本的验证陈述仅是历史资料，不是本次重新执行的结果。已发布版本的历史能力不能替代当前代码、真实平台或系统 VPN 验收。
+
+## 实现细节
+
+## 当前实现边界
+
+`src/configuration.rs` 的 `Document::from_yaml()` 是新主配置的内核校验入口。复用 `src/routing/yaml.rs` 的严格事件解析器；JSON 输入也走相同字段模型。未知字段、重复字段、类型错误、YAML 别名/标签和嵌套深度均受约束。旧的 `subscriptions`、`nodes`、`routing`、`geoip_url` 根字段不是新主配置的别名。
+
+成功返回不可变配置对象；不代表网络运行成功。**第 1 阶段是配置解析与校验；第 2 阶段已提供 `compile_local_rules` 本地候选编译。** 提供者下载/调度与 DNS/GeoIP 启用编排已接入异步事务；混合监听和系统接管尚待后续接入，不能用本轮校验代替这些验收。旧业务命令目前仍使用旧分模块配置，不能宣称已经自动迁移。
+
+对象不提供 `Deserialize`、整对象 `Clone` 或可变管理器；配置内存与预算租约同生共死。无网络副作用，因此校验失败不可能部分替换有效配置。主配置事务现已复用出站管理器的原子快照提交；执行范围与尚未接入能力见文末事务契约。
+
+## 使用示例
+
+在内核目录执行 `cargo run --offline --locked --example validate_main_configuration -- example_config.yaml`。当前完整示例，示例公钥和 short id 是格式用虚构值，必须替换后才能连接；解析通过不能证明节点可用。
+
+Rust：
+
+```rust
+use nodus_core::configuration::Document;
+let document = Document::from_yaml("mode: rule\nrules: ['final,direct']")?;
+let summary = document.summary();
+# Ok::<(), nodus_core::error::Error>(())
+```
+
+C ABI 复用现有 JSON 命令及整数结构化错误：
+
+```json
+{"operation":"configuration_validate","yaml":"rules: ['final,direct']"}
+```
+
+成功的 `configuration` 是校验摘要；`success` 只表示本条校验命令成功。没有 `Running`、监听已启用或数据库已就绪的承诺。该命令属于当前 dev 源码，App 固定远程二进制不会因此自动获得新命令。
+
+## 字段和交叉校验
+
+| 项目 | 校验/归一化 | 失败或边界 |
+| --- | --- | --- |
+| 主配置 | 最大 4 MiB；严格字段与类型 | 长度 8001；字段/重复键 2002/2003；语法 2001 |
+| 内存 | 解析前申请 `64 × 输入字节 + 64 KiB`，共享 256 MiB 预算；对象存活期间持有 | 当前预算不足 8002；4 MiB 是输入门禁，不保证预算准入 |
+| 监听端口 | 0 关闭；非零 1054–65535；两服务非零端口不得相同 | 非法值/冲突 1001；此阶段不实际绑定 |
+| 节点 | 名称唯一且区分大小写；不得为 direct/reject；策略按名称精确引用 | 1001；当前仅接受既有 VLESS/REALITY/Vision，其他组合 1021 |
+| 规则 | 小写标量语法；final 唯一、非空且位于末尾；端口/协议可带基域名 | 非法输入 1001；本地编译使用现行来源与类型顺序 |
+| 全域协议 | 仅允许 reject；特定域名协议可 direct/reject/节点名 | 不允许全域协议直连或代理 |
+| 规则提供者 | name/url/policy/enable；时间 HH:mm；缓存安全名称，拒绝大小写文件冲突 | 元数据非法整体拒绝，不下载；提供者日历与事务见第 3 阶段 |
+| 插件入口 | proxy-providers 仍只接受空列表；plugin-providers 为严格声明式插件来源 | 插件资源、优先级和脚本见《插件与脚本》；不授予系统接管权限 |
+| DNS | enable=true 时校验上游/数字引导地址/指定出站/hosts/Fake-IP | timeout 每上游 1–30 秒，越界归一化为 3；关闭时这些业务值不生效 |
+| GeoIP | enabled=true 要求有效 HTTPS URL 和合法设备本地更新时间 | 2401/2402；未启用不初始化，不宣称 Ready |
+| TUN | 启用时校验 MTU；Apple 忽略自定义名称；exclude-routes 为 CIDR | stack 已从主配置移除，旧字段返回 2002；校验通过不是系统 VPN 可用证明 |
+
+主配置中的节点名目前最多 128 UTF-8 字节，拒绝控制符、首尾空白以及逗号、路径分隔符。规则集文件名使用最多 128 字节 ASCII 字母数字、点、下划线、短横线，不允许 `.`/`..`、路径分隔符和末尾点；文件位于 系统共享容器的 `rule/<name>.yaml`。提供者名称与节点名称属于不同命名空间，提供者可名为 direct/reject。
+
+JSON/YAML 的 `null` 不作为必填字段替代值。主配置不接受 Debug 来源或临时规则字段；Debug 仍仅允许专用认证授权 IPC。
+
+## 后续执行契约
+
+普通规则按“本地 → 插件 → 远程”，同来源再按 process-name → protocol → port → domain → domain-suffix → domain-keyword → ip-cidr/GeoIP。特殊 REJECT 与 Debug 的已确认边界不变；final 仅在所有来源未命中后兜底。port/protocol 域名是带标签边界的 suffix 条件。
+
+远程内容不携带策略，含策略条目单独忽略；提供者 policy=reject 时再忽略 domain-suffix、domain-keyword，防止扩大拦截范围。上述远程正文过滤在提供者导入阶段实现，不在主配置元数据校验中假装完成。
+
+系统代理只允许 127.0.0.1/::1 连接；局域网共享允许局域网设备无认证访问。两个监听服务与 DNS、TUN 独立，由内核负责生命周期，当前阶段不启动任何监听。
+
+DNS 引导服务器只用于引导 DoH/DoT 域名及这些 DNS 使用的节点域名，未提供引导地址时允许系统 DNS 仅承担引导；业务域名不得在配置上游全部超时后回退系统 DNS。主示例的旧回退注释已更正。
+
+## 错误和兼容性
+
+全部复用现有 `src/error.rs` 整数代码，不新建平行错误类型，也不回显配置或节点凭据。一般语义值错误仍为既有 1001（不假称能定位具体字段）；错误查询表登记实际触发位置。dev 新主配置不接受旧字段别名；main 已发布协议及旧持久化格式本轮未改。未发布 crates.io、未替换 App 固定远程二进制。
+
+## 验证证据
+
+对应 `tests/test_configuration*.md`、`tests/test_main_configuration_contract.md` 及 `tests/test_ffi.md` 记录真实环境、命令、源码指纹和结果。局部配置通过不等于其他阶段、真机或系统 VPN 验收。
+
+## 第二项：本地规则编译入口
+
+```rust
+use nodus_core::{configuration::Document, routing::{Target, Transport}};
+let snapshot = Document::from_yaml("rules: ['port,53,example.com,reject', 'final,direct']")?
+    .compile_local_rules(1)?;
+let decision = snapshot.evaluate(&Target {
+    domain: Some("a.example.com".into()), address: None,
+    port: 53, transport: Transport::Udp,
+})?;
+# Ok::<(), nodus_core::error::Error>(())
+```
+
+`compile_local_rules` 消费已校验对象，并在租约仍存活时构造有界正式规则来源。`final` 成为快照 fallback，不作为本地 catch-all 抢先覆盖未来插件/远程来源；GeoIP 关闭时在来源生成前移除对应行。节点策略按原名转换为内部 Proxy+outbound，保持大小写及 Unicode；来源 ID 仍使用独立安全约束。
+
+端口组合使用 `domain-port` 条件及 `端口,域名` 的内部规范值，后缀树按端口隔离；平铺缓存版本 **5** 新增端口/根目录。恢复时验证根唯一性、父子关系、标签路径与真实规则端口一致；重算摘要也不能让条件换根。旧缓存拒绝加载，需要从来源重建。
+
+关键词只匹配可注册域名的租户标签，使用固定 PSL（包含 PRIVATE）：`a.foo.github.io` 观察 `foo`，`a.example.co.uk` 观察 `example`。子域名、公共/私有后缀、单标签主机不参与关键词匹配。内存、平铺、参考与 Debug 路径均使用同一标签边界，但测试预期独立列举，不能凭两实现一致宣称语义正确。
+
+当前候选编译不下载或合并规则提供者，也不应用网络运行状态。GeoIP 已启用且存在 GeoIP 行但尚无 Ready 数据库时返回 **2408**；域名限定 QUIC 编译成独立条件森林，TUN UDP 在真实首包识别后裁决，不将 UDP/443 当作识别结果。全域 QUIC REJECT 继续通过报文守卫执行。启用 GeoIP 的调用方须使用 `compile_local_rules_with_geoip(version, &service)`，要求同一 URL 的数据库 Ready；不借用其他来源或静默忽略。主配置异步启用和调度见 [DNS/GeoIP 编排](dns/main.md)。
+
+先前本节上方的失败记录作为历史证据保留；本轮完整主示例测试已改为通过真实主配置编译入口检查组合条件、禁用 GeoIP 剔除、拦截、普通规则和 final。最新结果以同名测试报告及源码指纹为准。
+
+可运行示例：`cargo run --offline --locked --example compile_main_rules -- example_config.yaml`。输出三个目标的本地候选决策；不表示节点连通、远程提供者已合并或配置已激活。
+
+
+## 2026-10-17 示例字段修订
+
+现行唯一完整示例为根目录 `example_config.yaml`。旧示例由用户移除，不自动恢复；打包清单、编译期引用、示例程序和源码指纹已同步新入口。历史报告的旧路径和数字仅是历史证据，不能作为本次验收。
+
+| 字段 | 已实现的配置/纯查询行为 | 尚未完成的执行边界 |
+| --- | --- | --- |
+| system-proxy.bypass | 有界校验 IP、CIDR、精确域名及 *. 后缀模式 | 系统代理实际设置待监听/平台协调阶段 |
+| lan-share.account/password | 严格字符串，缺省为空；均为空时无认证，两者非空时选择认证；半配置拒绝。SOCKS5 共用凭据限 255 UTF-8 字节；账号不含冒号或控制符，密码不含控制符。凭据不进入摘要，释放时清理字符串 | HTTP/CONNECT 与 SOCKS5 真实握手认证待监听阶段；不是认证已运行证明 |
+| proxy-groups | 当前只接受空列表；活动配置返回 1021 | 策略组业务格式尚未定义，不能伪造支持 |
+| dns.fake-ip.enable | false 时不校验地址业务值、不建立池；true 时按两种子网和既有 4096 上限计算容量 | 真实池仍在申请预算时决定是否准入，不保证内存不足时成功；capacity 不再是主配置字段 |
+| tun.bypass | 有界 IPv4/IPv6 CIDR 校验；删除的 tun.stack 字段拒绝 | 系统路由排除待 OS/VPN 协调，纯配置不修改系统路由 |
+| 全量解密（调试功能） | 正式 YAML 不含 decrypt-all；写 true/false 均返回未知字段 2002 | 只能通过专用调试 API 控制；该操作尚未接入 |
+| mitm.bypass | 总先于 hosts；未来调试全量模式也必须遵守排除；普通域名精确匹配；*.chatgpt.com 包含 chatgpt.com 本身及各级子域名 | 实际 TLS 管线接入待完整配置事务 |
+| mitm.capture-body / skip-server-cert-verify | 严格布尔字段；配置选择与范围查询可验证 | 正文捕获及上游证书验证执行尚未接入此主配置，不能以解析成功冒充生效 |
+
+GeoIP、规则集与插件的每日更新时间统一使用设备本地时区；插件当前只验证 HH:mm；GeoIP 与规则提供者已接入本地民用日历，真实夏令时切换未验收，不再沿用旧 UTC 说明。
+
+`process-name` 已登记标量语法：系统可执行文件名精确、区分大小写，不支持通配符或路径；普通来源内排在 protocol 前，不属于特殊 REJECT。macOS 若系统确实无法获取连接进程名，按用户确认跳过该类型、继续其他规则。iOS/iPadOS/tvOS 忽略进程规则。macOS 已接入操作系统可执行路径和真实套接字元组查询：TUN 流只使用 OS 返回的归属，内核直接发起的连接使用当前内核宿主可执行名称；不接受请求自报名称。权限不足、进程已退出或归属存在歧义时跳过；扫描超限、系统接口异常返回错误，不能假装未知。新连接提交前按进程启动时间、Socket 代次和元组复核，关闭/复用后不能用旧凭证授权新连接；已建立连接仅受内核自己的会话/资源租约控制，不因源进程 FD 关闭而取消已提交数据。 Linux 尚未定义支持，也明确拒绝，不推断为苹果移动平台。
+
+`Document::lan_authentication_enabled()` 只读返回认证选择，不暴露凭据。`Document::mitm_matches(host)` 只读计算解密范围，例如：
+
+```rust
+use nodus_core::configuration::Document;
+let config = Document::from_yaml("rules: ['final,direct']\nmitm: {enabled: true, hosts: [chatgpt.com], bypass: ['*.chatgpt.com']}")?;
+assert!(!config.mitm_matches("a.chatgpt.com")?);
+assert!(!config.mitm_matches("chatgpt.com")?);
+assert!(!config.lan_authentication_enabled());
+# Ok::<(), nodus_core::error::Error>(())
+```
+
+主示例可运行 `cargo run --offline --locked --example validate_main_configuration -- example_config.yaml` 检查字段。macOS 上 `compile_main_rules` 可编译包含 process-name 的完整示例；纯查询没有流身份，不会凭空命中进程规则。`tests/fixtures/main-config-supported.yaml` 是显式列明已支持规则的回归夹具，保留既有组合条件、禁用 GeoIP、final 及决策断言；完整主示例经真实编译入口验收，不通过暗中删行伪造整份支持；非 macOS/苹果移动平台仍明确拒绝未实现的进程归属能力。
+
+
+### 全量解密的专用调试边界（最新约定）
+
+用户最终修订：全量解密完全属于调试功能，正式 YAML 删除 decrypt-all。严格模型不登记此字段，true/false 均返回未知字段 2002；没有可保存或通过重载激活的默认 false 占位项。Document::mitm_matches 仅按普通 hosts 的精确/通配符范围计算，不能成为全量调试入口。专用调试 IPC 目前只有 Replace/Clear/Status/Close/Audit，**尚未增加全量解密操作**；不得声称 API 已可开启。后续需专门逐操作权限、内核会话撤销与审计；不能复用普通 Replace 权限暗中扩大能力。未来调试全量模式忽略 hosts，但 bypass 永远优先，实际授权与 TLS 执行尚未验收。
+
+
+最新通配符修订：hosts 与 bypass 都接受 *.chatgpt.com，匹配 chatgpt.com 本身及各级子域名；普通 chatgpt.com 只精确匹配。相似后缀 badchatgpt.com 或 chatgpt.com.evil 不匹配。范围裁决固定为 bypass → 调试全量解密状态 → hosts，排除优先不改变路由策略。当前纯配置入口只执行排除/普通 hosts；专用调试全量状态接入仍待完成。
+
+
+单独星号规则（用户最终约定）：hosts 中的单独 * 不匹配任何域名，不开启全量解密；bypass 中的单独 * 也不匹配任何域名，不绕过解密。清单中的其他合法条目仍独立生效。*.*、**、*.、域名内任意位置星号等不属于支持的语法，拒绝配置；decrypt-all、decrypt_all、capture-all、global-decrypt 都不是正式配置字段，不接受别名。正式配置不得实现等同全量解密的开关或全匹配语法。指定基域名的 *.example.com 仍合法且包含基域名及各级子域。
+
+
+过宽范围补充：*.com、*.co.uk 等只有公共后缀而没有可注册域名的条目，在 hosts/排除清单都不匹配任何域名，也不导致其他有效条目失效。沿用固定 PSL（包含 PRIVATE），因此 *.github.io 这类私有托管后缀同样无效，*.tenant.github.io 才是可限定的租户域名范围。不依赖写死的 com 列表；此校验不向普通配置授予全量解密权限。
+
+
+## 主配置事务契约（2026-10-17）
+
+公开 Rust 入口为 `outbound::Manager::apply_configuration(&str) -> Result<u64>`，只读查询为 `configuration_status()`。C ABI 复用现有 v2 JSON 命令：
+
+```json
+{"operation":"configuration_apply","yaml":"rules: ['final,reject']"}
+```
+
+成功返回 `success: true` 与 `network_revision`。查询命令 `{"operation":"configuration_status"}` 返回同一次快照读取的 `revision` 及无凭据 `configuration` 摘要；初始状态或经过旧分模块修改后摘要为 null。`configuration_validate` 仍然只读。公开状态不含 Running、节点可用或系统接管成功声明。
+
+1. **校验与准备**：捕获当前基线版本；在锁外预算解析完整配置，验证所有节点和引用、编译本地规则，构造节点表与不可变候选。同步纯本地入口不下载；异步入口先准备 DNS、GeoIP、远程规则和同目录缓存事务。不监听、不触发系统接管。候选/解析失败通过 RAII 释放本次对象，旧配置完全不动。
+2. **提交**：在现有出站状态锁内检查管理器未关闭、版本未变，绑定仍有效的 Debug 会话，完成所有可失败检查，再一次替换配置、路由、节点、限额及版本。候选和提交权限不暴露给宿主；前端仅提交 YAML 意图。
+3. **失败与竞争**：非法输入保留其原错误；尚未接入能力返回 1021；关闭或基线竞争返回 9001。不存在先撤销旧配置再构建新配置的路径；竞争失败不自动覆盖或自动重试。
+4. **热更新**：提交后新请求读取新快照；已经捕获旧配置的在途操作按原事务完成，已经建立的连接不中断、不更换对端。连接不为保留配置历史而持有整份快照。外部只读旧引用的内存仍持有预算，释放最后引用后回收。
+5. **旧接口混用**：分模块修改路由、DNS、限额或规则文件后撤销完整主配置标记，不能继续把旧摘要称为当前整份配置。仍共享节点的旧输入租约随真实共享数据保留，直至完整替换释放。
+
+### 当前可提交范围与后续阶段
+
+主配置异步入口 apply_configuration_async 支持 DNS、GeoIP、域名节点、IP 策略与提供者的整体准备及提交。同步 apply_configuration 仅供无需异步子系统的配置。TUN/MITM 启用、非零代理/LAN 端口、复写和非 silent 日志仍明确拒绝；此事务不是完整系统 VPN 启动。macOS process-name、Ready 数据库绑定和真实报文 QUIC 裁决见下节；完整启动编排不由纯编译接口完成。
+
+DNS 关闭采用系统 DNS，并停用 hosts/Fake-IP；启用时只按显式上游顺序查询。地址族顺序及逐地址拦截已接入，详细边界见 [DNS/GeoIP 编排](dns/main.md)。禁用子系统保留的配置不产生网络副作用。
+
+FFI 在旧 DNS 监听、TUN、MITM、后台规则服务或启用 GeoIP 来源存在时返回 9001，避免未完成的旧服务迁移与新主配置混合运行；这是内核状态检查，不要求前端管理这些服务的资源。后续完整编排阶段由内核负责统一迁移。
+
+运行示例：`cargo run --offline --locked --example apply_main_configuration`。该示例发布 final,reject，验证下一次非法配置失败后版本保持不变，不发起网络请求。完整 example_config.yaml 包含后续能力，不能从中静默剔除活动配置来制造提交成功。
+
+### 独立语义验证依据
+
+- 原子性：配置事务失败保留旧方案；检查 `Document::prepare`、`Manager::commit_configuration` 与 `replace_network_at` 唯一赋值点。
+- 并发：两份同基线候选只能一份提交；关闭后候选不得提交；Debug 不从配置创建且在提交时绑定真实授权会话。
+- 生命周期：真实回环 UDP 连接在新 final,reject 提交后仍可写；新的请求被 REJECT。不据此声称系统 VPN 或真实代理互通通过。
+- 预算与状态：旧快照仅随实际引用存活；分模块变更不释放共享对象预算或继续返回失真的完整配置摘要。
+- 执行证据：`tests/test_outbound_configuration.md`、`tests/test_main_configuration_contract.md`、`tests/test_ffi.md`；实际结果以对应报告为准，尚未运行不视为通过。
+
+
+### 最新字段形状同步
+
+主示例的系统代理为 `system-proxy: {port: 0, bypass: []}`，局域网为 `lan-share: {port: 0, account: "", password: ""}`；严格拒绝旧顶层分散字段。DNS 字段名改为 bootstrap/server；IP 策略字段和值改为 ip-strategy/prefer-ipv4 等连字符形式。用户已确认：只有 dns.server 明确列出字面量 system，才允许按列表位置使用系统 DNS；未列出时绝不自动添加或失败回退。system,direct、大小写变体和 bootstrap 中的 system 均不合法。本轮校验保留上游原始顺序，不据此声称 DNS 顺序查询或系统解析执行已经接入。
+
+
+### 显式系统 DNS 示例
+
+```yaml
+dns:
+  enable: true
+  bootstrap: [1.1.1.1]
+  server:
+    - https://doh.example.com/dns-query,direct
+    - system
+    - 1.1.1.1
+  timeout: 3
+```
+
+在后续 DNS 执行编排中，上述列表表示先尝试 DoH，再按既定错误流程判断是否继续到显式 system，最后是数字上游；system 不是“全部失败后的额外兜底”。删除 system 就不允许对业务域名使用系统 DNS。bootstrap 缺省时用于解析 DoH/DoT 域名的系统引导是独立契约，不授予业务域名的系统回退。每个上游独立超时、DNSSEC 等不可降级错误继续遵守原约定；本轮只验证字段、顺序和显式选择，DNS 启用的配置提交仍返回 1021，等待 DNS 执行阶段整体接入。
+
+
+2026-10-17 最新主示例将 dns.fake-ip.exclude 和 mitm.exclude-hosts 统一改名为 bypass；主配置严格接受新名，旧名返回未知字段。Fake-IP 排除和 MITM 排除语义保持不变；内部旧分模块 Fake-IP 数据模型的 exclude 字段不在此次主配置命名变更范围。最终测试以更新后同名报告为准。
+
+最新示例也将 tun.exclude-routes 改名为 tun.bypass；主配置严格接受新名，CIDR 校验和系统路由排除边界不变，旧名拒绝。
+
+
+### 第 1 项验收范围与后续接口
+
+配置校验及本地可执行范围的原子发布框架已完成收尾：严格字段、候选准备、版本核对、单次提交、失败保留旧配置、旧连接不中断、预算生命周期及 Rust/C ABI 只读状态均有实际测试。第 1 项从 TODO 移出；它不是完整网络运行能力的验收。后续规则、DNS/GeoIP、提供者和监听器依次接入准备阶段，准备成功后继续复用同一原子发布边界，禁止由前端分步骤拼接生效状态。
+
+公开 Rust 新入口为 Manager::apply_configuration 与 configuration_status；未新增公开提交令牌或候选管理器。C ABI 仍使用现有 v2 命令框架。dev 主配置新字段统一为 system-proxy/lan-share 嵌套对象、DNS bootstrap/server、ip-strategy 连字符值及三个子系统 bypass；没有为旧主配置字段保留隐式兼容别名。旧分模块运行命令仍在，但修改后撤销完整主配置摘要标记，不能对外伪报整份配置仍有效。无新增依赖、错误码或持久化格式变更；App、main、crates.io 均未改动。
+
+## 完整规则编译与裁决接口（2026-10-17）
+
+正式 `process-name`、`GEOIP` 和 `domain-quic` 条件使用独立键/森林参与现有索引，不增加每个节点的候选槽数量。槽编号不表示优先级；来源与类型显式排序。缓存格式为 v6，旧缓存拒绝后须从原始规则重建；缓存不能伪造 GeoIP Ready 或进程身份。
+
+`Snapshot::evaluate` 是无进程身份/无报文的诊断查询；`evaluate_datagram` 仅接受真实 UDP 报文，不增加请求自报 QUIC 开关。实际出站由内核补充操作系统身份，TUN 首包进入裁决后才建连。仅端口 443、错误 QUIC 首部都不等于 QUIC。连接后才识别到 QUIC 且需要改变出站时返回状态错误并终止当前操作，不能跨节点重放已经发送的数据。Debug 授权仍优先，但不绕过所有权、报文长度、协议或生命周期检查。
+
+GeoIP 行只在 enabled=true、有效 URL 和同来源 Ready 数据库时可执行；数据库缺失为 2408，查询故障为 2409，无记录是正常未匹配。域名阶段命中跳过 IP/GeoIP；GeoIP 属于 IP 阶段，同一来源显式 IP-CIDR 优先 GeoIP；跨来源仍先比较来源。global/direct 忽略普通国家规则，不执行其数据库查询；特殊国家 REJECT 仍要求 Ready。`Service::close` 关闭来源下载服务，不抹掉已发布不可变数据库的实际内存预算；旧连接无需保留整份规则快照。
+
+例如 `protocol,quic,example.com,direct` 命中 example.com 和各级子域的真实 QUIC；普通 UDP 继续其他规则。`process-name,WeChat,direct` 精确区分大小写；无法确定进程则继续其他规则。`geoip,US,direct` 仅在同来源 Ready 后参与。IP 拒绝只排除该候选，其他地址继续；域名级拒绝仍拒绝请求。完整 DNS 上游顺序、地址族回退留待后续阶段；提供者生命周期见第 3 阶段。
+
+可执行示例：`cargo run --offline --locked --example rule_facts` 验证 QUIC 样本裁决与 macOS 真实进程出站；`geoip_configuration` 验证 Disabled 和未 Ready 明确拒绝，不访问外网。正向 Ready 编译使用本地合法 MMDB 夹具验证，见 `tests/test_geoip.rs`。
+
+## 第 3 阶段：rule-providers 内核生命周期
+
+当前主配置异步提交只读加载宿主准备的提供者与 GeoIP 文件，完整编译后一次发布内存快照。下载、调度、文件保存、目录恢复属于宿主；Core 不管理持久缓存。当前契约见 [Subscriptions](providers.md) 与 [只读文件接入](storage.md)，历史下载事务测试不能替代当前验收。
+
+进程规则来源约束：process-name 只在 macOS 本地配置参与；iOS/iPadOS/tvOS 本地编译忽略；远程规则集一律单行忽略（direct、reject 或节点策略均相同）。无法由操作系统确定流归属时跳过进程规则继续匹配，禁止接受远程自报进程身份。
+
+## 文件日志路径（第 6 项待实现）
+
+日志文件默认路径是 系统共享容器 log/<日志等级>/<YYYY-MM-DD>/<HH>:00.jsonl，例如 容器内 log/info/2026-10-17/15:00.jsonl；按设备本地日期和小时分文件，每个小时独立 JSONL。等级目录取当前配置 log-level，不将 silent 固定为其他等级的目录；silent 不记录、不生成文件。字段校验已存在，文件写入、时段切换、预算及清理仍属第 6 项，不能把示例注释当作日志功能已完成。
+
+## 第 4 项当前契约
+
+上文分阶段验证数字与失败记录是历史证据，不表示当前代码仍拒绝 DNS/GeoIP。当前接口、原子性、存储路径、错误映射与独立验收边界统一见 [DNS/GeoIP 编排](dns/main.md)；最终测试以同名报告的源码指纹和退出状态为准。
+
+
+## 共享存储与默认主配置（2026-10-19）
+
+具体入口、宿主权限、默认值及真实验收边界见 [共享存储](storage.md)。路径不是 YAML 可选字段，不接受配置或远程订阅传入绝对路径。Core 只返回 default_config.yaml／default_config_en.yaml 模板内容，默认 final,direct；是否创建、保存位置及覆盖由 App 决定。原 test_dns_geoip_contract 的六项断言已整体迁入 test_outbound_configuration 单元模块，使用显式临时根目录，不扩大生产 API 或依赖 HOME。
+
+
+## 2026-10-20 默认配置排版与复写字段接入（任务 1、2）
+
+中英文默认模板的主字段块之间恰好保留一行空白；字段说明紧邻对应字段。仅影响宿主使用模板新建的配置，不覆盖已经存在的用户文件。
+
+主配置 rewrites 改用 src/configuration/rewrites.rs 的严格动作模型；不把旧 host/path_prefix 字段当作新格式别名。JSON 与 YAML 使用同一事件解析、重复键检查和字段模型。
+
+| action | 必填字段 | 合法内容 |
+| --- | --- | --- |
+| reject | url、status | 最终 HTTP 状态码 200–599 |
+| request | url、request | headers、method、query、body 至少一项；不能是空操作 |
+| response | url、response.body | text 或 preset 二选一；preset 只接受 transparent-png、minimal-mp4 |
+| script | url、phase、js | phase 为 request 或 response；js 仅为安全的 .js 文件名，不接受源码、URL、绝对路径或子目录 |
+
+request.headers 和 request.query 均接受 set 字符串映射及 remove 字符串列表。头字段名称不区分大小写；查询参数名称区分大小写；重复删除或同名同时设置和删除均拒绝。请求正文只接受 body.text。出现可选字段时必须提供对应真实类型，显式 null 不能代替省略。各层未知字段、重复键、跨动作字段和缺失必填字段均拒绝。
+
+每条规则 URL 最大 4096 字节，只接受无凭据、无片段、无原始空白或控制符的 HTTP/HTTPS URL。正文文本最大 1 MiB；头或参数改动总数最多 128、累计字节最多 32 KiB、单值最多 8192 字节；方法必须为 1–32 字节合法 token。头修改复用已有管线的分帧、逐跳和代理认证头保护，不能修改 Host、Content-Length 等受保护字段。非法输入沿用 1001，资源上限 8001，未知字段/重复键沿用 2002/2003，不新增错误代码。
+
+本段是任务 1、2 的历史范围说明。任务 3、4 的匹配与原生执行见下节；任务 5–7 的插件资源、优先级和脚本执行现见《插件与脚本》，不再以所有非空 rewrites 返回 1021。系统监听、VPN 和完整主配置 MITM 启动仍属于独立能力。
+
+独立解析示例见 examples/validate_rewrites.rs；字段及保留执行边界的回归见 tests/test_configuration_rewrites.rs。
+
+
+## 2026-10-20 第三项：加载时编译 URL，按完整路径匹配
+
+公共只读类型 rewrite::UrlPattern 提供 compile(pattern) 与 matches(target)，供内核后续复写管线复用。示例见 examples/match_rewrite_urls.rs。Document::from_yaml 校验每条新格式规则时即完成编译，并在该规则内部保存结果；compiled_url 是 Core 内部字段，配置输入不能注入。不是在每次请求时编译，也不在这个阶段执行复写动作。
+
+| 模式 | 目标 | 结果 |
+| --- | --- | --- |
+| https://example.com/api/* | https://example.com/api/a | 匹配 |
+| https://example.com/api/* | https://example.com/api/aa/a | 不匹配 |
+| https://example.com/api/* | https://example.com/api/ 或 /api | 不匹配 |
+| https://example.com/api/** | https://example.com/api、/api/、/api/a、/api/aa/a | 匹配 |
+| https://example.com/api/**/tail | https://example.com/api/tail | 匹配，** 消费零段 |
+| https://example.com/api/a | https://example.com/api/aa 或 /api/a/child | 不匹配 |
+
+匹配边界：
+
+- * 与 ** 只允许独占路径段；a*b、***、主机和查询参数中的通配符明确拒绝，不猜测新的通配符语法。
+- 按整个路径匹配；无通配符的路径直接字符串比较。路径、查询及来源字符串都区分大小写，不把默认端口、大小写或编码差异合并为同一字面模式。
+- 不解码百分号、不折叠重复斜杠、不消除点段；%2F 不会变成路径分隔符，%2F 与 %2f 不自动等同。* 不能消费空段，** 可跨越斜杠并消费零个或多个段；显式尾斜杠仍保留。
+- URL 未写路径时按 HTTP 根路径 / 处理。查询与路径分开：模式未声明查询时不限制查询；声明查询时逐字比较，保留顺序、大小写及空查询与无查询的区别。查询中的 / 不增加路径段数量。
+- 模式与目标均限制为 4096 字节，拒绝原始空白、控制字符、反斜杠、片段、缺失来源及凭据；编译时额外执行标准 URL 语法校验。已有错误代码保持不变：非法模式 1001，长度或分配上限 8001。
+
+编译结果区分精确路径与段模式；匹配使用借用的路径段迭代器及最近 ** 的前向重试位置，不使用正则、递归或匹配期堆分配。最坏比较量受双方输入长度上限约束，不宣称未经测量的线性耗时。
+
+验证包含用户给定正反示例、大小写/前后缀、多个 **、空段/尾斜杠、编码、查询、最大长度、深路径及与独立二维可达性算法的枚举比对。匹配器不决定本地/插件优先级，不启动 MITM、JS 或系统 VPN；这是任务 3 的历史边界；后续实际执行以第四项及《插件与脚本》为准。
+
+## 2026-10-20 第四项：原生复写执行与 when
+
+本节以用户最新 `example_config.yaml` 注释为准，替换此前仅在 dev 中声明的 `request`/`response` 动作名；新名称是 `modify-request`/`modify-response`，不保留旧名称别名。任务 1–3 的历史说明不表示本节能力仍未接入。
+
+### 动作与阶段
+
+| action | 阶段 | 行为及字段 |
+| --- | --- | --- |
+| reject | request | status 200–599；返回指定状态、空正文，不发送上游 HTTP 请求 |
+| respond | request | response.status 缺省 200；response.headers/body 可构造本地响应 |
+| modify-request | request | request.headers/method/query/body 至少一项；头/query 支持 set/remove |
+| modify-response | response | 等待真实服务器响应后修改 response.status/headers/body，至少一项 |
+| redirect | request | status 必须为 301/302/303/307/308，location 为不含通配符的绝对 HTTP/HTTPS URL；只返回重定向，不自动跟随 |
+| abort | request | 结束处理，不构造 HTTP 响应；沿用取消错误表达中断，调试代理不把该中断变成 502 页面 |
+| direct | request | 本次新出站采用直连，优先于普通规则，保留 Debug 授权和到期/撤销检查 |
+| proxy | request | 合法但忽略该条规则，继续其他复写或普通路由 |
+| proxy(节点名称) | request | 前端把用户选择填入括号；引用必须存在于 proxies；使用指定节点，失败不回退直连 |
+| script | 显式 request/response | 精确引用 scripts.name；when 通过后按需调用 QuickJS；路径、错误排除和 js-ttl 见《插件与脚本》 |
+
+`enable` 缺省 true，false 不参与执行，但声明仍须合法。除 script 必须声明 phase 外，modify-response 缺省 response，其他动作缺省 request；与动作冲突的阶段拒绝。未指定名称的 `proxy()` 同样忽略。每阶段按主配置顺序选择第一条 URL 和 when 全部命中的有效规则，不对同一阶段叠加所有动作；请求及响应是两个独立选择阶段。插件按主配置之后、数值 ID 升序参与同一阶段选择；同名脚本按来源目录隔离，详见《插件与脚本》。
+
+### 条件字段
+
+`when` 与 url、action 同级，省略时只检查 URL；显式空 when、null、未知字段、重复键、阶段冲突均拒绝。URL 和全部条件采用 AND，exists 列表中的每个名称、equals 映射中的每个条目也必须同时满足。
+
+| 字段 | 格式与语义 |
+| --- | --- |
+| method | 单个 HTTP Method 字符串，逐字比较；方法合法 token，最长 32 字节 |
+| request-headers | `{exists: [User-Agent, X-Client-ID], equals: {X-Client-Type: mobile}}`；头名不区分大小写，头值精确比较 |
+| query | `{exists: [ad_id], equals: {source: app}}`；名称/值区分大小写，按 form URL encoding 解码，重复参数中任一同名值可满足对应 equals |
+| status | 原始最终 HTTP 状态码，只能在 response 阶段使用；不读取将要设置的新状态 |
+| response-headers | 与请求头条件相同，只能在 response 阶段使用 |
+| content-type | 所在阶段的媒体类型；忽略参数及媒体类型大小写，例如 image/png 可匹配 IMAGE/PNG; charset=binary；不支持通配符 |
+| content-length | `{min: 1, max: 1048576}`，两端包含，至少指定一端；比较实际已读取的正文长度，不能用不可信 Content-Length 声明替代实际长度 |
+| request-body | `{equals: '文本', contains: '片段'}`，至少一项，二者都声明时 AND；对 UTF-8 正文匹配，不解析 JSON/表达式/正则；二进制正文不匹配，压缩正文需要条件判断时明确返回 1021，不伪装成已解压 |
+
+每组头/参数条件最多 128 项、总计 32 KiB，单个名称最多 256 字节、值最多 8192 字节；正文匹配字符串最多 8192 字节。长度条件限定在普通正文 8 MiB 上限内。请求阶段不能引用尚不存在的响应字段。响应阶段可以检查原始请求及真实响应；本阶段动作不会反过来影响自己的条件。
+
+```yaml
+rewrites:
+  - url: https://example.com/images/**
+    enable: true
+    phase: response
+    when:
+      status: 200
+      content-type: image/png
+      content-length: {min: 1, max: 1048576}
+    action: modify-response
+    response:
+      status: 200
+      body: {preset: transparent-png}
+```
+
+### 预置媒体与去广告
+
+transparent-png 是 1×1 RGBA 全透明 PNG。minimal-mp4 是用于去广告的零时长诱骗 MP4：电影、视频媒体及采样时长均为 0 毫秒，含 H.264 视频轨道，没有音频轨道；不宣称 H.264 具有透明通道。系统 AVFoundation 能识别其视频轨道和零时长，不输出可播放帧。它是零时长替代响应，不是一个被验证可播放的视频；播放器可能跳过、报媒体错误或重试，实际客户端去广告效果尚未验证。返回 Content-Type: video/mp4，不以空字节或伪造 MIME 冒充容器。
+
+### 执行、安全与验证边界
+
+- 新主配置中不含启用脚本的原生复写可通过现有 ConfigurationApply / Manager::apply_configuration 原子提交，在 HTTP/HTTPS 请求命令及共用客户端执行；不代表主配置 MITM、系统代理或 TUN 启动已完成。
+- 请求前先检查原始输入、协议及资源限制，再执行原生条件。命中本地 respond/reject/redirect 不需要 DNS、路由或上游 HTTP 请求；普通条件不满足则继续既有路由。abort 不生成 HTTP 消息。
+- 替换正文移除失效的长度、压缩、范围与完整性元数据；写出层重新分帧。查询改写仅替换查询部分，保留原始来源和路径；禁止改写 Host 等保护字段。
+- 每次交换保留同一份主配置及预算，派生路由只供本次新连接使用，不修改全局路由；Debug 仍先裁决。显式本地中转或已经建立的上游流无法重新选择出站，命中 direct/proxy(名称) 时明确返回 1021，不声称已换路。旧 MITM 的 HTTPS CONNECT 目前会提前完成上游 TLS，因此不能证明它具有请求前零拨号或重新选路能力。
+- 订阅/数据库受限下载走原始管线，不被业务复写生成的本地响应替换；原始 TLS 证书验证、会话关闭、超时和连接预算继续执行。
+- 额外交换内存以全局 256 MiB 配额准入，每个有复写的交换预留四份普通正文及头部上限；数据按需复制，错误和取消释放租约。配额只是该管线额外缓冲预算，不等于进程总 RSS 指标。
+- Rust 独立用例以用户注释/图片为预期，真实回环验证原生响应不拨号、请求报文修改、响应等待与替换、直连覆盖正式规则、指定代理失败不回退和关闭后拒绝；证据见同名测试报告。Swift FFI、全目标静态检查与相关回归按最终报告记录，不能以声明或历史报告冒充本次执行。
+
+可运行的纯本地示例见 `examples/execute_rewrites.rs`；结构与匹配示例仍见 `examples/validate_rewrites.rs`、`examples/match_rewrite_urls.rs`。
+
+
+## 2026-10-21 插件资源、主配置优先及脚本生命周期
+
+当前实现和可复制示例统一见 [插件与脚本](configuration/plugins.md)。`scripts` 仅接受单个对象，`name` 必填；`js: response`、`scripts.name: response`、URL 末尾为 `response.js` 是合法组合。配置引用以 name 为准，不要求 `.js` 后缀，不根据 URL 猜测名称。`js-ttl` 位于 action: script 的规则内，单位秒，省略 3600，不再解析 JS 头注释中的缓存声明。完整解析示例已同步；默认模板以根目录中英文文件为准，不主动订阅占位 URL。
+
+字段级只读诊断、固定错误代码及前端行号约定见 [配置检查 API](../Documentation/API/ffi_api.md)。
+
+## 禁止行为（不允许做什么）
+
+不得自动修复、保存或格式化原配置，不得忽略未知／重复字段；不存在的兜底节点不能回退 DIRECT，字段校验成功不能冒充系统启动成功。
+
+违反输入、授权或资源边界时，使用实际模块的既有错误／拒绝路径，不伪造成功或擅自扩大权限；具体失败后果以上文流程和公开契约为准。
