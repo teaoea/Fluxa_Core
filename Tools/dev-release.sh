@@ -17,8 +17,9 @@ NODUS_DEV_RUN="$(python3 Tools/verify-manual-release.py "$NODUS_DEV_VERIFICATION
 export NODUS_DEV_RUN
 mkdir "$2"
 work="$(cd "$2" && pwd)"
-bash build-macos.sh --output "$work/NodusCore.xcframework"
-ditto -c -k --keepParent "$work/NodusCore.xcframework" "$work/nodus-core-macos-arm64.zip"
+bash build-macos.sh --output "$work/NodusCore.xcframework" --package-dir "$work/packages"
+# 使用统一打包入口，确保公开API与错误表始终和二进制同包。
+mv "$work/packages/nodus-core-macos-arm64.zip" "$work/nodus-core-macos-arm64.zip"
 # 独立 HTTPS 互通服务供远程二进制适配测试使用，与框架来自同一源码。
 MACOSX_DEPLOYMENT_TARGET=13.0 CARGO_TARGET_DIR="$work/target" cargo build --locked --offline --release --example https_fixture
 cp "$work/target/release/examples/https_fixture" "$work/nodus-test-fixture"

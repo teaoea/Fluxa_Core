@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
+from urllib.parse import quote
 import shutil
 import subprocess
 import tempfile
@@ -35,7 +37,7 @@ def environment(row):
 def build(selected, output):
     if os.uname().sysname != 'Darwin':
         raise ValueError('Apple 成品必须使用 macOS/Xcode 构建')
-    for name in ('LICENSE', 'LICENSE.md', 'Notices', 'include/nodus_core.h', 'include/nodus_debug_ipc.h', 'include/module.modulemap'):
+    for name in ('LICENSE', 'LICENSE.md', 'Notices', 'include/nodus_core.h', 'include/nodus_debug_ipc.h', 'include/module.modulemap', 'Documentation/API/External/error_api.json'):
         if not (ROOT / name).exists():
             raise ValueError('缺少许可证、声明或 C ABI 头文件：' + name)
     version = next(line.split('"')[1] for line in (ROOT / 'Cargo.toml').read_text().splitlines() if line.startswith('version = '))
@@ -63,6 +65,7 @@ def build(selected, output):
                 shutil.copyfile(ROOT / license_file, framework / 'Resources/Notices' / license_file)
             for header in ('nodus_core.h', 'nodus_debug_ipc.h'):
                 shutil.copyfile(ROOT / 'include' / header, framework / 'Headers' / header)
+            shutil.copyfile(ROOT / 'Documentation/API/External/error_api.json', framework / 'Resources/error_api.json')
             (framework / 'Modules/module.modulemap').write_text((ROOT / 'include/module.modulemap').read_text().replace('module ', 'framework module ', 1))
             shutil.copyfile(ROOT / 'target/apple' / target / 'release/libnodus_core.a', framework / 'nodus_core')
             info = dict(CFBundleIdentifier='app.nodus.engine', CFBundleName='nodus_core',
@@ -79,6 +82,47 @@ def build(selected, output):
         subprocess.run(args, cwd=ROOT, check=True)
         shutil.move(str(temporary / 'NodusCore.xcframework'), output)
     print('本地框架：' + str(output), flush=True)
+
+
+def bundle_external_api(destination, source_commit):
+    """对外契约与二进制同包；外部源码链接固定到该包来源提交，不夹带内部文档。"""
+    import hashlib
+    source = ROOT / 'Documentation/API/External'
+    for required in ('ffi_api.md', 'error_api.md', 'error_api.json'):
+        if not (source / required).is_file() or (source / required).is_symlink():
+            raise ValueError('缺少对外 API 或错误契约：' + required)
+    if not re.fullmatch(r'[0-9a-f]{40}', source_commit):
+        raise ValueError('API 文档来源提交无效')
+    files = {}
+    for path in sorted(source.rglob('*')):
+        if path.is_symlink():
+            raise ValueError('API 文档禁止符号链接')
+        if not path.is_file():
+            continue
+        if path.suffix not in ('.md', '.json'):
+            raise ValueError('API 文档目录含非契约文件：' + path.name)
+        target = destination / path.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix == '.json':
+            shutil.copyfile(path, target)
+        else:
+            def link(match):
+                value = match.group(2)
+                if '://' in value or value.startswith(('#', '/')):
+                    return match.group(0)
+                relative, separator, fragment = value.partition('#')
+                resolved = (path.parent / relative).resolve()
+                if resolved.is_relative_to(source.resolve()):
+                    if not resolved.is_file():
+                        raise ValueError('对外 API 包含失效本地链接：' + value)
+                    return match.group(0)
+                if not resolved.is_relative_to(ROOT.resolve()) or not resolved.is_file():
+                    raise ValueError('API 引用越界或不存在：' + value)
+                url = 'https://github.com/teaoea/Nodus-Core/blob/' + source_commit + '/' + quote(resolved.relative_to(ROOT.resolve()).as_posix())
+                return match.group(1) + url + (separator + fragment if separator else '') + match.group(3)
+            target.write_text(re.sub(r'(\]\()([^\n)]+)(\))', link, path.read_text()))
+        files['Documentation/API/External/' + path.relative_to(source).as_posix()] = hashlib.sha256(target.read_bytes()).hexdigest()
+    return files
 
 
 def package_slices(framework, directory):
@@ -108,16 +152,19 @@ def package_slices(framework, directory):
             selected_info = dict(info, AvailableLibraries=[library])
             with (container / 'Info.plist').open('wb') as stream:
                 plistlib.dump(selected_info, stream)
+            with (container / identifier / 'nodus_core.framework/Info.plist').open('rb') as stream:
+                metadata = plistlib.load(stream)
+            api_files = bundle_external_api(container.parent / 'Documentation/API/External', metadata['NodusSourceCommit'])
             filename = name + '.zip'
             with zipfile.ZipFile(staging / filename, 'x', zipfile.ZIP_DEFLATED) as archive:
-                for path in sorted(container.rglob('*')):
+                for path in sorted(container.parent.rglob('*')):
                     if path.is_file():
                         archive.write(path, path.relative_to(container.parent))
             with (container / identifier / 'nodus_core.framework/Info.plist').open('rb') as stream:
                 metadata = plistlib.load(stream)
             records.append(dict(file=filename, os=os_name, arch='arm64', abi=abi,
                                 minimum=metadata['MinimumOSVersion'], version=metadata['NodusCoreVersion'],
-                                source_commit=metadata['NodusSourceCommit'], dirty=metadata['NodusSourceDirty'],
+                                source_commit=metadata['NodusSourceCommit'], dirty=metadata['NodusSourceDirty'], api_files=api_files,
                                 sha256=hashlib.sha256((staging / filename).read_bytes()).hexdigest()))
             shutil.rmtree(container.parent)
         (staging / 'manifest.json').write_text(json.dumps(records,ensure_ascii=False,indent=2)+'\n')

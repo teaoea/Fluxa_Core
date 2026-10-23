@@ -1563,13 +1563,16 @@
         "Tools/build-apple.py；build-apple.sh；build-macos.sh；src/lib.rs：Apple 最低系统与 ARM64 构建契约"
       ],
       "declared_cases": [
+        "test_default_build_is_macos_only",
         "test_supported_matrix",
         "test_excluded_targets_rejected_before_build",
         "test_deployment_environment_isolated",
         "test_existing_output_preserved",
         "test_local_only_entrypoints",
         "test_package_names_and_contents",
-        "test_packages_reject_excluded_architecture"
+        "test_packages_reject_excluded_architecture",
+        "test_external_api_requires_error_contract",
+        "test_external_api_excludes_internal_and_rewrites_links"
       ]
     },
     {

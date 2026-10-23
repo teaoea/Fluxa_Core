@@ -191,6 +191,8 @@ class DevReleaseTests(unittest.TestCase):
         self.assertNotIn('${NODUS_BINARY_PUBLISH_TOKEN',script)
         self.assertIn('Tools/verify-manual-release.py',script)
         self.assertIn('--prepare',script)
+        self.assertIn('--package-dir',script,'交付入口必须复用包含API文档的统一打包器')
+        self.assertNotIn('ditto -c -k',script,'不能绕开同包文档要求直接压缩框架')
     def test_framework_preserves_current_license_files(self):
         # 运行真实打包脚本，仅替换耗时的工具；文件复制不打桩，能检出许可文件改名遗漏。
         shutil.copyfile(ROOT/'build-macos.sh',self.repo/'build-macos.sh')
@@ -198,6 +200,8 @@ class DevReleaseTests(unittest.TestCase):
         for name in ['LICENSE','LICENSE.md']:
             shutil.copyfile(ROOT/name,self.repo/name)
         (self.repo/'Notices').mkdir();(self.repo/'Notices/third-party').write_text('第三方声明')
+        contract=self.repo/'Documentation/API/External/error_api.json';contract.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(ROOT/'Documentation/API/External/error_api.json',contract)
         (self.repo/'include').mkdir()
         for name in ['nodus_core.h','nodus_debug_ipc.h','module.modulemap']:
             shutil.copyfile(ROOT/'include'/name,self.repo/'include'/name)

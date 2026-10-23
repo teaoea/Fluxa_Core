@@ -1,7 +1,7 @@
 # 测试文件：tests/test_apple_platforms.py
 # 测试类型：单元测试、构建契约回归
 # 测试对象：Tools/build-apple.py；build-apple.sh；build-macos.sh；src/lib.rs
-# 测试内容：test_default_build_is_macos_only；test_supported_matrix；test_excluded_targets_rejected_before_build；test_deployment_environment_isolated；test_existing_output_preserved；test_local_only_entrypoints；test_package_names_and_contents；test_packages_reject_excluded_architecture。
+# 测试内容：test_default_build_is_macos_only；test_supported_matrix；test_excluded_targets_rejected_before_build；test_deployment_environment_isolated；test_existing_output_preserved；test_local_only_entrypoints；test_package_names_and_contents；test_packages_reject_excluded_architecture；test_external_api_requires_error_contract；test_external_api_excludes_internal_and_rewrites_links。
 # 测试依据：用户 2026-10-21 最低系统矩阵；排除 Intel Mac、watchOS、visionOS；仅本地成品。
 # 前置条件：Python；测试使用临时文件及受控 SDK 查询，不执行网络上传或真实 Cargo 构建。
 import importlib.util
@@ -72,10 +72,18 @@ class ApplePlatformsTests(unittest.TestCase):
             self.assertEqual({p.name for p in output.iterdir()},{'nodus-core-ios-arm64-simulator.zip','manifest.json','SHA256SUMS'})
             with zipfile.ZipFile(output/'nodus-core-ios-arm64-simulator.zip') as archive:
                 self.assertIn('NodusCore.xcframework/ios-arm64-simulator/nodus_core.framework/nodus_core',archive.namelist())
+                self.assertIn('Documentation/API/External/error_api.md',archive.namelist())
+                self.assertEqual(archive.read('Documentation/API/External/error_api.json'),(ROOT/'Documentation/API/External/error_api.json').read_bytes())
+                self.assertIn('Documentation/API/External/vpn/platform_check_api.md',archive.namelist())
+                self.assertFalse(any('/Internal/' in n for n in archive.namelist()))
                 info=plistlib.loads(archive.read('NodusCore.xcframework/Info.plist'))
                 self.assertEqual(info['AvailableLibraries'],[library])
             record=json.loads((output/'manifest.json').read_text())[0]
             self.assertEqual((record['os'],record['arch'],record['abi'],record['minimum']),('ios','arm64','simulator','16.0'))
+            import hashlib
+            with zipfile.ZipFile(output/'nodus-core-ios-arm64-simulator.zip') as archive:
+                for name,digest in record['api_files'].items():
+                    self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(),digest)
     def test_packages_reject_excluded_architecture(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);framework=root/'framework';framework.mkdir()
@@ -84,6 +92,30 @@ class ApplePlatformsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'非约定架构'):
                 builder.package_slices(framework,root/'packages')
             self.assertFalse((root/'packages').exists())
+    def test_external_api_requires_error_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=root/'Documentation/API/External';source.mkdir(parents=True)
+            (source/'ffi_api.md').write_text('public')
+            with patch.object(builder,'ROOT',root):
+                with self.assertRaisesRegex(ValueError,'缺少对外 API 或错误契约'):
+                    builder.bundle_external_api(root/'output','a'*40)
+            self.assertFalse((root/'output').exists())
+    def test_external_api_excludes_internal_and_rewrites_links(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=root/'Documentation/API/External';source.mkdir(parents=True)
+            for name in ('ffi_api.md','error_api.md','error_api.json'):
+                (source/name).write_text('{}' if name.endswith('.json') else 'public')
+            internal=root/'Documentation/API/Internal';internal.mkdir();(internal/'private_api.md').write_text('internal-only')
+            (root/'src').mkdir();(root/'src/ffi.rs').write_text('implementation')
+            (source/'ffi_api.md').write_text('[error](error_api.md) [source](../../../src/ffi.rs)')
+            output=root/'output'
+            with patch.object(builder,'ROOT',root):
+                files=builder.bundle_external_api(output,'a'*40)
+            self.assertEqual(set(files),{'Documentation/API/External/'+n for n in ('ffi_api.md','error_api.md','error_api.json')})
+            text=(output/'ffi_api.md').read_text()
+            self.assertIn('[error](error_api.md)',text)
+            self.assertIn('https://github.com/teaoea/Nodus-Core/blob/'+'a'*40+'/src/ffi.rs',text)
+            self.assertFalse((output/'private_api.md').exists())
     def test_local_only_entrypoints(self):
         for name in ('build-apple.sh','build-macos.sh','Tools/build-apple.py'):
             text=(ROOT/name).read_text()
