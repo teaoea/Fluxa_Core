@@ -123,6 +123,47 @@ impl HttpsClient {
         .await
         .map_err(|_| Error::NetworkTimeout)?
     }
+    /// 前置检查走真实路由、代理握手、目标 TLS 和 HTTP；不执行复写或跟随重定向。
+    /// 返回实际连接决策，不能将另一次路由预测或监听端口存在当作代理成功。
+    pub(crate) async fn probe(&self, target: &str) -> Result<crate::routing::Decision> {
+        let url = Url::parse(target).map_err(|_| Error::InvalidInput)?;
+        let host = url
+            .host_str()
+            .ok_or(Error::InvalidInput)?
+            .trim_matches(['[', ']']);
+        let socket = self
+            .network
+            .connect_stream(
+                host,
+                url.port_or_known_default().ok_or(Error::InvalidInput)?,
+                None,
+            )
+            .await?;
+        let decision = socket.decision();
+        let name = ServerName::try_from(host.to_owned()).map_err(|_| Error::InvalidInput)?;
+        let stream = TlsConnector::from(self.config.clone())
+            .connect(name, socket)
+            .await
+            .map_err(Error::from_tls)?;
+        let response = self
+            .execute_wire(
+                "GET",
+                target,
+                &[],
+                &[],
+                ConnectionOptions {
+                    stream: Some(Box::new(stream)),
+                    maximum_body: Some(4096),
+                    skip_rewrites: true,
+                    ..ConnectionOptions::default()
+                },
+            )
+            .await?;
+        if !(200..300).contains(&response.status) {
+            return Err(Error::Network);
+        }
+        Ok(decision)
+    }
     /// GeoIP 专用大文件入口；调用者必须先持有全量正文预算，证书/路由/超时仍共用原流程。
     pub(crate) async fn download_database(&self, target: &str) -> Result<Response> {
         timeout(

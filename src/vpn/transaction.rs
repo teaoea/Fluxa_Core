@@ -3,7 +3,9 @@
 use crate::error::{Error, Result};
 // 系统接管槽由内核全局持有，前端对象释放不能遗失回滚失败的恢复入口。
 static ACTIVE: Mutex<Option<Arc<Inner>>> = Mutex::new(None);
-mod trusted {
+#[cfg(test)]
+pub(super) static TEST_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) mod trusted {
     pub trait Sealed {}
 }
 use serde::Serialize;
@@ -89,6 +91,7 @@ struct Inner {
     cancel: watch::Sender<bool>,
     changed: Notify,
     steps: Mutex<Option<Arc<dyn Steps>>>,
+    preflight: Option<Arc<super::preflight::Inspection>>,
 }
 /// 单个槽保持整个运行及恢复生命周期；重复启动不能替换仍活动或恢复失败的事务。
 /// 只读状态和取消意图不授予外部调用者推进阶段或发布 Running 的能力。
@@ -106,6 +109,37 @@ impl Controller {
     /// 每阶段最多120秒；期限触发取消后仍等待步骤确定停止，不能脱离回滚。
     /// 返回的是开始受理，不是成功接管；正常运行时调用 stop 并等待完成。
     pub fn begin(&self, steps: Arc<dyn Steps>, deadline: Duration) -> Result<u64> {
+        self.begin_with_report(steps, deadline, None)
+    }
+    /// 执行隔离的真实网络检查；缺少完整平台检查时失败，不进入接管。
+    pub fn begin_preflight(
+        &self,
+        yaml: &str,
+        resources: crate::storage::Resources,
+        probes: &[String],
+        deadline: Duration,
+    ) -> Result<u64> {
+        super::preflight::begin(self, yaml, resources, probes, deadline, None)
+    }
+    /// 查询同一事务的无敏感数据检查摘要；不是可提交的授权或检查凭证。
+    pub fn preflight_status(&self, transaction: u64) -> Result<Option<super::preflight::Report>> {
+        self.get(transaction)?
+            .preflight
+            .as_ref()
+            .map(|r| {
+                r.report
+                    .lock()
+                    .map(|v| v.clone())
+                    .map_err(|_| Error::Internal)
+            })
+            .transpose()
+    }
+    pub(super) fn begin_with_report(
+        &self,
+        steps: Arc<dyn Steps>,
+        deadline: Duration,
+        preflight: Option<Arc<super::preflight::Inspection>>,
+    ) -> Result<u64> {
         if deadline.is_zero() || deadline > Duration::from_secs(120) {
             return Err(Error::InvalidInput);
         }
@@ -118,6 +152,13 @@ impl Controller {
             }
         }
         let transaction = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        if let Some(report) = &preflight {
+            report
+                .report
+                .lock()
+                .map_err(|_| Error::Internal)?
+                .transaction = transaction;
+        }
         let (cancel, _) = watch::channel(false);
         let inner = Arc::new(Inner {
             state: Mutex::new(State {
@@ -136,6 +177,7 @@ impl Controller {
             cancel,
             changed: Notify::new(),
             steps: Mutex::new(Some(steps)),
+            preflight,
         });
         *self.owned.lock().map_err(|_| Error::Internal)? = Some(transaction);
         *slot = Some(inner.clone());
@@ -304,7 +346,10 @@ impl Inner {
                 _ = tokio::time::sleep_until(expires) => {
                     self.request_cancel()?;
                     let completed = step.await.map_err(|_| Error::Internal)?;
-                    completed.and(Err(Error::NetworkTimeout))
+                    match completed {
+                        Ok(()) | Err(Error::Cancelled) => Err(Error::NetworkTimeout),
+                        Err(error) => Err(error),
+                    }
                 }
             };
             result?;

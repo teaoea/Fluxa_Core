@@ -16,9 +16,9 @@
 //! 测试依据：VPN启动技术规范、会话生命周期与资源所有权隔离原则。
 //!
 //! 前置条件：仅可信测试步骤替身；不接管系统、不改路由/DNS、不连接外部网络。
+use super::TEST_GATE as GATE;
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-static GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 struct Fixture {
     calls: Mutex<Vec<Phase>>,
     fail: Option<Phase>,

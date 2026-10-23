@@ -21,6 +21,7 @@ fn cancellation(connection: &Connection) -> Cancellation {
     })
 }
 pub struct ManagedStream {
+    decision: crate::routing::Decision,
     stream: super::StreamSlot,
     connection: Arc<Connection>,
     owner: Weak<Mutex<State>>,
@@ -29,6 +30,9 @@ pub struct ManagedStream {
     write_cancel: Cancellation,
 }
 impl ManagedStream {
+    pub(crate) fn decision(&self) -> crate::routing::Decision {
+        self.decision.clone()
+    }
     fn cancelled(&mut self, cx: &mut Context<'_>, read: bool) -> io::Result<()> {
         if *self.connection.cancel.borrow() {
             return Err(io::Error::new(
@@ -199,6 +203,7 @@ impl Manager {
             )));
             resources.detached = Some(stream.clone());
             Ok(ManagedStream {
+                decision: opened.decision,
                 stream,
                 owner: Arc::downgrade(&self.state),
                 id,

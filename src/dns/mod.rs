@@ -420,6 +420,75 @@ impl Resolver {
         }
         table.reverse(address)?.ok_or(Error::InvalidState)
     }
+    /// 逐个实测主配置上游，绕过 hosts/Fake-IP/前台查询缓存；不以另一上游成功掩盖失败。
+    pub(crate) async fn preflight_upstreams(
+        &self,
+        name: &str,
+        strategy: crate::configuration::models::IpStrategy,
+    ) -> Result<usize> {
+        use crate::configuration::models::IpStrategy;
+        self.ensure_running()?;
+        let binding = self.binding_authority()?;
+        let _binding = binding
+            .as_ref()
+            .map(|a| a.enter(a.identity()))
+            .transpose()?;
+        let _operation = self.authority.enter(self.authority.identity())?;
+        let _permit = QUERIES.try_acquire().map_err(|_| Error::ResourceLimit)?;
+        let (name, _) = validated_query(Query {
+            name: name.to_owned(),
+            query_type: "A".into(),
+        })?;
+        if name == "localhost" || name.ends_with(".localhost") {
+            return Err(Error::InvalidInput);
+        }
+        let fqdn = format!("{name}.");
+        let families: &[RecordType] = match strategy {
+            IpStrategy::OnlyIpv4 => &[RecordType::A],
+            IpStrategy::OnlyIpv6 => &[RecordType::AAAA],
+            IpStrategy::PreferIpv4 => &[RecordType::A, RecordType::AAAA],
+            IpStrategy::PreferIpv6 => &[RecordType::AAAA, RecordType::A],
+        };
+        let guard = self.resources.read().await;
+        let resources = guard.as_ref().ok_or(Error::InvalidState)?;
+        let plan = self.main.as_ref().ok_or(Error::InvalidState)?;
+        let count = plan.len();
+        resources
+            .runtime
+            .guard(async {
+                for index in 0..count {
+                    let mut result = Err(Error::DnsResponse);
+                    for &kind in families {
+                        let lookup = tokio::time::timeout(
+                            Duration::from_millis(self.config.timeout_ms),
+                            plan.lookup(index, &fqdn, kind, &resources.runtime),
+                        )
+                        .await
+                        .map_err(|_| Error::DnsTimeout)??;
+                        result = match lookup {
+                            Ok(answer)
+                                if answer
+                                    .answers()
+                                    .iter()
+                                    .any(|r| matches!(&r.data, RData::A(_) | RData::AAAA(_))) =>
+                            {
+                                Ok(())
+                            }
+                            Err(NetError::Timeout) => Err(Error::DnsTimeout),
+                            Err(_) if self.config.dnssec => return Err(Error::DnsValidation),
+                            _ => Err(Error::DnsResponse),
+                        };
+                        if result.is_ok() {
+                            break;
+                        }
+                    }
+                    result?;
+                }
+                self.ensure_running()?;
+                Ok(count)
+            })
+            .await
+    }
     pub async fn resolve(&self, query: Query) -> Result<Answer> {
         self.resolve_inner(query, true).await
     }

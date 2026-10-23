@@ -24,3 +24,7 @@ begin仅接受密封Steps，外部Rust调用者不能自行实现Sealed或提供
 ## 完成后的资源边界
 
 stop／retry_cleanup 只有在回滚成功且内核持有的步骤资源释放后才报告清理完成；只读状态仍可查询。回滚失败保留恢复对象和 Unknown，不能开启下一事务。若资源析构发生 panic，同样返回清理错误，不将其包装成停止成功；已消失的步骤对象不能复活，重试缺失对象返回 InvalidState。外部保留的 Arc 不授予活动资源使用权，真实平台资源撤销仍由可信 rollback 实现负责。
+
+## 真实检查入口（2.10.0-dev 增量）
+
+`begin_preflight`与`preflight_status`见[preflight_api.md](preflight_api.md)。它们复用本事务槽；网络通过也不绕过未实现的权限、系统能力、预算及防回环条件，不开始系统VPN。

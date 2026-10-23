@@ -467,6 +467,37 @@ impl Router {
         self.debug = Some(session.view()?);
         Ok(self)
     }
+    /// 从编译后的有效快照取必要代理集合；不解析规则字符串，也不改变匹配优先级。
+    pub(crate) fn preflight_outbounds(&self) -> Result<std::collections::BTreeSet<String>> {
+        let document = self.runtime.document();
+        let mut names = std::collections::BTreeSet::new();
+        if document.settings.mode == Mode::Direct {
+            return Ok(names);
+        }
+        if document.settings.mode == Mode::Global || document.settings.fallback == Policy::Proxy {
+            names.insert(
+                document
+                    .settings
+                    .outbound
+                    .clone()
+                    .ok_or(Error::InvalidState)?,
+            );
+        }
+        if document.settings.mode == Mode::Rules {
+            for effective in &document.rules {
+                if effective.rule.policy == Policy::Proxy {
+                    let outbound = effective
+                        .rule
+                        .outbound
+                        .as_ref()
+                        .or(document.settings.outbound.as_ref())
+                        .ok_or(Error::InvalidState)?;
+                    names.insert(outbound.clone());
+                }
+            }
+        }
+        Ok(names)
+    }
     pub fn evaluate(&self, target: Target) -> Result<Decision> {
         if let Some(debug) = &self.debug
             && let Some(decision) = debug.evaluate(&target)?

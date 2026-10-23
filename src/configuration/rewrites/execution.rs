@@ -22,6 +22,20 @@ pub(crate) enum Outcome {
     Route(crate::routing::Policy, Option<String>),
 }
 impl Document {
+    /// 原生复写的活动代理引用也属于必要链路；不运行复写来伪造探测响应。
+    pub(crate) fn preflight_rewrite_outbounds(
+        &self,
+        plugins: &crate::configuration::plugins::Bundle,
+    ) -> std::collections::BTreeSet<String> {
+        self.raw
+            .rewrites
+            .iter()
+            .chain(plugins.plugins.iter().flat_map(|p| p.rules.iter()))
+            .filter(|rule| rule.wire.common().enable)
+            .filter_map(Rule::proxy_node)
+            .map(str::to_owned)
+            .collect()
+    }
     pub(crate) fn has_rewrites(&self) -> bool {
         self.raw.rewrites.iter().any(|r| {
             r.wire.common().enable

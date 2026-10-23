@@ -19,3 +19,7 @@
 ## 禁止行为（不允许做什么）
 
 不得将 CandidateReady 或 preparation 成功当作 Running／activation_permitted，不得下载落盘、改写正式配置或绕过后续必要链路与系统授权验证。
+
+## 真实网络前置检查
+
+Controller 的 begin_preflight／preflight_status 复用同一事务槽，真实探测与未就绪边界见[preflight.md](vpn/preflight.md)。候选准备成功仍不代表完整前置检查通过。

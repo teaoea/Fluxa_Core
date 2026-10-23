@@ -74,7 +74,11 @@ async fn fixture_with_provider(
     params.key_usages = vec![KeyUsagePurpose::KeyCertSign];
     let ca = CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap();
     let key = KeyPair::generate().unwrap();
-    let mut params = CertificateParams::new(vec!["localhost".to_owned()]).unwrap();
+    let mut params = CertificateParams::new(vec![
+        "localhost".to_owned(),
+        "connect.example.test".to_owned(),
+    ])
+    .unwrap();
     if expired {
         params.not_before = time::OffsetDateTime::now_utc() - time::Duration::days(2);
         params.not_after = time::OffsetDateTime::now_utc() - time::Duration::days(1);
