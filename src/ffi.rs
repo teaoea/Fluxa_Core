@@ -75,6 +75,11 @@ struct Engine {
     busy: AtomicBool,
     vpn_preparation: Mutex<Option<Arc<crate::vpn::Preparation>>>,
     vpn_closed: AtomicBool,
+    // 进程唯一事务槽的受理入口；句柄只能停止自己受理的事务，查询与恢复按事务 ID 校验。
+    vpn_transactions: crate::vpn::transaction::Controller,
+    // 事务受理与句柄关闭的同步边界：值为 true 表示已关闭。受理在锁内完成关闭检查与登记，
+    // destroy 在同一把锁内置位，二者不会交错出现“关闭后仍登记”或“登记后关闭看不见”。
+    vpn_transaction_admission: Mutex<bool>,
     outbound: Arc<crate::outbound::Manager>,
     dns_service: Mutex<Option<crate::dns::service::Service>>,
     packet_session: Mutex<Option<crate::tun::PacketSession>>,
@@ -372,6 +377,28 @@ enum Command {
     },
     VpnPreparationStatus,
     VpnPreparationClose,
+    /// 隔离的真实网络前置检查；受理只表示取得事务槽，不代表检查通过，也不接管网络。
+    VpnPreflightBegin {
+        yaml: String,
+        #[serde(default)]
+        resources: crate::storage::Resources,
+        probes: Vec<String>,
+        deadline_seconds: u64,
+    },
+    /// 同一事务的无敏感数据检查摘要；不是可提交的授权或检查凭证。
+    VpnPreflightStatus {
+        transaction: u64,
+    },
+    /// 内核仍保留的事务摘要；没有事务时不含 vpn_transaction 字段。
+    VpnTransactionStatus,
+    /// 请求取消并等待确定清理；重复调用共享同一结果。
+    VpnTransactionStop {
+        transaction: u64,
+    },
+    /// 只重试回滚失败事务的清理，不重新启动。
+    VpnTransactionRetryCleanup {
+        transaction: u64,
+    },
     ProviderStatus,
     ProviderRefresh {
         name: Option<String>,
@@ -574,6 +601,111 @@ impl RuntimeRulesSummary {
         }
     }
 }
+/// 事务状态的对外形式：错误转为公开错误协议，不含配置、凭据或系统原状态。
+#[derive(Serialize)]
+struct VpnTransactionReply {
+    transaction: u64,
+    phase: crate::vpn::transaction::Phase,
+    system: crate::vpn::transaction::SystemState,
+    failure: Option<ErrorInfo>,
+    failure_phase: Option<crate::vpn::transaction::Phase>,
+    cleanup_failure: Option<ErrorInfo>,
+}
+impl From<crate::vpn::transaction::Status> for VpnTransactionReply {
+    fn from(status: crate::vpn::transaction::Status) -> Self {
+        Self {
+            transaction: status.transaction,
+            phase: status.phase,
+            system: status.system,
+            failure: status.failure.map(Error::public_info),
+            failure_phase: status.failure_phase,
+            cleanup_failure: status.cleanup_failure.map(Error::public_info),
+        }
+    }
+}
+/// 受控并发测试使用的暂停点；仅测试编译存在，生产路径没有任何等待。
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PausePoint {
+    PreflightAdmission,
+    TransactionReply,
+}
+#[cfg(test)]
+type PauseBarriers = Arc<(std::sync::Barrier, std::sync::Barrier)>;
+#[cfg(test)]
+static TEST_PAUSE: Mutex<Option<(PausePoint, PauseBarriers)>> = Mutex::new(None);
+/// 命中已登记的暂停点时，先通知测试已到达，再等待测试放行。
+#[cfg(test)]
+fn test_pause(point: PausePoint) {
+    let pause = TEST_PAUSE.lock().ok().and_then(|slot| {
+        slot.as_ref()
+            .filter(|(registered, _)| *registered == point)
+            .map(|(_, barriers)| barriers.clone())
+    });
+    if let Some(barriers) = pause {
+        barriers.0.wait();
+        barriers.1.wait();
+    }
+}
+/// 关闭检查与事务登记在同一把句柄锁内完成：destroy 先取得锁则拒绝受理；受理先取得锁，
+/// destroy 置位后必然看到已登记的事务并等待其结束。锁内只做输入校验与登记，不等待网络任务。
+fn begin_vpn_preflight(
+    engine: &Engine,
+    yaml: String,
+    resources: crate::storage::Resources,
+    probes: Vec<String>,
+    deadline_seconds: u64,
+) -> Result<Reply, Error> {
+    let closed = engine
+        .vpn_transaction_admission
+        .lock()
+        .map_err(|_| Error::Internal)?;
+    if *closed || engine.vpn_closed.load(Ordering::Acquire) {
+        return Err(Error::InvalidState);
+    }
+    #[cfg(test)]
+    test_pause(PausePoint::PreflightAdmission);
+    let yaml = Zeroizing::new(yaml);
+    let transaction = engine.vpn_transactions.begin_preflight(
+        &yaml,
+        resources,
+        &probes,
+        std::time::Duration::from_secs(deadline_seconds),
+    )?;
+    let status = engine.vpn_transactions.status(transaction)?;
+    drop(closed);
+    Ok(Reply {
+        success: true,
+        vpn_transaction: Some(status.into()),
+        ..Reply::default()
+    })
+}
+/// 停止与清理重试共用：在同一次操作中取得该事务的终态并直接回复，
+/// 不在之后重新查询可能已被新事务替换的全局槽。
+fn finish_vpn_transaction(
+    engine: &Arc<Engine>,
+    transaction: u64,
+    retry: bool,
+) -> Result<Reply, Error> {
+    let owner = engine.clone();
+    let status = run_network(async move {
+        if retry {
+            owner
+                .vpn_transactions
+                .retry_cleanup_status(transaction)
+                .await
+        } else {
+            owner.vpn_transactions.stop_status(transaction).await
+        }
+    })?;
+    #[cfg(test)]
+    test_pause(PausePoint::TransactionReply);
+    Ok(Reply {
+        success: true,
+        vpn_transaction: Some(status.into()),
+        ..Reply::default()
+    })
+}
 #[derive(Default, Serialize)]
 struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -588,6 +720,10 @@ struct Reply {
     configuration_status: Option<crate::configuration::ConfigurationStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     vpn_preparation: Option<crate::vpn::Status>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vpn_transaction: Option<VpnTransactionReply>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vpn_preflight: Option<crate::vpn::preflight::Report>,
     provider_status: Option<crate::providers::Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
     warn: Option<crate::geoip::Warning>,
@@ -982,6 +1118,13 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                     success: true,
                     ..Reply::default()
                 });
+            }
+            // 停止与清理重试不能被普通请求的忙碌状态或请求槽位挡住。
+            Ok(Command::VpnTransactionStop { transaction }) => {
+                return finish_vpn_transaction(&engine, transaction, false);
+            }
+            Ok(Command::VpnTransactionRetryCleanup { transaction }) => {
+                return finish_vpn_transaction(&engine, transaction, true);
             }
             Ok(Command::TunUdpClose | Command::TunClose) => {
                 engine.close_tun()?;
@@ -1558,6 +1701,24 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 ..Reply::default()
             })
         },
+        Command::VpnPreflightBegin { yaml, resources, probes, deadline_seconds } => {
+            // 其余输入与期限由前置检查在准入前严格校验。
+            begin_vpn_preflight(engine, yaml, resources, probes, deadline_seconds)
+        },
+        Command::VpnPreflightStatus { transaction } => Ok(Reply {
+            success: true,
+            vpn_preflight: engine.vpn_transactions.preflight_status(transaction)?,
+            ..Reply::default()
+        }),
+        Command::VpnTransactionStatus => Ok(Reply {
+            success: true,
+            vpn_transaction: engine.vpn_transactions.current_status()?.map(Into::into),
+            ..Reply::default()
+        }),
+        Command::VpnTransactionStop { transaction } => finish_vpn_transaction(engine, transaction, false),
+        Command::VpnTransactionRetryCleanup { transaction } => {
+            finish_vpn_transaction(engine, transaction, true)
+        },
         Command::ConfigurationStatus => Ok(Reply {
             success: true,
             configuration_status: Some(engine.outbound.configuration_status()?),
@@ -1889,7 +2050,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
 pub extern "C" fn nodus_core_abi_version() -> u32 {
     2
 }
-// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。
+// 安全条件同上；位 0 代表 HTTPS 客户端，位 1 代表 MITM，位 2 代表 JS，位 3 代表通用 HTTP 调试，位 4 代表内置流量脚本，位 5 仅代表 TUN 数据包检查（不含转发），位 6 代表 DNS 客户端，位 7 代表 Fake-IP，位 8 代表局域网 DNS 服务，位 9 代表路由决策，位 10 代表数字地址 TCP/UDP 出站，位 11 代表配置 DNS 的域名出站；不代表代理出站协议可用。位 25 及以上的含义见函数内常量说明。
 #[unsafe(no_mangle)]
 pub extern "C" fn nodus_core_capabilities() -> u64 {
     // 位 25 代表整数错误查询及显式结构化命令扩展，原能力位不改义。
@@ -1902,10 +2063,13 @@ pub extern "C" fn nodus_core_capabilities() -> u64 {
     const VPN_CANDIDATE_CAPABILITY: u64 = 1 << 29;
     // 位 30 已移除（旧写入接口）；位 31 代表纯模板和宿主授权文件只读接口。
     const READ_ONLY_FILES_CAPABILITY: u64 = 1 << 31;
+    // 位 32：VPN 前置检查事务命令（受理、报告、当前事务、停止与清理重试）；不代表可接管系统 VPN。
+    const VPN_PREFLIGHT_CAPABILITY: u64 = 1 << 32;
     33554431
         | TUN_TCP_CAPABILITY
         | VPN_CANDIDATE_CAPABILITY
         | READ_ONLY_FILES_CAPABILITY
+        | VPN_PREFLIGHT_CAPABILITY
         | STRUCTURED_ERROR_CAPABILITY
         | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {
@@ -1966,6 +2130,20 @@ pub extern "C" fn nodus_core_destroy(handle: u64) -> i32 {
                 Ok(())
             });
             shutdown_step(&mut first_error, || engine.close_vpn_preparation());
+            // 等待本句柄受理的前置检查事务确定结束；清理失败作为真实错误返回，事务槽保留供恢复。
+            // 未受理事务的句柄不进入同步等待，避免在异步运行时中销毁时误报状态错误。
+            shutdown_step(&mut first_error, || {
+                // 与受理共用同一把锁置位：此后不能再登记，此前已登记的事务一定可见。
+                *engine
+                    .vpn_transaction_admission
+                    .lock()
+                    .map_err(|_| Error::Internal)? = true;
+                if !engine.vpn_transactions.owns_slot()? {
+                    return Ok(());
+                }
+                let owner = engine.clone();
+                run_network(async move { owner.vpn_transactions.stop_owned().await })
+            });
             shutdown_step(&mut first_error, || engine.close_tun());
             shutdown_step(&mut first_error, || finish_shutdown(engine.outbound.stop()));
             shutdown_step(&mut first_error, || {

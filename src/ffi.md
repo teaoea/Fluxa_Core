@@ -24,12 +24,23 @@ destroy 先撤销注册表身份和新操作准入，再逐项尝试独立关闭
 
 二进制 submit／receive 处理受预算约束的包，队列为空与错误状态区分。普通命令不能注入 Debug；其独立认证 IPC 在 ffi/debug.rs 中维护。候选就绪、诊断查询或句柄存在不等于系统 VPN Running；本 ABI 不接受配置中的“已授权／检查通过”标志替代真实系统验证。
 
+## VPN 前置检查事务命令（2.14.0-dev）
+
+`Engine.vpn_transactions` 是该句柄的事务控制入口，事务本身保存在 `src/vpn/transaction.rs` 的进程唯一槽中。`vpn_preflight_begin` 在句柄未关闭时调用 `Controller::begin_preflight`，YAML 以 `Zeroizing` 持有，计划由前置检查在受理前严格校验；成功后回复刚受理事务的摘要。`vpn_preflight_status`、`vpn_transaction_status` 只读返回报告和槽内事务摘要；`VpnTransactionReply` 把 `Status` 中的错误转为公开 `ErrorInfo`，不含配置、凭据或系统原状态。
+
+`begin_vpn_preflight` 持有 `Engine.vpn_transaction_admission` 锁完成关闭检查与登记，destroy 在同一把锁内置位关闭，避免“关闭检查之后、登记之前被销毁”的交错；锁内不等待网络任务。`vpn_transaction_stop`、`vpn_transaction_retry_cleanup` 由 `finish_vpn_transaction` 经 `run_network` 调用 `stop_status`／`retry_cleanup_status`，直接回复同一次操作取得的该事务终态，不再重新查询全局槽；两者也登记在不受忙碌状态阻塞的小型取消通道。destroy 在撤销准备准入（`vpn_closed`）之后调用 `Controller::stop_owned` 等待本句柄受理的事务结束；槽中已是其他事务时不做操作，清理失败作为首个真实错误返回且保留恢复入口。能力位 32 声明这些命令存在，不声明系统 VPN 可用。
+
+测试专用暂停点 `PausePoint`／`test_pause` 只在测试编译存在，用于受控并发回归。
+
+禁止：接受调用方提交的检查、授权或接管成功字段；用一个事务 ID 控制槽内的其他事务；在句柄关闭后受理新事务；把受理、网络检查通过或停止成功报告为 Running。对外契约见 [ffi_api.md](../Documentation/API/External/ffi_api.md) “VPN 前置检查事务命令”。
+
 ## 对应 API、示例与测试
 
-- [ffi_api.md](../Documentation/API/External/ffi_api.md)：已编写的配置检查 C ABI 请求／响应。
+- [ffi_api.md](../Documentation/API/External/ffi_api.md)：已编写的配置检查与 VPN 前置检查事务 C ABI 请求／响应。
 - [error_api.md](../Documentation/API/External/error_api.md)：固定错误协议与参数 Schema。
 - [ffi_error_query.rs](../examples/ffi_error_query.rs)：长度查询、容量不足与释放。
 - [ffi_response_retry.rs](../examples/ffi_response_retry.rs)：输出预算与无损重试。
+- [ffi_vpn_preflight.rs](../examples/ffi_vpn_preflight.rs)：受理前置检查、查询报告、停止与销毁，不接管系统 VPN。
 - [test_ffi.rs](../tests/test_ffi.rs) 及 [同名文档](../tests/test_ffi.md)：实际边界和关闭回归；执行证据不等同于最低系统、真实权限或系统 VPN 验收。
 
 ## 禁止行为（不允许做什么）

@@ -1,10 +1,12 @@
 //! 四阶段事务驱动。仅可信的内核 Rust 实现提供步骤，不接收配置/IPC 的成功标志。
-//! 平台接线与必要网络检查未接入前，不从 FFI 暴露本驱动或宣称系统 VPN 可用。
+//! 平台接线未接入前，不从 FFI 暴露 begin 驱动或宣称系统 VPN 可用；FFI 只受理前置检查、
+//! 查询状态、停止及重试清理，见 src/ffi.md。
 use crate::error::{Error, Result};
 // 系统接管槽由内核全局持有，前端对象释放不能遗失回滚失败的恢复入口。
 static ACTIVE: Mutex<Option<Arc<Inner>>> = Mutex::new(None);
+// FFI 测试同样占用进程唯一事务槽，需共享同一测试闸门；仅测试编译可见。
 #[cfg(test)]
-pub(super) static TEST_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(crate) static TEST_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub(super) mod trusted {
     pub trait Sealed {}
 }
@@ -226,12 +228,47 @@ impl Controller {
     }
     /// 取消与阶段准入使用同一锁。重复停止等待同一个清理结果，失败不会自动重试。
     pub async fn stop(&self, transaction: u64) -> Result<()> {
+        self.stop_status(transaction).await.map(|_| ())
+    }
+    /// 同 stop，并返回同一事务的终态；等待期间持有该事务的内部引用，
+    /// 之后槽被新事务替换也不影响本次结果。引用只读取状态，不授予活动资源使用权。
+    pub(crate) async fn stop_status(&self, transaction: u64) -> Result<Status> {
         let inner = self.get(transaction)?;
+        inner.request_cancel()?;
+        inner.wait_finished().await?;
+        inner.snapshot()
+    }
+    /// 本控制器受理的事务是否仍在槽中；为 false 时句柄销毁无需等待事务清理。
+    pub(crate) fn owns_slot(&self) -> Result<bool> {
+        let Some(transaction) = *self.owned.lock().map_err(|_| Error::Internal)? else {
+            return Ok(false);
+        };
+        match self.get(transaction) {
+            Ok(_) => Ok(true),
+            Err(Error::InvalidState) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+    /// 停止本控制器受理的事务并等待确定清理；槽中已是其他事务或尚未受理时无需操作。
+    /// 供 FFI 句柄销毁使用，不能用来停止其他控制器的事务。
+    pub(crate) async fn stop_owned(&self) -> Result<()> {
+        let Some(transaction) = *self.owned.lock().map_err(|_| Error::Internal)? else {
+            return Ok(());
+        };
+        let inner = match self.get(transaction) {
+            Ok(inner) => inner,
+            Err(Error::InvalidState) => return Ok(()),
+            Err(error) => return Err(error),
+        };
         inner.request_cancel()?;
         inner.wait_finished().await
     }
     /// 显式重试失败的清理；失败时槽及驱动保留，不冒称已恢复。
     pub async fn retry_cleanup(&self, transaction: u64) -> Result<()> {
+        self.retry_cleanup_status(transaction).await.map(|_| ())
+    }
+    /// 同 retry_cleanup，并返回同一事务的终态，不依赖之后的全局槽查询。
+    pub(crate) async fn retry_cleanup_status(&self, transaction: u64) -> Result<Status> {
         let runtime = crate::lifecycle::runtime()?;
         let inner = self.get(transaction)?;
         let launch = {
@@ -254,10 +291,19 @@ impl Controller {
                 work.cleanup().await;
             });
         }
-        inner.wait_finished().await
+        inner.wait_finished().await?;
+        inner.snapshot()
     }
 }
 impl Inner {
+    fn snapshot(&self) -> Result<Status> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| Error::Internal)?
+            .status
+            .clone())
+    }
     fn request_cancel(&self) -> Result<()> {
         let mut state = self.state.lock().map_err(|_| Error::Internal)?;
         if !state.finished {

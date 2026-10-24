@@ -1,6 +1,6 @@
 # 测试报告：test_platform_process
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403", "::test_platform_process::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.018105583999997066, "status": "PASS", "discovered": ["platform::process::test_platform_process::own_process_name_is_os_executable", "platform::process::test_platform_process::tcp_owner_rejects_closed_socket_identity", "platform::process::test_platform_process::udp_owner_is_exact_and_not_a_claimed_name", "platform::process::test_platform_process::unexpected_system_errors_do_not_become_unknown"], "results": {"platform::process::test_platform_process::own_process_name_is_os_executable": "PASS", "platform::process::test_platform_process::tcp_owner_rejects_closed_socket_identity": "PASS", "platform::process::test_platform_process::udp_owner_is_exact_and_not_a_claimed_name": "PASS", "platform::process::test_platform_process::unexpected_system_errors_do_not_become_unknown": "PASS"}, "fingerprint": "d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345", "time": "2026-10-23T16:26:16.867832+08:00", "attempt": 1, "suite": "test_platform_process", "file": "tests/test_platform_process.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-915003f7fa5ba4b5", "::test_platform_process::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.02198366700000065, "status": "PASS", "discovered": ["platform::process::test_platform_process::own_process_name_is_os_executable", "platform::process::test_platform_process::tcp_owner_rejects_closed_socket_identity", "platform::process::test_platform_process::udp_owner_is_exact_and_not_a_claimed_name", "platform::process::test_platform_process::unexpected_system_errors_do_not_become_unknown"], "results": {"platform::process::test_platform_process::own_process_name_is_os_executable": "PASS", "platform::process::test_platform_process::tcp_owner_rejects_closed_socket_identity": "PASS", "platform::process::test_platform_process::udp_owner_is_exact_and_not_a_claimed_name": "PASS", "platform::process::test_platform_process::unexpected_system_errors_do_not_become_unknown": "PASS"}, "fingerprint": "6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243", "time": "2026-10-24T13:41:42.348500+08:00", "attempt": 1, "suite": "test_platform_process", "file": "tests/test_platform_process.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/platform/process.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403 ::test_platform_process:: --test-threads=1`
-- 执行时间：2026-10-23T16:26:16.867832+08:00
-- 实际耗时：0.018105583999997066 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-915003f7fa5ba4b5 ::test_platform_process:: --test-threads=1`
+- 执行时间：2026-10-24T13:41:42.348500+08:00
+- 实际耗时：0.02198366700000065 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -49,7 +49,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-fixes-final/test_platform_process.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/claude-501/-Users-klee-Documents-Fluxa/dd1504c4-f781-4692-b482-4e9c216c95e1/scratchpad/core-evidence/test_platform_process.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

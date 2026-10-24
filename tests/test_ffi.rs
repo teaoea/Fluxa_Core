@@ -25,6 +25,12 @@
 //! - admission_failure_keeps_tcp_bytes_and_returns_reservations：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - admission_failure_keeps_tun_return_packet：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - nested_runtime_does_not_detach_failed_http_calls：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - vpn_preflight_commands_reject_invalid_plans_before_admission：未知字段、空探测、越界期限在受理前拒绝，不占用事务槽。
+//! - vpn_preflight_commands_bind_reports_and_stop_to_core_transaction：真实受理、运行中重复受理被拒、报告绑定同一事务、错误 ID 拒绝、停止为取消且不授予接管、重复停止共享结果、非回滚失败不能重试清理。
+//! - vpn_preflight_destroy_waits_for_owned_transaction：销毁句柄停止并等待其受理的事务，清理后槽可被新事务使用。
+//! - vpn_preflight_destroy_waits_for_begin_holding_admission：受理停在关闭检查与登记之间时并发销毁，销毁须等受理完成并结束该事务（修改意见 R1）。
+//! - vpn_preflight_admission_rejected_after_destroy：销毁之后，已持有旧引擎引用的受理被拒绝且不登记事务（修改意见 R1）。
+//! - vpn_transaction_stop_reply_keeps_result_after_slot_replaced：停止完成到回复之间槽被新事务替换，回复仍是本事务终态，新事务不受影响（修改意见 R2）。
 //!
 //! 测试依据：保留原测试的业务/格式/授权/资源约束；《测试文件与报告统一管理原则》，独立语义审查不以实现输出反推预期。
 //!
@@ -679,10 +685,11 @@ mod tests {
         // 保留既有能力，位 29 只表示候选资产准备；仍精确检查完整掩码。
         assert_eq!(
             nodus_core_capabilities(),
+            // 位 32 为 VPN 前置检查事务命令，不改变其他位的含义。
             if cfg!(target_os = "macos") {
-                3221225471
+                3221225471 | 1 << 32
             } else {
-                3154116607
+                3154116607 | 1 << 32
             }
         );
     }
@@ -904,5 +911,302 @@ mod tests {
                 .is_err()
         );
         assert_eq!(nodus_core_destroy(handle), 0);
+    }
+
+    /// 只接受 TCP、从不回应 TLS 的本地端点，使前置检查稳定停留在探测阶段直至取消或期限。
+    fn silent_https_probe() -> (std::net::TcpListener, String) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (listener, format!("https://127.0.0.1:{port}/health"))
+    }
+    /// 同步发送 command_v2 请求，返回线程错误代码与 JSON 回复。
+    fn vpn_command(handle: u64, request: serde_json::Value) -> (u16, serde_json::Value) {
+        let bytes = serde_json::to_vec(&request).unwrap();
+        // SAFETY: 不可变请求字节在同步调用期间有效，不向内核转移所有权。
+        let output =
+            TestHandle(unsafe { nodus_core_command_v2(handle, bytes.as_ptr(), bytes.len()) });
+        assert_ne!(output.0, 0);
+        let code = nodus_core_last_error_code();
+        (
+            code,
+            serde_json::from_slice(&buffer(output.0).unwrap().bytes).unwrap(),
+        )
+    }
+    fn begin_request(probe: &str, deadline: u64) -> serde_json::Value {
+        serde_json::json!({
+            "operation": "vpn_preflight_begin",
+            "yaml": "rules: ['final,direct']\n",
+            "probes": [probe],
+            "deadline_seconds": deadline,
+        })
+    }
+    /// 轮询至事务离开前置检查阶段；期限内未结束视为测试失败。
+    fn wait_finished_phase(handle: u64, transaction: u64) -> serde_json::Value {
+        for _ in 0..200 {
+            let (_, reply) = vpn_command(
+                handle,
+                serde_json::json!({"operation":"vpn_transaction_status"}),
+            );
+            let status = reply["vpn_transaction"].clone();
+            if status["transaction"] == transaction && status["phase"] != "preflight" {
+                return status;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("事务未在 10 秒内结束");
+    }
+    #[test]
+    fn vpn_preflight_commands_reject_invalid_plans_before_admission() {
+        let _gate = TEST_GATE.blocking_lock();
+        let _vpn = crate::vpn::transaction::TEST_GATE.blocking_lock();
+        let owner = TestHandle(nodus_core_create());
+        assert_ne!(nodus_core_capabilities() & 1 << 32, 0);
+        let (_, before) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        let (_, probe) = silent_https_probe();
+        let mut forged = begin_request(&probe, 10);
+        // 调用方不能提交检查或授权成功标志；未知字段在解析阶段拒绝。
+        forged["activation_permitted"] = serde_json::json!(true);
+        let mut empty = begin_request(&probe, 10);
+        empty["probes"] = serde_json::json!([]);
+        for request in [
+            forged,
+            empty,
+            begin_request(&probe, 0),
+            begin_request(&probe, 121),
+        ] {
+            let (code, reply) = vpn_command(owner.0, request);
+            assert_eq!(code, ErrorCode::InvalidInput.value());
+            assert_eq!(reply["success"], false);
+            assert!(reply.get("vpn_transaction").is_none());
+        }
+        // 被拒绝的计划不能占用或替换进程唯一事务槽。
+        let (_, after) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        assert_eq!(after.get("vpn_transaction"), before.get("vpn_transaction"));
+    }
+    #[test]
+    fn vpn_preflight_commands_bind_reports_and_stop_to_core_transaction() {
+        let _gate = TEST_GATE.blocking_lock();
+        let _vpn = crate::vpn::transaction::TEST_GATE.blocking_lock();
+        let owner = TestHandle(nodus_core_create());
+        let (_listener, probe) = silent_https_probe();
+        let (code, reply) = vpn_command(owner.0, begin_request(&probe, 30));
+        assert_eq!(code, 0, "{reply}");
+        assert_eq!(reply["success"], true);
+        let transaction = reply["vpn_transaction"]["transaction"].as_u64().unwrap();
+        assert_eq!(reply["vpn_transaction"]["system"], "unchanged");
+        // 运行中不能再受理新事务，也不能替换当前事务。
+        let (code, _) = vpn_command(owner.0, begin_request(&probe, 30));
+        assert_eq!(code, ErrorCode::InvalidState.value());
+        let (code, status) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        assert_eq!(code, 0);
+        assert_eq!(status["vpn_transaction"]["transaction"], transaction);
+        assert_eq!(status["vpn_transaction"]["phase"], "preflight");
+        // 报告绑定同一事务，运行中不授予接管；错误事务 ID 不能读取或控制当前事务。
+        let (code, report) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_preflight_status","transaction":transaction}),
+        );
+        assert_eq!(code, 0);
+        assert_eq!(report["vpn_preflight"]["transaction"], transaction);
+        assert_eq!(report["vpn_preflight"]["activation_permitted"], false);
+        for operation in [
+            "vpn_preflight_status",
+            "vpn_transaction_stop",
+            "vpn_transaction_retry_cleanup",
+        ] {
+            let (code, _) = vpn_command(
+                owner.0,
+                serde_json::json!({"operation":operation,"transaction":transaction + 1}),
+            );
+            assert_eq!(code, ErrorCode::InvalidState.value(), "{operation}");
+        }
+        // 停止等待确定清理：用户取消不是成功，系统未被改变，也不能发布 Running。
+        let (code, stopped) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_transaction_stop","transaction":transaction}),
+        );
+        assert_eq!(code, 0, "{stopped}");
+        let status = &stopped["vpn_transaction"];
+        assert_eq!(status["transaction"], transaction);
+        assert_eq!(status["phase"], "failed");
+        assert_eq!(status["failure"]["code"], ErrorCode::Cancelled.value());
+        assert_eq!(status["system"], "unchanged");
+        assert!(status["cleanup_failure"].is_null());
+        // 重复停止共享同一确定结果；非回滚失败状态不能重试清理。
+        let (code, again) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_transaction_stop","transaction":transaction}),
+        );
+        assert_eq!(code, 0);
+        assert_eq!(again["vpn_transaction"], stopped["vpn_transaction"]);
+        let (code, _) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_transaction_retry_cleanup","transaction":transaction}),
+        );
+        assert_eq!(code, ErrorCode::InvalidState.value());
+        let (_, report) = vpn_command(
+            owner.0,
+            serde_json::json!({"operation":"vpn_preflight_status","transaction":transaction}),
+        );
+        assert_eq!(report["vpn_preflight"]["activation_permitted"], false);
+        assert_eq!(report["vpn_preflight"]["network_checks_passed"], false);
+    }
+    #[test]
+    fn vpn_preflight_destroy_waits_for_owned_transaction() {
+        let _gate = TEST_GATE.blocking_lock();
+        let _vpn = crate::vpn::transaction::TEST_GATE.blocking_lock();
+        let observer = TestHandle(nodus_core_create());
+        let owner = nodus_core_create();
+        assert_ne!(owner, 0);
+        let (_listener, probe) = silent_https_probe();
+        let (code, reply) = vpn_command(owner, begin_request(&probe, 30));
+        assert_eq!(code, 0, "{reply}");
+        let transaction = reply["vpn_transaction"]["transaction"].as_u64().unwrap();
+        // 销毁返回时本句柄受理的事务已确定结束，而不是仅发出取消请求。
+        assert_eq!(nodus_core_destroy(owner), OK);
+        let (_, status) = vpn_command(
+            observer.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        assert_eq!(status["vpn_transaction"]["transaction"], transaction);
+        assert_eq!(status["vpn_transaction"]["phase"], "failed");
+        assert_eq!(
+            status["vpn_transaction"]["failure"]["code"],
+            ErrorCode::Cancelled.value()
+        );
+        // 清理完成后事务槽可受理新事务；以期限结束验证同一槽的另一条终止路径。
+        let (code, next) = vpn_command(observer.0, begin_request(&probe, 1));
+        assert_eq!(code, 0, "{next}");
+        let next_id = next["vpn_transaction"]["transaction"].as_u64().unwrap();
+        assert_ne!(next_id, transaction);
+        let finished = wait_finished_phase(observer.0, next_id);
+        assert_eq!(finished["phase"], "failed");
+        assert_eq!(
+            finished["failure"]["code"],
+            ErrorCode::NetworkTimeout.value()
+        );
+    }
+
+    /// 登记暂停点并返回屏障；第一道屏障表示到达，第二道表示放行。
+    fn arm_pause(point: PausePoint) -> PauseBarriers {
+        let barriers = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *TEST_PAUSE.lock().unwrap() = Some((point, barriers.clone()));
+        barriers
+    }
+    #[test]
+    fn vpn_preflight_destroy_waits_for_begin_holding_admission() {
+        let _gate = TEST_GATE.blocking_lock();
+        let _vpn = crate::vpn::transaction::TEST_GATE.blocking_lock();
+        let observer = TestHandle(nodus_core_create());
+        let owner = nodus_core_create();
+        assert_ne!(owner, 0);
+        let (_listener, probe) = silent_https_probe();
+        let barriers = arm_pause(PausePoint::PreflightAdmission);
+        let request = begin_request(&probe, 30);
+        let begin = std::thread::spawn(move || vpn_command(owner, request));
+        // 受理已通过关闭检查、尚未登记事务；此时并发销毁。
+        barriers.0.wait();
+        *TEST_PAUSE.lock().unwrap() = None;
+        let destroy = std::thread::spawn(move || nodus_core_destroy(owner));
+        barriers.1.wait();
+        let (code, reply) = begin.join().unwrap();
+        assert_eq!(code, 0, "{reply}");
+        let transaction = reply["vpn_transaction"]["transaction"].as_u64().unwrap();
+        assert_eq!(destroy.join().unwrap(), OK);
+        // 销毁返回时，它没有错过并发登记的事务：该事务已确定结束，不再占用运行中的槽。
+        let (_, status) = vpn_command(
+            observer.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        assert_eq!(status["vpn_transaction"]["transaction"], transaction);
+        assert_eq!(status["vpn_transaction"]["phase"], "failed");
+        assert_eq!(
+            status["vpn_transaction"]["failure"]["code"],
+            ErrorCode::Cancelled.value()
+        );
+    }
+    #[test]
+    fn vpn_preflight_admission_rejected_after_destroy() {
+        let _gate = TEST_GATE.blocking_lock();
+        let _vpn = crate::vpn::transaction::TEST_GATE.blocking_lock();
+        let observer = TestHandle(nodus_core_create());
+        let owner = nodus_core_create();
+        // 模拟受理线程在销毁前已取得引擎引用。
+        let retained = engine(owner).unwrap();
+        assert_eq!(nodus_core_destroy(owner), OK);
+        let (_, before) = vpn_command(
+            observer.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        let (_listener, probe) = silent_https_probe();
+        let result = begin_vpn_preflight(
+            &retained,
+            "rules: ['final,direct']\n".into(),
+            Default::default(),
+            vec![probe],
+            30,
+        );
+        assert!(matches!(result, Err(Error::InvalidState)));
+        let (_, after) = vpn_command(
+            observer.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        assert_eq!(after.get("vpn_transaction"), before.get("vpn_transaction"));
+    }
+    #[test]
+    fn vpn_transaction_stop_reply_keeps_result_after_slot_replaced() {
+        let _gate = TEST_GATE.blocking_lock();
+        let _vpn = crate::vpn::transaction::TEST_GATE.blocking_lock();
+        let first = TestHandle(nodus_core_create());
+        let second = TestHandle(nodus_core_create());
+        let (_listener, probe) = silent_https_probe();
+        let (code, reply) = vpn_command(first.0, begin_request(&probe, 30));
+        assert_eq!(code, 0, "{reply}");
+        let a = reply["vpn_transaction"]["transaction"].as_u64().unwrap();
+        let barriers = arm_pause(PausePoint::TransactionReply);
+        let handle = first.0;
+        let stop = std::thread::spawn(move || {
+            vpn_command(
+                handle,
+                serde_json::json!({"operation":"vpn_transaction_stop","transaction":a}),
+            )
+        });
+        // A 已停止完成、尚未回复；另一句柄受理 B 替换事务槽。
+        barriers.0.wait();
+        *TEST_PAUSE.lock().unwrap() = None;
+        let (code, reply) = vpn_command(second.0, begin_request(&probe, 30));
+        assert_eq!(code, 0, "{reply}");
+        let b = reply["vpn_transaction"]["transaction"].as_u64().unwrap();
+        assert_ne!(a, b);
+        barriers.1.wait();
+        let (code, stopped) = stop.join().unwrap();
+        assert_eq!(code, 0, "{stopped}");
+        assert_eq!(stopped["vpn_transaction"]["transaction"], a);
+        assert_eq!(stopped["vpn_transaction"]["phase"], "failed");
+        assert_eq!(
+            stopped["vpn_transaction"]["failure"]["code"],
+            ErrorCode::Cancelled.value()
+        );
+        // B 不受 A 的回复影响，仍在检查中；随后正常停止以释放事务槽。
+        let (_, status) = vpn_command(
+            second.0,
+            serde_json::json!({"operation":"vpn_transaction_status"}),
+        );
+        assert_eq!(status["vpn_transaction"]["transaction"], b);
+        assert_eq!(status["vpn_transaction"]["phase"], "preflight");
+        let (code, _) = vpn_command(
+            second.0,
+            serde_json::json!({"operation":"vpn_transaction_stop","transaction":b}),
+        );
+        assert_eq!(code, 0);
     }
 }

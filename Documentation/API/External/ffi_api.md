@@ -1,10 +1,10 @@
-# FFI 配置检查 API
+# FFI 配置检查与 VPN 前置检查事务 API
 
 - API 分类：外部调用 API；仅承诺本文已说明的公开入口。
 
-- 来源源码：`src/ffi.rs`；配置诊断由 `src/configuration/check.rs` 实现。
-- 入口：`nodus_core_command_v2`，operation 为 `configuration_check` 或 `configuration_check_file`。
-- 契约：ABI 2，开发接口；本页只覆盖配置检查命令，不宣称所有 FFI 操作已经文档化。
+- 来源源码：`src/ffi.rs`；配置诊断由 `src/configuration/check.rs` 实现，前置检查与事务由 `src/vpn/preflight.rs`、`src/vpn/transaction.rs` 实现。
+- 入口：`nodus_core_command_v2`。配置检查：`configuration_check`、`configuration_check_file`。VPN 前置检查事务（2.14.0-dev 新增，能力位 32）：`vpn_preflight_begin`、`vpn_preflight_status`、`vpn_transaction_status`、`vpn_transaction_stop`、`vpn_transaction_retry_cleanup`，见文末同名一节。
+- 契约：ABI 2，开发接口；本页只覆盖上述命令，不宣称所有 FFI 操作已经文档化。
 - Rust API、源位置与编辑器换算见 [check_api.md](configuration/check_api.md)；内部实现见 [src/ffi.md](../../../src/ffi.md)。
 
 
@@ -208,10 +208,80 @@ rules: ['final,direct']
 
 Rust 调用方式见 [check_api.md](configuration/check_api.md)。
 
+## VPN 前置检查事务命令（2.14.0-dev）
+
+调用方经 C ABI 提交“执行一次真实网络前置检查”的意图，并查询、停止或恢复内核持有的事务。Core 独立执行检查、管理事务身份与清理；调用方不能提交权限、授权、探测或接管的成功标志，任何命令都不接管系统 VPN。`nodus_core_capabilities()` 位 32 表示本二进制提供这些命令，不代表可接管系统 VPN。
+
+### 事务槽与所有权
+
+- 进程内只有一个事务槽，所有引擎句柄共享。已有运行中、清理中或回滚失败的事务时，`vpn_preflight_begin` 返回 `9001`，不替换现有事务。
+- 查询、停止、重试都必须带当前槽内事务的 `transaction`；ID 不匹配或已被新事务替代时返回 `9001`，不能读取或控制其他事务。
+- 引擎句柄只拥有它受理的事务。受理的关闭检查与事务登记、`nodus_core_destroy` 的关闭置位在同一把句柄锁内完成：销毁先发生则之后的受理返回 `9001`、不登记事务；受理先发生则销毁必然看到该事务。`nodus_core_destroy` 置位后请求取消并等待该事务确定结束；清理失败作为 destroy 的真实错误返回，事务槽保留，供其他句柄按 ID 查询和重试清理。未受理事务或事务已被替代的句柄不进入等待；拥有运行中事务的句柄须在同步上下文销毁，在 Tokio 运行时内调用时按既有 `run_network` 准入返回 `9001`。
+- `vpn_transaction_stop`、`vpn_transaction_retry_cleanup` 走小型取消通道，不被普通请求的忙碌状态或请求槽位阻塞；请求仍受 256 字节上限约束。
+
+### `vpn_preflight_begin`
+
+```json
+{
+  "operation": "vpn_preflight_begin",
+  "yaml": "rules: ['final,direct']\n",
+  "resources": {},
+  "probes": ["https://your-probe.example/health"],
+  "deadline_seconds": 30
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `yaml` | string | 是 | 完整主配置原文，严格解析与业务校验同 `configuration_apply`。 |
+| `resources` | object | 否 | 宿主明确授权的只读资源，格式同 `configuration_apply_file`；缺省为空。 |
+| `probes` | array | 是 | 1–32 个不同的 HTTPS 地址，每个最多 2048 字节，不含凭据、查询、片段或零端口；不提供默认外部目标。 |
+| `deadline_seconds` | integer | 是 | 整个检查的期限，1–120 秒。 |
+
+不接受其他字段，例如 `activation_permitted` 或任何“已通过”标志，未知字段返回 `1001`。无效计划在受理前拒绝，不占用事务槽、不联网。成功响应的 `vpn_transaction` 为刚受理的事务摘要（见下），只表示取得事务槽；配置语义与网络检查结果在事务状态和报告中异步给出。
+
+### `vpn_preflight_status`
+
+请求 `{"operation":"vpn_preflight_status","transaction":<ID>}`。成功响应的 `vpn_preflight` 为检查报告；事务存在但没有报告时不含该字段。报告字段与 [preflight_api.md](vpn/preflight_api.md) 的 `Report` 相同：`transaction`、10 项 `findings`（`check`、`outcome`、`error_info`）、`dns_upstreams_checked`、`required_outbounds`、`verified_outbounds`、`probes_completed`、`network_checks_passed`、`activation_permitted`、`geoip_status`、`platform_check`，不含目标网址和节点名称。
+
+`network_checks_passed=true` 只表示本次指定目标和必要代理覆盖通过网络检查；平台检查尚无生产者、整体预算为 Partial、无节点授权未接入，因此 `activation_permitted` 恒为 `false`。报告不是授权凭证，不能提交回内核。
+
+### `vpn_transaction_status`
+
+请求 `{"operation":"vpn_transaction_status"}`。成功响应的 `vpn_transaction` 为槽内事务摘要；槽为空时不含该字段。摘要字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `transaction` | 内核分配的事务 ID。 |
+| `phase` | `preflight`、`prepare`、`commit`、`verify`、`running`、`rolling-back`、`failed`、`rollback-failed`、`stopped`。当前前置检查事务只会停在 `preflight` 或进入 `failed`。 |
+| `system` | `unchanged`、`may-be-changed`、`restored`、`unknown`；前置检查不改系统，应为 `unchanged`。 |
+| `failure`／`failure_phase` | 原始失败的公开错误与所在阶段；用户停止为 `9002`，期限耗尽为 `6002`。 |
+| `cleanup_failure` | 清理失败的公开错误，与原始失败分开报告。 |
+
+摘要不含配置、凭据或系统原状态；控制入口重建后可据此找回事务，但不能据此跳过重新检查或重新授权。
+
+### `vpn_transaction_stop` 与 `vpn_transaction_retry_cleanup`
+
+请求分别为 `{"operation":"vpn_transaction_stop","transaction":<ID>}` 与 `{"operation":"vpn_transaction_retry_cleanup","transaction":<ID>}`。两者都等待确定结果后返回同一事务的最终摘要：
+
+- 回复中的摘要在同一次操作中取自该事务本身：停止完成后即使槽已被其他句柄受理的新事务替换，本次回复仍是该事务的终态，新事务不受影响。
+- `stop` 请求取消并等待清理；已结束的事务直接返回其结果，重复调用共享同一结果。清理失败时返回清理错误，事务保留为 `rollback-failed`，不冒称已停止。
+- `retry_cleanup` 只对 `rollback-failed` 事务重试清理，不重新启动；其他状态返回 `9001`。
+
+### 错误
+
+使用既有公开错误，不新增代码：`1001` 计划或字段无效；`9001` 槽被占用、句柄已关闭、事务 ID 不匹配或状态不允许；`8001`／`8002` 输入或内存预算超限；检查期间的配置、DNS、TLS、网络与取消错误保留在报告的 `findings` 和事务摘要中。
+
+### 示例与测试
+
+可运行示例 `cargo run --example ffi_vpn_preflight`：以本进程回环端点为探测目标，受理、查询报告、停止并销毁句柄，不接管系统 VPN。测试 `tests/test_ffi.rs` 的 `vpn_preflight_commands_reject_invalid_plans_before_admission`、`vpn_preflight_commands_bind_reports_and_stop_to_core_transaction`、`vpn_preflight_destroy_waits_for_owned_transaction` 及同名报告。
+
+未实现：Prepare／Commit／Verify 的生产步骤、平台权限与防回环证据提交、无节点授权、系统 VPN 接管与接管后验证均未接入；这些命令不能用来显示 Running。
+
 ## 验证记录入口
 
 - 字段、重复键、Unicode／CRLF 和只读文件检查：`tests/test_configuration_check.rs` 及同名报告。
-- JSON 命令与编辑器偏移：`tests/test_ffi.rs` 及同名报告。
+- JSON 命令与编辑器偏移、VPN 前置检查事务命令：`tests/test_ffi.rs` 及同名报告。
 - 不存在的默认节点拒绝候选：`tests/test_vpn.rs` 及同名报告。
 
 测试报告以实际源码指纹及退出状态为准。本页不宣称 App 已接入、最低系统或真机已验收，也不代表二进制已发布。

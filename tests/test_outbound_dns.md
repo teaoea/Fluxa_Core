@@ -1,6 +1,6 @@
 # 测试报告：test_outbound_dns
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_outbound_dns-801b17434516b09c", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.14712433300000072, "status": "PASS", "discovered": ["admitted_connection_finishes_when_dns_retires_mid_query", "all_dns_transports_feed_real_tcp_and_reuse_cache", "dnssec_failure_cannot_reach_outbound", "established_connection_survives_dns_replacement", "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns", "family_fallback_and_udp_use_configured_records", "rejected_policy_synthetic_and_negative_answers_never_connect", "total_deadline_and_close_all_cancel_pending_dns"], "results": {"admitted_connection_finishes_when_dns_retires_mid_query": "PASS", "all_dns_transports_feed_real_tcp_and_reuse_cache": "PASS", "dnssec_failure_cannot_reach_outbound": "PASS", "established_connection_survives_dns_replacement": "PASS", "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns": "PASS", "family_fallback_and_udp_use_configured_records": "PASS", "rejected_policy_synthetic_and_negative_answers_never_connect": "PASS", "total_deadline_and_close_all_cancel_pending_dns": "PASS"}, "fingerprint": "58ff0b1f3f50eff7c22be04bcf8a416d3011f789935ef2364ba1d069e2eb3746", "time": "2026-10-23T22:13:42.019403+08:00", "attempt": 2, "suite": "test_outbound_dns", "file": "tests/test_outbound_dns.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d773a32585e840c5ea3e78183d08d1a99d20059a", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_outbound_dns-504213339f68f328", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.16643854199999453, "status": "PASS", "discovered": ["admitted_connection_finishes_when_dns_retires_mid_query", "all_dns_transports_feed_real_tcp_and_reuse_cache", "dnssec_failure_cannot_reach_outbound", "established_connection_survives_dns_replacement", "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns", "family_fallback_and_udp_use_configured_records", "rejected_policy_synthetic_and_negative_answers_never_connect", "total_deadline_and_close_all_cancel_pending_dns"], "results": {"admitted_connection_finishes_when_dns_retires_mid_query": "PASS", "all_dns_transports_feed_real_tcp_and_reuse_cache": "PASS", "dnssec_failure_cannot_reach_outbound": "PASS", "established_connection_survives_dns_replacement": "PASS", "explicit_ipv6_uses_aaaa_and_invalid_input_avoids_dns": "PASS", "family_fallback_and_udp_use_configured_records": "PASS", "rejected_policy_synthetic_and_negative_answers_never_connect": "PASS", "total_deadline_and_close_all_cancel_pending_dns": "PASS"}, "fingerprint": "6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243", "time": "2026-10-24T13:41:42.348500+08:00", "attempt": 1, "suite": "test_outbound_dns", "file": "tests/test_outbound_dns.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/dns/mod.rs、src/outbound.rs、src/outbound/configuration.rs、src/outbound/resolution.rs、src/outbound/execution.rs、src/routing/runtime.rs
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_outbound_dns-801b17434516b09c --test-threads=1`
-- 执行时间：2026-10-23T22:13:42.019403+08:00
-- 实际耗时：0.14712433300000072 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "d773a32585e840c5ea3e78183d08d1a99d20059a", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`58ff0b1f3f50eff7c22be04bcf8a416d3011f789935ef2364ba1d069e2eb3746`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_outbound_dns-504213339f68f328 --test-threads=1`
+- 执行时间：2026-10-24T13:41:42.348500+08:00
+- 实际耗时：0.16643854199999453 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -53,7 +53,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-real-preflight-final/test_outbound_dns.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/claude-501/-Users-klee-Documents-Fluxa/dd1504c4-f781-4692-b482-4e9c216c95e1/scratchpad/core-evidence/test_outbound_dns.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

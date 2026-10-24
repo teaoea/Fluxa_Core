@@ -30,3 +30,7 @@ stop／retry_cleanup 只有在回滚成功且内核持有的步骤资源释放�
 ## 真实检查入口（2.10.0-dev 增量）
 
 `begin_preflight`与`preflight_status`见[preflight_api.md](preflight_api.md)。它们复用本事务槽；网络通过也不绕过未实现的权限、系统能力、预算及防回环条件，不开始系统VPN。
+
+## 2.14.0-dev C ABI 增量
+
+`current_status`、`stop`、`retry_cleanup` 已通过 `nodus_core_command_v2` 的 `vpn_transaction_status`、`vpn_transaction_stop`、`vpn_transaction_retry_cleanup` 命令暴露，能力位 32，契约见 [ffi_api.md](../ffi_api.md)。`begin`（密封 Steps 驱动）仍无 C ABI 入口，也没有接管能力位；FFI 命令不接受成功标志，不能启动系统 VPN。

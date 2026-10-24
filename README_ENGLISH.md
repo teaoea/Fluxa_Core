@@ -51,7 +51,7 @@ A successful check validates the configuration without applying it or starting n
 
 ### Through the C ABI
 
-Link the native static library for the target platform and its matching [public header](include/nodus_core.h). Use the declared interfaces to create handles, invoke operations, copy results, and release resources. See the [configuration-check C ABI](Documentation/API/External/ffi_api.md) for request and response examples.
+Link the native static library for the target platform and its matching [public header](include/nodus_core.h). Use the declared interfaces to create handles, invoke operations, copy results, and release resources. See the [configuration-check and VPN preflight transaction C ABI](Documentation/API/External/ffi_api.md) for request and response examples; preflight only reports real network checks and never takes over the system VPN.
 
 ### Run the configuration-check example
 

@@ -79,3 +79,9 @@ int32_t nodus_core_tun_receive(uint64_t handle, uint64_t *output);
    失败保留固定 error_info，并在 configuration_issue 中提供 field 和可空 position。
    position.line/column 从 1 开始，utf16_offset 从 0 开始；编辑器据偏移换算自动换行显示位置。
    完整请求、Schema、错误及权限边界见 Documentation/API/External/ffi_api.md。 */
+
+/* 能力位 32：VPN 前置检查事务命令，均经 nodus_core_command_v2：
+   vpn_preflight_begin（yaml、resources、probes、deadline_seconds）受理隔离的真实网络检查；
+   vpn_preflight_status、vpn_transaction_status 只读查询；vpn_transaction_stop、
+   vpn_transaction_retry_cleanup 等待确定清理。受理不代表检查通过，activation_permitted 恒为 false，
+   不接管系统 VPN。完整契约见 Documentation/API/External/ffi_api.md。 */

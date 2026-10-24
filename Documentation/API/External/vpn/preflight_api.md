@@ -40,3 +40,7 @@ stop请求取消并等待确定清理。用户取消为Cancelled，监督期限�
 ## 2.11.0-dev 平台诊断增量
 
 Report兼容新增platform_check可选字段，详见[platform_check_api.md](platform_check_api.md)。没有到达平台检查时为null；已执行网络检查但缺平台生产者时三项Unavailable。字段不是授权证据，activation_permitted仍为false；无新增C ABI接口。
+
+## 2.14.0-dev C ABI 增量
+
+`begin_preflight` 与 `preflight_status` 已经 `nodus_core_command_v2` 的 `vpn_preflight_begin`、`vpn_preflight_status` 命令暴露，能力位 32，契约见 [ffi_api.md](../ffi_api.md)。输入校验、报告字段与 `activation_permitted=false` 的语义不变；仍无平台证据提交入口。

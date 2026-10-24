@@ -60,3 +60,9 @@ Core 保持唯一启动事务及其配置身份、资源预算、取消、阶段
 ## 真实网络检查入口
 
 `begin_preflight`构造内部密封驱动，绑定同一全局事务槽和检查报告；`preflight_status`只读查询。网络条件通过后，缺少真实平台证据仍返回Unsupported，不进入Prepare。完整流程、资源限额和未实现边界见[preflight.md](preflight.md)。阶段期限触发取消时，步骤返回Cancelled或成功均由监督层记录NetworkTimeout，其他真实步骤故障不覆盖。
+
+## 2.14.0-dev C ABI 接线
+
+`current_status`、`status`、`stop`、`retry_cleanup` 与 `begin_preflight`、`preflight_status` 经 `src/ffi.rs` 的 JSON 命令暴露，契约见 [ffi_api.md](../../Documentation/API/External/ffi_api.md)。`begin` 仍无 FFI 入口，Steps 仍不能由外部实现。新增 crate 内部 `stop_owned`：只停止本控制器受理、仍在槽中的事务并等待确定清理，供句柄销毁使用；槽中是其他事务或尚未受理时直接返回成功。测试闸门 `TEST_GATE` 改为 crate 内测试可见，使 FFI 测试与本模块测试串行使用同一事务槽。
+
+新增 crate 内部 `stop_status`、`retry_cleanup_status`：等待期间持有该事务的内部引用，在同一次操作中返回其终态（`Inner::snapshot`），供 FFI 回复使用；之后槽被替换不影响结果，引用只读取状态。公开 `stop`／`retry_cleanup` 改为调用它们并丢弃状态，行为不变。

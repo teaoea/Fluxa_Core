@@ -15,3 +15,7 @@ Report尚未进入平台检查时字段为None；生产缺少平台接线时为S
 可运行示例沿用`examples/vpn_preflight.rs`：显式提供现有配置及HTTPS探测目标，输出报告并以真实错误退出，不自动接管系统。实现、限额、真实平台生产者的前提和未实现边界见[src/vpn/platform_check.md](../../../../src/vpn/platform_check.md)。
 
 内部请求及校验约束另见[内部自用 API](../../Internal/vpn/platform_check_api.md)；该链接不提供外部证据提交能力。
+
+## 2.14.0-dev C ABI 增量
+
+Report.platform_check 随 `vpn_preflight_status` 命令经 C ABI 只读返回（见 [ffi_api.md](../ffi_api.md)）；仍没有可接收成功证据的 JSON 或 FFI 入口。
