@@ -197,8 +197,8 @@ fn policy_outbound(
         return Ok(None);
     }
     let result = own.or_else(|| default.clone()).ok_or(Error::InvalidInput)?;
-    outbound_name(&result)?;
-    Ok(Some(result))
+    let plan = strategy::parse(&result)?;
+    Ok(Some(plan.canonical()))
 }
 // DNS 名称最大 253 字节；组合值额外包含 u16 端口的十进制字符和一个逗号。
 const MAX_DOMAIN_BYTES: usize = 253;
@@ -475,13 +475,12 @@ impl Router {
             return Ok(names);
         }
         if document.settings.mode == Mode::Global || document.settings.fallback == Policy::Proxy {
-            names.insert(
-                document
-                    .settings
-                    .outbound
-                    .clone()
-                    .ok_or(Error::InvalidState)?,
-            );
+            let value = document
+                .settings
+                .outbound
+                .as_deref()
+                .ok_or(Error::InvalidState)?;
+            names.extend(strategy::parse(value)?.nodes().map(str::to_owned));
         }
         if document.settings.mode == Mode::Rules {
             for effective in &document.rules {
@@ -492,7 +491,7 @@ impl Router {
                         .as_ref()
                         .or(document.settings.outbound.as_ref())
                         .ok_or(Error::InvalidState)?;
-                    names.insert(outbound.clone());
+                    names.extend(strategy::parse(outbound)?.nodes().map(str::to_owned));
                 }
             }
         }
@@ -599,3 +598,5 @@ impl TrafficProtection {
 #[cfg(test)]
 #[path = "../tests/test_routing.rs"]
 mod test_routing;
+
+pub(crate) mod strategy;

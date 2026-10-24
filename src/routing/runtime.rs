@@ -206,7 +206,7 @@ impl SourceInput {
             Self::Clash(source) => {
                 identifier(&source.id)?;
                 if let Some(id) = &source.outbound {
-                    super::outbound_name(id)?;
+                    super::strategy::parse(id)?;
                     if source.policy != Policy::Proxy {
                         return Err(Error::InvalidInput);
                     }
@@ -542,7 +542,10 @@ fn rule_charge(rule: &Rule) -> Result<usize> {
         } else {
             253
         }
-        || rule.outbound.as_ref().is_some_and(|id| id.len() > 128)
+        || rule
+            .outbound
+            .as_ref()
+            .is_some_and(|id| id.len() > super::strategy::MAX_BYTES)
     {
         return Err(Error::InvalidInput);
     }
@@ -589,7 +592,10 @@ pub(super) fn source_input_charge(source: &Source) -> Result<usize> {
             } else {
                 253
             }
-            || rule.outbound.as_ref().is_some_and(|id| id.len() > 128)
+            || rule
+                .outbound
+                .as_ref()
+                .is_some_and(|id| id.len() > super::strategy::MAX_BYTES)
         {
             return Err(Error::InvalidInput);
         }
@@ -667,7 +673,7 @@ fn validate_settings(settings: &Config) -> Result<()> {
         return Err(Error::InvalidInput);
     }
     if let Some(id) = &settings.outbound {
-        super::outbound_name(id)?;
+        super::strategy::parse(id)?;
     }
     if settings.fallback == Policy::Proxy && settings.outbound.is_none() {
         return Err(Error::InvalidInput);

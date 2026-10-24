@@ -2,6 +2,7 @@
 //! 测试类型：单元测试、规则输入契约
 //! 测试对象：src/configuration/rules.rs
 //! 测试内容：
+//! - mixed_actions_validate_compile_and_keep_references：括号逗号策略与顺序编译，缺失节点及非末尾reject拒绝。
 //! - process_rule_syntax_is_exact_case_preserving_and_not_wildcard：按新配置契约独立验证正反边界。
 //! - final_is_unique_last_and_required：兜底唯一且末尾必填。
 //! - scoped_rules_and_unscoped_reject：组合条件合法、全域协议仅拦截。
@@ -82,4 +83,23 @@ fn process_rule_syntax_is_exact_case_preserving_and_not_wildcard() {
     for name in ["We*Chat", "/Applications/WeChat", "bad\nname"] {
         assert!(check(&[&format!("process-name,{name},direct"), "final,reject"]).is_err());
     }
+}
+
+#[test]
+fn mixed_actions_validate_compile_and_keep_references() {
+    assert!(check(&["domain,example.com,(PROXY,direct)", "final,(PROXY,reject)"]).is_ok());
+    for rule in [
+        "final,(missing,reject)",
+        "final,(PROXY,PROXY)",
+        "final,(PROXY,)",
+        "final,(reject,PROXY)",
+        "final,(PROXY,reject))",
+    ] {
+        assert!(check(&[rule]).is_err(), "{rule}");
+    }
+    assert_eq!(
+        action("节点1,节点2").unwrap(),
+        (crate::routing::Policy::Proxy, Some("(节点1,节点2)".into()))
+    );
+    assert_eq!(fields("final,(PROXY,reject)").unwrap().1, 2);
 }

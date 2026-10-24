@@ -74,3 +74,5 @@ cargo run --locked --example validate_main_configuration -- default_config.yaml
 作者：可莉唯一的狗。自有代码采用 [MIT 许可证](LICENSE)；第三方依赖及许可说明见 [LICENSE.md](LICENSE.md)。
 
 平台权限与能力结果新增受约束的[只读诊断契约](Documentation/API/External/vpn/platform_check_api.md)。当前缺少真实平台证据时仍拒绝接管，网络检查成功不代表权限或防回环已经通过。
+
+主配置支持有序混合策略与自动连接重试，见[配置契约](Documentation/API/External/configuration/rules_api.md)。仅节点建连失败触发下一候选，不重放业务请求。

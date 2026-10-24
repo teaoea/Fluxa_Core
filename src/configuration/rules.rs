@@ -6,7 +6,8 @@ use crate::{
 use std::collections::HashSet;
 
 pub(super) fn policy(value: &str, nodes: &HashSet<&str>) -> Result<()> {
-    if matches!(value, "direct" | "reject") || nodes.contains(value) {
+    let plan = crate::routing::strategy::parse(value)?;
+    if plan.nodes().all(|name| nodes.contains(name)) {
         Ok(())
     } else {
         Err(Error::InvalidInput)
@@ -104,25 +105,41 @@ pub(super) fn validate_at(
 fn fields(rule: &str) -> Result<([&str; 4], usize)> {
     let mut parts = [""; 4];
     let mut count = 0;
-    for part in rule.split(',') {
-        if count == parts.len() || part.is_empty() || part != part.trim() {
-            return Err(Error::InvalidInput);
+    let mut start = 0;
+    let mut bracket = false;
+    for (index, byte) in rule.bytes().chain(std::iter::once(b',')).enumerate() {
+        match byte {
+            b'(' if !bracket && index == start => bracket = true,
+            b')' if bracket => bracket = false,
+            b'(' | b')' => return Err(Error::InvalidInput),
+            b',' if !bracket => {
+                let part = &rule[start..index];
+                if count == parts.len() || part.is_empty() || part != part.trim() {
+                    return Err(Error::InvalidInput);
+                }
+                parts[count] = part;
+                count += 1;
+                start = index + 1;
+            }
+            _ => (),
         }
-        parts[count] = part;
-        count += 1;
+    }
+    if bracket {
+        return Err(Error::InvalidInput);
     }
     if count < 2 {
         return Err(Error::InvalidInput);
     }
     Ok((parts, count))
 }
-fn action(value: &str) -> (crate::routing::Policy, Option<String>) {
+fn action(value: &str) -> Result<(crate::routing::Policy, Option<String>)> {
     use crate::routing::Policy;
-    match value {
+    let plan = crate::routing::strategy::parse(value)?;
+    Ok(match value {
         "direct" => (Policy::Direct, None),
         "reject" => (Policy::Reject, None),
-        node => (Policy::Proxy, Some(node.to_owned())),
-    }
+        _ => (Policy::Proxy, Some(plan.canonical())),
+    })
 }
 /// 只编译已校验的本地标量，不下载提供者、不启动解析器，也不发布运行状态。
 /// final 转入快照兜底；禁用的 GeoIP 行在生成来源前剔除。
@@ -174,7 +191,7 @@ pub(super) fn compile_sources_inner(
     };
     for scalar in &raw.rules {
         let (p, count) = fields(scalar)?;
-        let (policy, outbound) = action(p[count - 1]);
+        let (policy, outbound) = action(p[count - 1])?;
         let mut protocol = None;
         let (kind, value) = match p[0] {
             "final" => {

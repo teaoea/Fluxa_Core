@@ -1,7 +1,7 @@
 //! 测试文件：tests/test_configuration_check.rs
 //! 测试类型：单元测试、只读字段定位与错误协议。
 //! 测试对象：src/configuration/check.rs、src/configuration.rs、src/routing/yaml.rs。
-//! 测试内容：semantic_fields_have_exact_lines、strict_decode_reports_nested_and_duplicate_fields、unicode_and_crlf_offsets_match_editor_units、file_errors_never_have_fake_lines_or_repair、checking_does_not_apply_or_change_error_codes。
+//! 测试内容：mixed_provider_defaults_and_error_position、semantic_fields_have_exact_lines、strict_decode_reports_nested_and_duplicate_fields、unicode_and_crlf_offsets_match_editor_units、file_errors_never_have_fake_lines_or_repair、checking_does_not_apply_or_change_error_codes。
 //! 测试依据：字段错误、固定代码、源文件逻辑行与前端 UTF-16 自动换行定位；Core 不写入。
 //! 前置条件：临时文件由测试宿主准备，无网络。
 use super::*;
@@ -115,4 +115,20 @@ fn checking_does_not_apply_or_change_error_codes() {
     );
     let json = serde_json::to_string(&issue).unwrap();
     assert!(!json.contains("secret"));
+}
+
+#[test]
+fn mixed_provider_defaults_and_error_position() {
+    let yaml = "rule-providers:\n  - name: remote\n    url: https://example.com/rules.yaml\n    policy: direct,reject\nrules: ['final,direct']";
+    let document = Document::from_yaml(yaml).unwrap();
+    assert!(document.raw.rule_providers[0].enable);
+    assert!(check_yaml(yaml).is_ok());
+    let wrong = yaml.replace("direct,reject", "missing,reject");
+    let error = check_yaml(&wrong).unwrap_err();
+    assert_eq!(error.field, "rule-providers[0].policy");
+    assert_eq!(error.position.unwrap().line, 4);
+    let local = "# 中文 😀\nrules:\n  - final,(missing,reject)";
+    let error = check_yaml(local).unwrap_err();
+    assert_eq!(error.field, "rules[0]");
+    assert_eq!(error.position.unwrap().line, 3);
 }

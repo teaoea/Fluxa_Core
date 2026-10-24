@@ -289,7 +289,10 @@ fn load_files(document: &Arc<Document>, resources: &Resources) -> Result<Loaded>
         let (policy, outbound) = match provider.policy.as_str() {
             "direct" => (crate::routing::Policy::Direct, None),
             "reject" => (crate::routing::Policy::Reject, None),
-            name => (crate::routing::Policy::Proxy, Some(name.into())),
+            name => (
+                crate::routing::Policy::Proxy,
+                Some(crate::routing::strategy::parse(name)?.canonical()),
+            ),
         };
         let parsed = document::parse(&text, policy, outbound, geoip.is_some(), &nodes)?;
         counts.insert(provider.name.clone(), (parsed.rules.len(), parsed.ignored));
@@ -328,11 +331,18 @@ pub fn validate_rules(
     outbound: Option<String>,
 ) -> Result<Validation> {
     if policy == crate::routing::Policy::Proxy {
-        crate::routing::outbound_name(outbound.as_deref().ok_or(Error::InvalidInput)?)?;
+        crate::routing::strategy::parse(outbound.as_deref().ok_or(Error::InvalidInput)?)?;
     } else if outbound.is_some() {
         return Err(Error::InvalidInput);
     }
-    let names = outbound.iter().map(String::as_str).collect::<Vec<_>>();
+    let plan = outbound
+        .as_deref()
+        .map(crate::routing::strategy::parse)
+        .transpose()?;
+    let names = plan
+        .as_ref()
+        .map(|plan| plan.nodes().collect::<Vec<_>>())
+        .unwrap_or_default();
     let parsed = document::parse(yaml, policy, outbound.clone(), false, &names)?;
     Ok(Validation {
         accepted: parsed.rules.len(),

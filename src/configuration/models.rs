@@ -140,6 +140,7 @@ pub(crate) struct RuleProvider {
     pub name: String,
     pub url: String,
     pub policy: String,
+    #[serde(default = "provider_enabled")]
     pub enable: bool,
     pub update_time: Option<String>,
 }
@@ -242,4 +243,8 @@ pub(super) fn optional_script<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<ScriptSource>, D::Error> {
     ScriptSource::deserialize(d).map(Some)
+}
+
+fn provider_enabled() -> bool {
+    true
 }

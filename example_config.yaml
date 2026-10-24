@@ -84,6 +84,32 @@ proxies:
     sid: "01" # 格式示例，连接前替换为服务端真实 short id
     fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 nodus。默认 chrome133 模板
 
+
+  # 自动连接重试候选；地址与密钥均为格式示例，使用前分别替换。
+  - name: 节点1 # 第一候选节点
+    type: vless # 协议
+    server: first.example.com # 地址，支持域名和IP地址
+    port: 443 # 端口
+    uuid: 00000000-0000-0000-0000-000000000000
+    flow: xtls-rprx-vision # 流控
+    security: reality
+    sni: example.com
+    pbk: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE # 仅用于格式验证的虚构公钥，连接前必须替换
+    sid: "01" # 格式示例，连接前替换为服务端真实 short id
+    fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 nodus。默认 chrome133 模板
+
+  - name: 节点2 # 第二候选节点
+    type: vless # 协议
+    server: second.example.com # 地址，支持域名和IP地址
+    port: 443 # 端口
+    uuid: 00000000-0000-0000-0000-000000000000
+    flow: xtls-rprx-vision # 流控
+    security: reality
+    sni: example.com
+    pbk: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE # 仅用于格式验证的虚构公钥，连接前必须替换
+    sid: "01" # 格式示例，连接前替换为服务端真实 short id
+    fp: chrome133 # 指纹模板，支持 chrome/chrome133、chrome131、chrome120、firefox/firefox120、safari/safari16、ios/ios14、android/android-chrome133、android-chrome120、edge/edge106、random 与原生 nodus。默认 chrome133 模板
+
 # 策略组
 proxy-groups: []
 
@@ -119,12 +145,17 @@ rule-providers:
   - name: direct # 指定规则集名称，禁止重复，必填
     url: https://example.com/nodus/direct.yaml # 规则集订阅地址，必填
     policy: direct # 规则集内的规则流量处理策略，可选值：[direct、reject、代理节点名称]，必填项
-    enable: false # 规则集是否启用，false 不启用，true 启用
+    enable: false # 规则集是否启用，false 不启用，true 启用，默认true
     update-time: "12:00" # 规则集每日更新的时间，必须使用带引号的 HH:mm，使用设备本地时区
+
   - name: reject
     url: https://example.com/nodus/reject.yaml
     policy: reject
     enable: true
+
+  - name: proxy
+    url: https://example.com/nodus/proxy.yaml
+    policy: 节点1,节点2 # 自动连接重试：只在到节点1建连失败/超时时尝试节点2；接收方错误或业务数据发送后不重试
 
 # 网络流量处理包含：direct（直连）、reject（拦截）、节点名称
 # 域名目标先查询域名规则，域名命中后跳过IP规则，命中final不被视为命中域名规则
@@ -152,7 +183,7 @@ rules:
   - protocol,tcp,example.com,direct # 针对example.com的TCP流量走直连
   - process-name,WeChat,direct # WeChat进程直连
   - geoip,CN,direct # 中国大陆IP走直连
-  - final,PROXY # 兜底规则，支持direct、reject、代理节点名称；兜底规则必须放在最后一条，不允许为空，且只能存在一条
+  - final,(PROXY,reject) # 兜底规则，支持direct、reject、代理节点名称；兜底规则必须放在最后一条，不允许为空，且只能存在一条
 
 # dns示例配置
 dns:

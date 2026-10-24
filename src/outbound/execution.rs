@@ -316,7 +316,7 @@ impl Manager {
         } = facts;
         snapshot.ensure_operation(admitted)?;
         let deadline = duration(request.timeout_ms)?;
-        let mut metadata = request.target;
+        let mut metadata = request.target.clone();
 
         if metadata.port == 0 || metadata.domain.is_some() == metadata.address.is_some() {
             return Err(Error::InvalidInput);
@@ -371,6 +371,7 @@ impl Manager {
         }
         router.check_before_dns_transport(&metadata)?;
         let mut decision = None;
+        let expires = tokio::time::Instant::now() + deadline;
         let opened = self
             .establish_guarded(
                 std::sync::Arc::clone(&snapshot),
@@ -458,90 +459,159 @@ impl Manager {
                     } else {
                         preferred
                     };
-                    let dialed = if first.1.policy == Policy::Proxy {
-                        if hop.is_some() {
-                            return Err(Error::Unsupported);
+                    // 路由优先级只计算一次；显式候选顺序在同一操作/预算/总截止内执行。
+                    let chain = first.1.outbound.as_deref().is_some_and(|v| v.contains(','));
+                    let members = if first.1.policy == Policy::Proxy {
+                        crate::routing::strategy::members(
+                            first.1.outbound.as_deref().ok_or(Error::InvalidInput)?,
+                        )?
+                    } else {
+                        vec!["direct"]
+                    };
+                    let mut selected = None;
+                    let mut last = Error::Network;
+                    for (index, candidate) in members.iter().copied().enumerate() {
+                        snapshot.ensure_operation(permission)?;
+                        let direct =
+                            first.1.policy == Policy::Direct || (chain && candidate == "direct");
+                        if chain && candidate == "reject" {
+                            return Err(Error::Rejected);
                         }
-                        let node = snapshot
-                            .outbounds
-                            .get(first.1.outbound.as_deref().ok_or(Error::InvalidInput)?)
-                            .ok_or(Error::Unsupported)?;
-                        let node_ips = if let Ok(ip) = node.host.parse::<IpAddr>() {
-                            vec![ip]
-                        } else {
-                            if let Some(resolver) = resolver {
-                                resolve(resolver, &node.host, request.family, true, permission)
-                                    .await?
-                            } else if snapshot.system_dns {
-                                super::resolution::resolve_system(
-                                    &node.host,
-                                    request.family,
-                                    snapshot.owner()?,
-                                )
-                                .await?
-                            } else {
-                                return Err(Error::InvalidState);
-                            }
-                        };
-                        if node_ips.iter().any(|ip| {
-                            ip.is_unspecified() || resolver.is_some_and(|r| r.is_fake_ip(*ip))
-                        }) {
-                            return Err(Error::InvalidInput);
-                        }
-                        let lease = super::CONNECTIONS.reserve(1)?;
-                        let mut connected = None;
-                        for ip in node_ips {
-                            match tokio::net::TcpStream::connect(SocketAddr::new(ip, node.port))
-                                .await
-                            {
-                                Ok(socket) => {
-                                    connected = Some(socket);
-                                    break;
+                        let remaining =
+                            expires.saturating_duration_since(tokio::time::Instant::now());
+                        let allowance = remaining
+                            / u32::try_from(members.len() - index)
+                                .map_err(|_| Error::ResourceLimit)?;
+                        // 每次克隆连接请求元数据；没有应用正文缓存，也不重放已有业务流。
+                        let mut retry_request = request.clone();
+                        retry_request.target = metadata.clone();
+                        let attempt = tokio::time::timeout(allowance, async {
+                            if !direct {
+                                if hop.is_some() {
+                                    return Err(Error::Unsupported);
                                 }
-                                Err(error) => {
-                                    crate::error::diagnostics::record(
+                                let node = snapshot
+                                    .outbounds
+                                    .get(candidate)
+                                    .ok_or(Error::Unsupported)?;
+                                let node_ips = if let Ok(ip) = node.host.parse::<IpAddr>() {
+                                    vec![ip]
+                                } else {
+                                    if let Some(resolver) = resolver {
+                                        resolve(
+                                            resolver,
+                                            &node.host,
+                                            retry_request.family,
+                                            true,
+                                            permission,
+                                        )
+                                        .await?
+                                    } else if snapshot.system_dns {
+                                        super::resolution::resolve_system(
+                                            &node.host,
+                                            retry_request.family,
+                                            snapshot.owner()?,
+                                        )
+                                        .await?
+                                    } else {
+                                        return Err(Error::InvalidState);
+                                    }
+                                };
+                                if node_ips.iter().any(|ip| {
+                                    ip.is_unspecified()
+                                        || resolver.is_some_and(|r| r.is_fake_ip(*ip))
+                                }) {
+                                    return Err(Error::InvalidInput);
+                                }
+                                let lease = super::CONNECTIONS.reserve(1)?;
+                                let mut connected = None;
+                                for ip in node_ips {
+                                    match tokio::net::TcpStream::connect(SocketAddr::new(
+                                        ip, node.port,
+                                    ))
+                                    .await
+                                    {
+                                        Ok(socket) => {
+                                            connected = Some(socket);
+                                            break;
+                                        }
+                                        Err(error) => {
+                                            crate::error::diagnostics::record(
                                         error.into(),
                                         crate::error::diagnostics::DiagnosticSite::IoConversion,
                                     );
-                                    continue;
+                                            continue;
+                                        }
+                                    }
                                 }
+                                let socket = connected.ok_or(Error::Network)?;
+                                socket.set_nodelay(true)?;
+                                // 已检查的真实候选作为 VLESS 目标，不让远端重新解析后切换到未经检查的地址。
+                                // 协议 future 独立置于有界连接预算内，避免放大 Swift 宿主线程的调用栈。
+                                let outbound = match retry_request.target.transport {
+                                    Transport::Tcp => {
+                                        let stream = Box::pin(crate::protocol::connect(
+                                            socket,
+                                            node,
+                                            &first.0.ip().to_string(),
+                                            retry_request.target.port,
+                                        ))
+                                        .await?;
+                                        super::tcp_socket(Box::new(stream))
+                                    }
+                                    Transport::Udp => super::Socket::ProxyUdp {
+                                        socket: Box::pin(crate::protocol::connect_udp(
+                                            socket, node, first.0,
+                                        ))
+                                        .await?,
+                                    },
+                                };
+                                Ok((outbound, lease, first.0))
+                            } else {
+                                let approved = plans
+                                    .iter()
+                                    .filter(|(_, route)| {
+                                        route.policy == first.1.policy
+                                            && route.outbound == first.1.outbound
+                                    })
+                                    .map(|(address, _)| *address)
+                                    .collect();
+                                candidates(
+                                    hop.map(|hop| vec![hop]).unwrap_or(approved),
+                                    retry_request.target.transport,
+                                )
+                                .await
+                            }
+                        })
+                        .await
+                        .unwrap_or(Err(Error::NetworkTimeout));
+                        match attempt {
+                            Ok(dialed) => {
+                                selected = Some((dialed, direct, candidate.to_owned()));
+                                break;
+                            }
+                            Err(error) => {
+                                // 只允许尚未交付业务流时的建连故障切换；状态/预算/取消绝不重试。
+                                if direct
+                                    || !matches!(
+                                        error,
+                                        Error::Network
+                                            | Error::NetworkTimeout
+                                            | Error::NetworkConnectRefused
+                                            | Error::DnsTimeout
+                                    )
+                                {
+                                    return Err(error);
+                                }
+                                crate::error::diagnostics::record(
+                                    error,
+                                    crate::error::diagnostics::DiagnosticSite::IoConversion,
+                                );
+                                last = error;
                             }
                         }
-                        let socket = connected.ok_or(Error::Network)?;
-                        socket.set_nodelay(true)?;
-                        // 已检查的真实候选作为 VLESS 目标，不让远端重新解析后切换到未经检查的地址。
-                        // 协议 future 独立置于有界连接预算内，避免放大 Swift 宿主线程的调用栈。
-                        let outbound = match metadata.transport {
-                            Transport::Tcp => {
-                                let stream = Box::pin(crate::protocol::connect(
-                                    socket,
-                                    node,
-                                    &first.0.ip().to_string(),
-                                    metadata.port,
-                                ))
-                                .await?;
-                                super::tcp_socket(Box::new(stream))
-                            }
-                            Transport::Udp => super::Socket::ProxyUdp {
-                                socket: Box::pin(crate::protocol::connect_udp(
-                                    socket, node, first.0,
-                                ))
-                                .await?,
-                            },
-                        };
-                        (outbound, lease, first.0)
-                    } else {
-                        let approved = plans
-                            .iter()
-                            .filter(|(_, r)| r.policy == first.1.policy)
-                            .map(|(a, _)| *a)
-                            .collect();
-                        candidates(
-                            hop.map(|hop| vec![hop]).unwrap_or(approved),
-                            metadata.transport,
-                        )
-                        .await?
-                    };
+                    }
+                    let (dialed, direct, candidate) = selected.ok_or(last)?;
                     let mut checked_target = metadata.clone();
                     checked_target.address = Some(
                         plans
@@ -562,13 +632,18 @@ impl Manager {
                     let protection =
                         router.protection_facts(checked_target, quic, identity.name.as_deref())?;
                     protection.check(false)?;
-                    decision = Some(
-                        plans
-                            .into_iter()
-                            .find(|(address, _)| hop.is_some() || *address == dialed.2)
-                            .ok_or(Error::Internal)?
-                            .1,
-                    );
+                    let mut actual = plans
+                        .into_iter()
+                        .find(|(address, _)| hop.is_some() || *address == dialed.2)
+                        .ok_or(Error::Internal)?
+                        .1;
+                    actual.policy = if direct {
+                        Policy::Direct
+                    } else {
+                        Policy::Proxy
+                    };
+                    actual.outbound = (!direct).then_some(candidate);
+                    decision = Some(actual);
                     Ok((dialed, protection))
                 },
             )
@@ -594,7 +669,12 @@ fn check(
         Policy::Direct => Ok(()),
         Policy::Proxy => {
             let id = decision.outbound.as_deref().ok_or(Error::InvalidInput)?;
-            if snapshot.outbounds.contains_key(id) {
+            let members = crate::routing::strategy::members(id)?;
+            let chain = id.contains(',');
+            if members.iter().all(|name| {
+                (chain && matches!(*name, "direct" | "reject"))
+                    || snapshot.outbounds.contains_key(*name)
+            }) {
                 Ok(())
             } else {
                 Err(Error::Unsupported)

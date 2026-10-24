@@ -74,3 +74,5 @@ The example reads the specified YAML file and prints a validation summary. Inval
 Author: 可莉唯一的狗. Core source is licensed under [MIT](LICENSE). See [LICENSE.md](LICENSE.md) for third-party dependency notices.
 
 Platform checks now have a [read-only diagnostic contract](Documentation/API/External/vpn/platform_check_api.md). Production still refuses takeover without a real platform evidence source; network success does not establish permission or loop protection.
+
+Ordered policies support automatic connection retry; see the [configuration contract](Documentation/API/External/configuration/rules_api.md). Only node connection failures qualify; application requests are not replayed.

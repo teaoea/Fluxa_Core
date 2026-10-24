@@ -24,3 +24,8 @@
 | 内部自用 | `src/vpn/platform_check.rs` | [platform_check_api.md](Internal/vpn/platform_check_api.md) | 单次请求、缺证据拒绝及私有校验边界 |
 
 本导航登记实际已编写范围，不代表全部历史内部 API 已补全文档。
+
+- [混合策略与自动连接重试](External/configuration/rules_api.md)
+- [策略解析内部API](Internal/routing/strategy_api.md)
+
+- [规则集正文校验API](External/providers_api.md)

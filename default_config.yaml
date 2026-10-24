@@ -46,6 +46,8 @@ ip-strategy: prefer-ipv6
 
 plugin-providers: []
 
+# 自动连接重试示例（需先配置对应节点）：final,(节点1,节点2,reject)。只重试到节点的建连失败，不重放业务请求。
+# rule-providers.policy 可写“节点1,节点2”；enable 省略默认 true。
 rule-providers: []
 
 rules:

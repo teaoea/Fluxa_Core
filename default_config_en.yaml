@@ -46,6 +46,8 @@ ip-strategy: prefer-ipv6
 
 plugin-providers: []
 
+# Automatic connection retry example (define the nodes first): final,(node1,node2,reject). Only node connection failures qualify; application requests are not replayed.
+# rule-providers.policy accepts "node1,node2"; omitted enable defaults to true.
 rule-providers: []
 
 rules:

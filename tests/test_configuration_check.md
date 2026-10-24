@@ -1,6 +1,6 @@
 # 测试报告：test_configuration_check
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403", "::test_configuration_check::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.0074119589999952495, "status": "PASS", "discovered": ["configuration::check::test_configuration_check::checking_does_not_apply_or_change_error_codes", "configuration::check::test_configuration_check::file_errors_never_have_fake_lines_or_repair", "configuration::check::test_configuration_check::semantic_fields_have_exact_lines", "configuration::check::test_configuration_check::strict_decode_reports_nested_and_duplicate_fields", "configuration::check::test_configuration_check::unicode_and_crlf_offsets_match_editor_units"], "results": {"configuration::check::test_configuration_check::checking_does_not_apply_or_change_error_codes": "PASS", "configuration::check::test_configuration_check::file_errors_never_have_fake_lines_or_repair": "PASS", "configuration::check::test_configuration_check::semantic_fields_have_exact_lines": "PASS", "configuration::check::test_configuration_check::strict_decode_reports_nested_and_duplicate_fields": "PASS", "configuration::check::test_configuration_check::unicode_and_crlf_offsets_match_editor_units": "PASS"}, "fingerprint": "d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345", "time": "2026-10-23T16:26:16.867832+08:00", "attempt": 1, "suite": "test_configuration_check", "file": "tests/test_configuration_check.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/mixed-policy/debug/deps/nodus_core-1cc847b6034014b7", "::test_configuration_check::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.008005208000000152, "status": "PASS", "discovered": ["configuration::check::test_configuration_check::checking_does_not_apply_or_change_error_codes", "configuration::check::test_configuration_check::file_errors_never_have_fake_lines_or_repair", "configuration::check::test_configuration_check::mixed_provider_defaults_and_error_position", "configuration::check::test_configuration_check::semantic_fields_have_exact_lines", "configuration::check::test_configuration_check::strict_decode_reports_nested_and_duplicate_fields", "configuration::check::test_configuration_check::unicode_and_crlf_offsets_match_editor_units"], "results": {"configuration::check::test_configuration_check::checking_does_not_apply_or_change_error_codes": "PASS", "configuration::check::test_configuration_check::file_errors_never_have_fake_lines_or_repair": "PASS", "configuration::check::test_configuration_check::mixed_provider_defaults_and_error_position": "PASS", "configuration::check::test_configuration_check::semantic_fields_have_exact_lines": "PASS", "configuration::check::test_configuration_check::strict_decode_reports_nested_and_duplicate_fields": "PASS", "configuration::check::test_configuration_check::unicode_and_crlf_offsets_match_editor_units": "PASS"}, "fingerprint": "f0ca91027f3c767199f4c217fa27a1e6f22131f06863e5e6bc4dbb6c4f8d541e", "time": "2026-10-24T12:56:18.186920+08:00", "attempt": 3, "suite": "test_configuration_check", "file": "tests/test_configuration_check.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "3a0e649264f7c48cd4d80dee20ca39035df9fcf4", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/configuration/check.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-5e834273adbde403 ::test_configuration_check:: --test-threads=1`
-- 执行时间：2026-10-23T16:26:16.867832+08:00
-- 实际耗时：0.0074119589999952495 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "e3fa7f51836b41fd34ad202bf6c738a3a4d2c1e6", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`d9670c964cdab34c1d34b131936f46956cf02167ea86ba2450a3dc6fe7423345`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/mixed-policy/debug/deps/nodus_core-1cc847b6034014b7 ::test_configuration_check:: --test-threads=1`
+- 执行时间：2026-10-24T12:56:18.186920+08:00
+- 实际耗时：0.008005208000000152 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "3a0e649264f7c48cd4d80dee20ca39035df9fcf4", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`f0ca91027f3c767199f4c217fa27a1e6f22131f06863e5e6bc4dbb6c4f8d541e`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -22,15 +22,16 @@
 | --- | --- | --- |
 | `configuration::check::test_configuration_check::checking_does_not_apply_or_change_error_codes` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `configuration::check::test_configuration_check::file_errors_never_have_fake_lines_or_repair` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `configuration::check::test_configuration_check::mixed_provider_defaults_and_error_position` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `configuration::check::test_configuration_check::semantic_fields_have_exact_lines` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `configuration::check::test_configuration_check::strict_decode_reports_nested_and_duplicate_fields` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `configuration::check::test_configuration_check::unicode_and_crlf_offsets_match_editor_units` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 
 ## 执行汇总
 
-- 实际发现：5
-- 实际执行完成：5
-- 通过：5
+- 实际发现：6
+- 实际执行完成：6
+- 通过：6
 - 失败：0
 - 忽略/跳过：0
 - 未取得完整执行结果：0
@@ -50,7 +51,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-fixes-final/test_configuration_check.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-mixed-policy-evidence/test_configuration_check.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

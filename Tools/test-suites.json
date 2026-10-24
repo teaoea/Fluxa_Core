@@ -1179,7 +1179,8 @@
         "final_is_unique_last_and_required",
         "scoped_rules_and_unscoped_reject",
         "malformed_rules_are_not_partially_accepted",
-        "process_rule_syntax_is_exact_case_preserving_and_not_wildcard"
+        "process_rule_syntax_is_exact_case_preserving_and_not_wildcard",
+        "mixed_actions_validate_compile_and_keep_references"
       ]
     },
     {
@@ -1256,7 +1257,12 @@
       "module": "test_outbound_execution",
       "declared_cases": [
         "scoped_quic_is_decided_before_real_udp_outbound",
-        "process_proof_admits_new_flow_without_owning_live_connection"
+        "process_proof_admits_new_flow_without_owning_live_connection",
+        "ordered_node_failures_use_only_explicit_direct",
+        "successful_direct_stream_never_replays_on_failure",
+        "destination_connect_failure_does_not_try_next_node",
+        "udp_node_connect_failure_retries_before_datagram_send",
+        "cancel_during_node_connect_never_reaches_direct"
       ]
     },
     {
@@ -1271,7 +1277,8 @@
         "host_files_are_applied_without_download_or_write",
         "invalid_replacement_keeps_live_snapshot",
         "missing_resource_does_not_create_files",
-        "close_releases_controller_with_old_reference_alive"
+        "close_releases_controller_with_old_reference_alive",
+        "mixed_provider_policy_cannot_be_injected_by_remote_rows"
       ]
     },
     {
@@ -1588,7 +1595,8 @@
         "strict_decode_reports_nested_and_duplicate_fields",
         "unicode_and_crlf_offsets_match_editor_units",
         "file_errors_never_have_fake_lines_or_repair",
-        "checking_does_not_apply_or_change_error_codes"
+        "checking_does_not_apply_or_change_error_codes",
+        "mixed_provider_defaults_and_error_position"
       ]
     },
     {
@@ -1655,6 +1663,20 @@
         "unresolved_and_empty_egress_are_not_equivalent",
         "inputs_are_bounded_before_copy_and_challenges_differ",
         "serialized_assessment_cannot_leak_or_restore_proof"
+      ]
+    },
+    {
+      "id": "test_routing_strategy",
+      "file": "tests/test_routing_strategy.rs",
+      "kind": "unit",
+      "sources": [
+        "src/routing/strategy.rs"
+      ],
+      "module": "test_routing_strategy",
+      "declared_cases": [
+        "ordered_unicode_and_explicit_terminals",
+        "invalid_or_unbounded_lists_fail",
+        "single_proxy_name_is_preserved"
       ]
     }
   ]

@@ -1,7 +1,9 @@
 //! 测试文件：tests/test_providers.rs
 //! 测试类型：单元测试、跨模块只读文件及生命周期测试。
 //! 测试对象：src/providers.rs、configuration、outbound。
-//! 测试内容：host_files_are_applied_without_download_or_write、invalid_replacement_keeps_live_snapshot、missing_resource_does_not_create_files、close_releases_controller_with_old_reference_alive。
+//! 测试内容：
+//! - mixed_provider_policy_cannot_be_injected_by_remote_rows：混合策略每个节点名均不能伪装成远程条件中的策略。host_files_are_applied_without_download_or_write、invalid_replacement_keeps_live_snapshot、missing_resource_does_not_create_files、close_releases_controller_with_old_reference_alive。
+//!
 //! 测试依据：宿主下载和持久化；Core 严格只读；失败保留有效运行配置；关闭不依赖 Arc。
 //! 前置条件：临时文件由测试宿主准备，不访问外网或系统 VPN。
 use super::*;
@@ -159,4 +161,16 @@ async fn close_releases_controller_with_old_reference_alive() {
     )
     .unwrap();
     replacement.close().await.unwrap();
+}
+
+#[test]
+fn mixed_provider_policy_cannot_be_injected_by_remote_rows() {
+    let result = validate_rules(
+        "rules: ['domain,example.com', 'protocol,tcp,one', 'protocol,tcp,two']",
+        crate::routing::Policy::Proxy,
+        Some("(one,two)".into()),
+    )
+    .unwrap();
+    assert_eq!(result.accepted, 1);
+    assert_eq!(result.ignored, 2);
 }
