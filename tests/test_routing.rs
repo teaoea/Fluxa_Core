@@ -6,7 +6,7 @@
 //! - ipv4_ipv6_prefix_boundaries_and_absent_metadata：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - port_range_transport_and_priority：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - modes_fallback_named_outbound_and_explicit_support：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
-//! - malformed_rules_targets_and_unknown_fields_rejected：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
+//! - malformed_rules_targets_and_unknown_fields_rejected：依据现行独立业务约定验证；2.13.0-dev 起默认出站的逗号为有序候选分隔符，按 rules_api.md 校验合法与非法候选列表。
 //! - immutable_snapshot_is_shared_without_state_between_connections：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - limits_and_last_owner_return_global_budget：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
 //! - arbitrary_short_values_do_not_panic：依据现行独立业务约定验证；新来源/模式约定的输入与预期在同名函数明确说明。
@@ -276,21 +276,43 @@ mod public_contract {
             .is_err()
         );
         // 节点名称是显示/逻辑名称，已采用主配置的 128 字节与 Unicode 约束。
-        // 禁止路径、控制符、首尾空白及分隔符；不能把合法空格名称当作文件标识拒绝。
+        // 禁止路径、控制符与首尾空白；不能把合法空格名称当作文件标识拒绝。
+        // 2.13.0-dev 起逗号是有序候选分隔符（rules_api.md“配置混合策略与自动连接重试”），
+        // 不再属于单个名称的非法字符，见下方候选列表断言。
+        for outbound in ["", "node/token", " node", "node\n", "node\\token"] {
+            assert!(
+                Router::compile(Config {
+                    outbound: Some(outbound.into()),
+                    ..Config::default()
+                })
+                .is_err(),
+                "{outbound:?}"
+            );
+        }
+        // 默认出站与规则共用同一候选解析约束：合法的有序候选被接受，
+        // 候选内含非法名称、空项、空白、括号单项、重复及 reject 后的候选均拒绝。
+        assert!(
+            Router::compile(Config {
+                outbound: Some("node,token".into()),
+                ..Config::default()
+            })
+            .is_ok()
+        );
         for outbound in [
-            "",
-            "node/token",
-            " node",
-            "node\n",
-            "node,token",
-            "node\\token",
+            "node,tok/en",
+            "node,,token",
+            "node, token",
+            "(node)",
+            "node,node",
+            "reject,node",
         ] {
             assert!(
                 Router::compile(Config {
                     outbound: Some(outbound.into()),
                     ..Config::default()
                 })
-                .is_err()
+                .is_err(),
+                "{outbound:?}"
             );
         }
         for outbound in ["香港 节点", "has space", "user:label"] {
