@@ -67,7 +67,27 @@ pub fn check_yaml(input: &str) -> std::result::Result<Summary, Box<CheckIssue>> 
     })?;
     let mut field = String::new();
     if let Err(error) = validate_at(&mut raw, &mut field) {
-        let offset = crate::routing::runtime::yaml::field_offset(input, &field);
+        // hosts在业务模型中按键排序，必须用真实键关联原文，而不能把排序序号当原文序号。
+        // 对外仍使用原文条目序号，避免泄露动态主机名。
+        let offset = if let Some(index) = field
+            .strip_prefix("dns.hosts[")
+            .and_then(|v| v.strip_suffix(']'))
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            raw.dns
+                .hosts
+                .keys()
+                .nth(index)
+                .and_then(|key| {
+                    crate::routing::runtime::yaml::mapping_key_position(input, "dns.hosts", key)
+                })
+                .map(|(source_index, offset)| {
+                    field = format!("dns.hosts[{source_index}]");
+                    offset
+                })
+        } else {
+            crate::routing::runtime::yaml::field_offset(input, &field)
+        };
         return Err(CheckIssue::new(
             error,
             if field.is_empty() { "$".into() } else { field },

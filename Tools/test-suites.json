@@ -541,7 +541,9 @@
       ],
       "module": "test_routing_yaml",
       "declared_cases": [
-        "duplicate_unsafe_identifier_keeps_its_real_classification"
+        "duplicate_unsafe_identifier_keeps_its_real_classification",
+        "mapping_entry_uses_key_and_original_order",
+        "mapping_entry_rejects_missing_invalid_and_oversized_inputs"
       ]
     },
     {
@@ -1603,7 +1605,11 @@
         "unicode_and_crlf_offsets_match_editor_units",
         "file_errors_never_have_fake_lines_or_repair",
         "checking_does_not_apply_or_change_error_codes",
-        "mixed_provider_defaults_and_error_position"
+        "mixed_provider_defaults_and_error_position",
+        "hosts_semantic_positions_follow_source_order",
+        "same_line_unicode_uses_scalar_columns_and_utf16_offsets",
+        "syntax_errors_point_to_the_original_token",
+        "independent_inputs_keep_their_own_offsets"
       ]
     },
     {

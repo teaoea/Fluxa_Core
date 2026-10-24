@@ -42,3 +42,7 @@ match result {
 - [check.md](../../../../src/configuration/check.md)：定位与诊断实现。
 - [test_configuration_check.md](../../../../tests/test_configuration_check.md)：字段、只读文件、Unicode 和换行诊断的真实执行记录。
 - [test_ffi.md](../../../../tests/test_ffi.md)：FFI JSON 与位置传递；结果以相应实际版本和源码指纹为准。
+
+## 2.15.1-dev 原文位置修复
+
+dns.hosts语义错误的field序号按输入原文条目顺序，位置指向实际错误键起始（quoted键从引号开始），不受内部BTreeMap排序影响。字段/代码/SourcePosition结构不变，不新增错误码。类型/语法错误、空行、注释、CRLF、同一行的中文与表情及不同正文的独立偏移已有针对性回归。Core同步检查不缓存跨草稿结果；异步调用方仍须丢弃不属于当前草稿的响应。源码修复不等于宿主已复制新二进制或完成UI定位验收。

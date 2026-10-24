@@ -31,3 +31,5 @@
 - [策略解析内部API](Internal/routing/strategy_api.md)
 
 - [规则集正文校验API](External/providers_api.md)
+
+- [YAML动态映射定位内部API](Internal/routing/yaml_api.md)

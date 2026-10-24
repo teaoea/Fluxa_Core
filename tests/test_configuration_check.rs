@@ -1,7 +1,7 @@
 //! 测试文件：tests/test_configuration_check.rs
 //! 测试类型：单元测试、只读字段定位与错误协议。
 //! 测试对象：src/configuration/check.rs、src/configuration.rs、src/routing/yaml.rs。
-//! 测试内容：mixed_provider_defaults_and_error_position、semantic_fields_have_exact_lines、strict_decode_reports_nested_and_duplicate_fields、unicode_and_crlf_offsets_match_editor_units、file_errors_never_have_fake_lines_or_repair、checking_does_not_apply_or_change_error_codes。
+//! 测试内容：mixed_provider_defaults_and_error_position、semantic_fields_have_exact_lines、strict_decode_reports_nested_and_duplicate_fields、unicode_and_crlf_offsets_match_editor_units、file_errors_never_have_fake_lines_or_repair、checking_does_not_apply_or_change_error_codes、hosts_semantic_positions_follow_source_order、same_line_unicode_uses_scalar_columns_and_utf16_offsets、syntax_errors_point_to_the_original_token、independent_inputs_keep_their_own_offsets。
 //! 测试依据：字段错误、固定代码、源文件逻辑行与前端 UTF-16 自动换行定位；Core 不写入。
 //! 前置条件：临时文件由测试宿主准备，无网络。
 use super::*;
@@ -131,4 +131,82 @@ fn mixed_provider_defaults_and_error_position() {
     let error = check_yaml(local).unwrap_err();
     assert_eq!(error.field, "rules[0]");
     assert_eq!(error.position.unwrap().line, 3);
+}
+
+#[test]
+fn hosts_semantic_positions_follow_source_order() {
+    for ending in ["\n", "\r\n"] {
+        for text in [
+            "# 中文 😀\ndns:\n  enable: true\n  server: [system]\n  hosts:\n    z.example: 192.0.2.1\n    a.example: invalid-address\nrules: ['final,direct']\n",
+            "# 中文 😀\ndns:\n  enable: true\n  server: [system]\n  hosts: {z.example: '192.0.2.1', a.example: invalid-address}\nrules: ['final,direct']\n",
+        ] {
+            let yaml = text.replace('\n', ending);
+            let expected = yaml.find("a.example").unwrap();
+            let issue = check_yaml(&yaml).unwrap_err();
+            assert_eq!(issue.field, "dns.hosts[1]");
+            assert_eq!(issue.error_info.code, Error::InvalidInput.code());
+            let pos = issue.position.unwrap();
+            assert_eq!(
+                pos.line,
+                yaml[..expected].bytes().filter(|b| *b == b'\n').count() + 1
+            );
+            let start = yaml[..expected].rfind('\n').map_or(0, |i| i + 1);
+            assert_eq!(pos.column, yaml[start..expected].chars().count() + 1);
+            assert_eq!(pos.utf16_offset, yaml[..expected].encode_utf16().count());
+            let encoded = serde_json::to_string(&issue.error_info).unwrap();
+            assert!(!encoded.contains("a.example"));
+            assert_eq!(
+                Document::from_yaml(&yaml).err().unwrap().code(),
+                Error::InvalidInput.code()
+            );
+        }
+    }
+}
+#[test]
+fn same_line_unicode_uses_scalar_columns_and_utf16_offsets() {
+    let yaml =
+        "# header\r\n\r\nlan-share: {account: '😀中文', port: wrong}\r\nrules: ['final,direct']";
+    let issue = check_yaml(yaml).unwrap_err();
+    let expected = yaml.find("wrong").unwrap();
+    let pos = issue.position.unwrap();
+    assert_eq!(issue.field, "lan-share.port");
+    assert_eq!(pos.line, 3);
+    assert_eq!(
+        pos.column,
+        "lan-share: {account: '😀中文', port: ".chars().count() + 1
+    );
+    assert_eq!(pos.utf16_offset, yaml[..expected].encode_utf16().count());
+}
+#[test]
+fn syntax_errors_point_to_the_original_token() {
+    let yaml = "# 中文 😀\r\n\r\nrules: [@bad]\r\n";
+    let issue = check_yaml(yaml).unwrap_err();
+    let pos = issue.position.unwrap();
+    assert_eq!(issue.error_info.code.value(), 2001);
+    assert_eq!(pos.line, 3);
+    assert_eq!(pos.column, "rules: [".chars().count() + 1);
+    assert_eq!(
+        pos.utf16_offset,
+        yaml[..yaml.find('@').unwrap()].encode_utf16().count()
+    );
+}
+#[test]
+fn independent_inputs_keep_their_own_offsets() {
+    let first = "system-proxy: {port: wrong}";
+    let second = "# 不同草稿 😀\n\nsystem-proxy: {port: wrong}";
+    let first_issue = check_yaml(first).unwrap_err();
+    let second_issue = check_yaml(second).unwrap_err();
+    assert_eq!(first_issue.position.as_ref().unwrap().line, 1);
+    assert_eq!(second_issue.position.as_ref().unwrap().line, 3);
+    assert_eq!(
+        first_issue.position.unwrap().utf16_offset,
+        "system-proxy: {port: ".len()
+    );
+    assert_eq!(
+        second_issue.position.unwrap().utf16_offset,
+        second[..second.find("wrong").unwrap()]
+            .encode_utf16()
+            .count()
+    );
+    // Core同步返回本次原文位置；异步UI仍须用自己的草稿身份丢弃过期响应。
 }

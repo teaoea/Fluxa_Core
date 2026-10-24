@@ -33,6 +33,8 @@ struct Decoder<'a> {
     position: usize,
     target: Option<String>,
     found: Option<usize>,
+    target_mapping: Option<(String, String)>,
+    found_mapping: Option<(usize, usize)>,
 }
 impl Decoder<'_> {
     fn next(&mut self) -> Result<Event> {
@@ -116,6 +118,8 @@ fn decoder<'a>(input: &'a str, target: Option<&str>) -> Decoder<'a> {
         position: 0,
         target: target.map(str::to_owned),
         found: None,
+        target_mapping: None,
+        found_mapping: None,
     }
 }
 fn parse<T: DeserializeOwned>(decoder: &mut Decoder<'_>) -> Result<T> {
@@ -160,6 +164,17 @@ pub(crate) fn field_offset(input: &str, path: &str) -> Option<usize> {
     let mut decoder = decoder(input, Some(path));
     let _result = parse::<serde::de::IgnoredAny>(&mut decoder);
     decoder.found
+}
+/// 已通过严格解析的映射，按实际键取得原文条目序号及键标记的标量偏移。
+/// 键仅用于内部匹配，不进入公开字段路径、错误参数或日志。
+pub(crate) fn mapping_key_position(input: &str, path: &str, key: &str) -> Option<(usize, usize)> {
+    if input.len() > MAX_BYTES || path.len() >= 1024 || key.len() > 1024 {
+        return None;
+    }
+    let mut decoder = decoder(input, None);
+    decoder.target_mapping = Some((path.to_owned(), key.to_owned()));
+    parse::<serde::de::IgnoredAny>(&mut decoder).ok()?;
+    decoder.found_mapping
 }
 struct Sequence<'a, 'b> {
     decoder: &'a mut Decoder<'b>,
@@ -208,6 +223,14 @@ impl<'de> MapAccess<'de> for Mapping<'_, '_> {
         };
         if self.keys.len() >= 64 {
             return Err(Error::ResourceLimit);
+        }
+        if self
+            .decoder
+            .target_mapping
+            .as_ref()
+            .is_some_and(|(path, target)| path == &self.decoder.path && target == &key)
+        {
+            self.decoder.found_mapping = Some((self.keys.len(), self.decoder.position));
         }
         self.key = if self.decoder.path == "dns.hosts" {
             format!("[{}]", self.keys.len())

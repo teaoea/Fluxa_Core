@@ -187,6 +187,33 @@ mod tests {
                 .revision,
             revision
         );
+        let yaml = "# 中文 😀\r\ndns: {enable: true, server: [system], hosts: {z.example: '192.0.2.1', a.example: invalid}}\r\nrules: ['final,direct']";
+        let bytes = serde_json::to_vec(
+            &serde_json::json!({"operation":"configuration_check", "yaml":yaml}),
+        )
+        .unwrap();
+        // SAFETY: 请求在同步调用期间可读，响应仍由唯一TestHandle释放。
+        let response =
+            TestHandle(unsafe { nodus_core_command_v2(owner.0, bytes.as_ptr(), bytes.len()) });
+        let value: serde_json::Value =
+            serde_json::from_slice(&buffer(response.0).unwrap().bytes).unwrap();
+        assert_eq!(value["success"], false);
+        assert_eq!(value["configuration_issue"]["field"], "dns.hosts[1]");
+        assert_eq!(
+            value["configuration_issue"]["position"]["utf16_offset"],
+            yaml[..yaml.find("a.example").unwrap()]
+                .encode_utf16()
+                .count()
+        );
+        assert_eq!(
+            engine(owner.0)
+                .unwrap()
+                .outbound
+                .network_snapshot()
+                .unwrap()
+                .revision,
+            revision
+        );
         assert_eq!(nodus_core_last_error_code(), 1001);
     }
     #[test]
