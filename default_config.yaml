@@ -8,7 +8,11 @@
 # debug，仅记录调试日志
 # warn，仅记录警告日志
 # error，仅记录错误日志
-log-level: silent # 默认silent
+# 日志加密默认关闭；公钥采用Base64编码的P-256 X9.63非压缩格式。
+log:
+  encryption: false
+  public-key: ""
+  level: silent
 
 system-proxy:
   # 系统代理监听端口，默认0，表示禁用系统代理，http/https/socks5共用同一端口

@@ -146,6 +146,8 @@ fn validate(raw: &mut Raw) -> Result<()> {
     validate_at(raw, &mut String::new())
 }
 fn validate_at(raw: &mut Raw, path: &mut String) -> Result<()> {
+    *path = "log.public-key".into();
+    raw.log.validate()?;
     for (field, port) in [
         ("system-proxy.port", raw.system_proxy.port),
         ("lan-share.port", raw.lan_share.port),
@@ -314,7 +316,7 @@ fn validate_at(raw: &mut Raw, path: &mut String) -> Result<()> {
         }
     }
     // 类型本身穷尽限制了值；后续网络准备读取这些字段，校验成功不等于已经应用。
-    let _selection = (raw.log_level, raw.ip_strategy, raw.dns.dnssec);
+    let _selection = (raw.log.level, raw.ip_strategy, raw.dns.dnssec);
     Ok(())
 }
 pub(crate) fn script_name(value: &str) -> Result<()> {
@@ -617,6 +619,13 @@ pub(crate) struct Prepared {
     >,
 }
 impl Document {
+    pub(crate) fn log_settings(&self) -> &models::Log {
+        &self.raw.log
+    }
+    pub(crate) fn log_filter(&self) -> LogFilter {
+        self.raw.log.level
+    }
+
     /// 只读使用已验证限额，不向宿主开放内部配置。
     pub(crate) fn raw_limits(&self) -> crate::outbound::Limits {
         self.raw.outbound_limits
@@ -671,7 +680,6 @@ impl Document {
             || raw.mitm.enabled
             || raw.system_proxy.port != 0
             || raw.lan_share.port != 0
-            || !matches!(raw.log_level, LogFilter::Silent)
         {
             return Err(Error::Unsupported);
         }

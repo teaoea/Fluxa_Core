@@ -45,6 +45,7 @@ pub struct FakeIPTarget {
 #[derive(Debug, Serialize)]
 pub struct Opened {
     pub id: u64,
+    pub connection_id: u64,
     pub address: String,
 }
 fn addresses(answer: Answer, v4: bool) -> Result<Vec<IpAddr>> {

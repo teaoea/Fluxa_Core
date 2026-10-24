@@ -168,7 +168,8 @@
         "vpn_preflight_destroy_waits_for_owned_transaction",
         "vpn_preflight_destroy_waits_for_begin_holding_admission",
         "vpn_preflight_admission_rejected_after_destroy",
-        "vpn_transaction_stop_reply_keeps_result_after_slot_replaced"
+        "vpn_transaction_stop_reply_keeps_result_after_slot_replaced",
+        "log_unix_registration_validates_fd_and_owns_duplicate"
       ]
     },
     {
@@ -685,7 +686,7 @@
         "all_abi_failures_use_segmented_codes_and_nonerrors_remain_states",
         "every_internal_error_maps_to_the_independent_protocol_identity",
         "invalid_config_keeps_snapshot_and_machine_failure",
-        "diagnostics_remain_fixed_size_and_do_not_hold_error_chains",
+        "diagnostics_only_send_live_and_leave_buffering_to_receiver",
         "segmented_codes_have_one_category_per_prefix",
         "typed_context_is_required_bounded_and_specific_to_code",
         "safety_filter_preserves_unknown_and_duplicate_classification"
@@ -1708,6 +1709,32 @@
         "observations_are_transaction_bound_fresh_and_one_shot",
         "cancelled_or_absent_observation_never_admits",
         "summary_is_diagnostic_only"
+      ]
+    },
+    {
+      "id": "test_logging",
+      "file": "tests/test_logging.rs",
+      "kind": "unit",
+      "sources": [
+        "src/logging.rs",
+        "src/outbound.rs",
+        "src/outbound/configuration.rs",
+        "src/configuration.rs",
+        "src/configuration/models.rs"
+      ],
+      "module": "test_logging",
+      "declared_cases": [
+        "levels_keep_exact_existing_semantics",
+        "no_consumer_or_disconnection_never_accumulates_history",
+        "full_receiver_and_busy_output_never_wait",
+        "structured_fields_are_transferred_without_redaction",
+        "configuration_failure_keeps_previous_level_and_revision",
+        "unix_output_is_live_datagrams_only",
+        "encryption_authenticates_and_survives_missing_packets",
+        "encryption_bounds_and_exhaustion_never_emit_plaintext",
+        "log_schema_defaults_and_strict_public_key_validation",
+        "encrypted_unix_transport_round_trip_and_rotation",
+        "connection_events_share_id_and_close_once"
       ]
     }
   ]

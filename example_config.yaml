@@ -14,15 +14,17 @@
 # 问题反馈地址，反馈问题是需提交日志
 # Issues：https://github.com/teaoea/Nodus-Core/issues
 
-# 日志记录等级
-# 存放位置：App Group Container/log/silent（日志等级）/（年-月-日）/（整点小时）.jsonl
-# 按照1小时为间隔，每小时的日志为独立文件
-# silent，不记录日志
-# info，记录完整日志，含debug、warn、error
-# debug，仅记录调试日志
-# warn，仅记录警告日志
-# error，仅记录错误日志
-log-level: silent # 默认silent
+# 日志处理，Core 仅负责使用公钥加密日志并输出加密数据流，不负责日志存储、解密及密钥管理
+# silent：不记录日志
+# info：记录完整日志，含debug、warn、error
+# debug：仅记录调试日志
+# warn：仅记录警告日志
+# error：仅记录错误日志
+# 加密算法：HPKE-P256-HKDF-SHA256-AES256GCM（固定算法，不支持自定义）
+log:
+  encryption: true # 是否启用日志加密：true：启用，false：禁用，默认为false
+  public-key: "BASE64_PUBLIC_KEY" # 日志加密公钥，使用 Base64 编码的 P-256 公钥（X9.63 非压缩格式），启用加密时必填
+  level: silent # 日记记录等级，默认为silent，不记录日志
 
 system-proxy:
   # 系统代理监听端口，默认0，表示禁用系统代理，http/https/socks5共用同一端口

@@ -1,4 +1,4 @@
-//! 无正文、无凭据的固定诊断环；显式清理失败与底层 I/O 分类不会静默消失。
+//! 仅实时输出当前结构化诊断；接收方持有队列，Core不保留诊断历史。
 use super::{Error, ErrorCode, Result};
 use std::{io, sync::Mutex};
 /// 诊断位置是集中定义的业务标识，不公开内部路径或对象地址。
@@ -30,17 +30,12 @@ impl Diagnostic {
         self.code.level()
     }
 }
-pub const DIAGNOSTIC_CAPACITY: usize = 64;
-struct Ring {
-    records: [Option<Diagnostic>; DIAGNOSTIC_CAPACITY],
-    next: usize,
-    overwritten: u64,
+static OUTPUT: Mutex<Option<std::sync::mpsc::SyncSender<Diagnostic>>> = Mutex::new(None);
+/// 受信宿主提供发送端；接收方自行缓冲/保存，None解除输出。没有历史读取入口。
+pub fn set_output(sender: Option<std::sync::mpsc::SyncSender<Diagnostic>>) -> Result<()> {
+    *OUTPUT.lock().map_err(|_| Error::Internal)? = sender;
+    Ok(())
 }
-static RING: Mutex<Ring> = Mutex::new(Ring {
-    records: [None; DIAGNOSTIC_CAPACITY],
-    next: 0,
-    overwritten: 0,
-});
 pub fn record_code(code: ErrorCode, site: DiagnosticSite) {
     append(Diagnostic {
         code,
@@ -66,23 +61,12 @@ pub(crate) fn record_io(error: &io::Error, code: ErrorCode) {
     });
 }
 fn append(record: Diagnostic) {
-    // 专用诊断锁中毒后恢复仅这个固定环，不恢复任何业务锁或失效快照。
-    let mut ring = RING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let index = ring.next;
-    if ring.records[index].is_some() {
-        ring.overwritten = ring.overwritten.saturating_add(1);
+    // 竞争、无接收方、满队列或失联均不阻塞业务，也不缓存/重试当前事件。
+    if let Ok(output) = OUTPUT.try_lock()
+        && let Some(output) = output.as_ref()
+    {
+        let _ = output.try_send(record);
     }
-    ring.records[index] = Some(record);
-    ring.next = (index + 1) % DIAGNOSTIC_CAPACITY;
-}
-/// 固定大小快照不会清空记录；覆盖数量明确可见，诊断不会形成无界日志。
-pub fn snapshot() -> ([Option<Diagnostic>; DIAGNOSTIC_CAPACITY], u64) {
-    let ring = RING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    (ring.records, ring.overwritten)
 }
 /// 保留原 Result；仅记录失败。用于原先的尽力清理/可选缓存，不制造成功策略。
 pub(crate) fn observe<T>(result: Result<T>, site: DiagnosticSite) -> Result<T> {

@@ -89,6 +89,7 @@ struct State {
     recovering: bool,
 }
 struct Inner {
+    logs: Arc<crate::logging::Journal>,
     state: Mutex<State>,
     cancel: watch::Sender<bool>,
     changed: Notify,
@@ -98,16 +99,21 @@ struct Inner {
 /// 单个槽保持整个运行及恢复生命周期；重复启动不能替换仍活动或恢复失败的事务。
 /// 只读状态和取消意图不授予外部调用者推进阶段或发布 Running 的能力。
 pub struct Controller {
+    pub(crate) logs: Arc<crate::logging::Journal>,
     owned: Mutex<Option<u64>>,
 }
 impl Default for Controller {
     fn default() -> Self {
-        Self {
-            owned: Mutex::new(None),
-        }
+        Self::with_logs(Arc::new(crate::logging::Journal::default()))
     }
 }
 impl Controller {
+    pub(crate) fn with_logs(logs: Arc<crate::logging::Journal>) -> Self {
+        Self {
+            logs,
+            owned: Mutex::new(None),
+        }
+    }
     /// 每阶段最多120秒；期限触发取消后仍等待步骤确定停止，不能脱离回滚。
     /// 返回的是开始受理，不是成功接管；正常运行时调用 stop 并等待完成。
     pub fn begin(&self, steps: Arc<dyn Steps>, deadline: Duration) -> Result<u64> {
@@ -163,6 +169,7 @@ impl Controller {
         }
         let (cancel, _) = watch::channel(false);
         let inner = Arc::new(Inner {
+            logs: self.logs.clone(),
             state: Mutex::new(State {
                 status: Status {
                     transaction,
@@ -321,6 +328,13 @@ impl Inner {
         if phase == Phase::Commit {
             state.status.system = SystemState::MayBeChanged;
         }
+        self.logs.emit(
+            crate::logging::Event::VpnPhaseEntered,
+            Some(state.status.transaction),
+            None,
+            Some(phase),
+            None,
+        );
         self.changed.notify_waiters();
         Ok(())
     }
@@ -331,6 +345,13 @@ impl Inner {
                 Ok(mut state) => {
                     state.status.failure_phase = Some(state.status.phase);
                     state.status.failure = Some(error);
+                    self.logs.emit(
+                        crate::logging::Event::VpnStageFailed,
+                        Some(state.status.transaction),
+                        None,
+                        Some(state.status.phase),
+                        Some(error),
+                    );
                 }
                 Err(_) => return,
             }
@@ -447,6 +468,17 @@ impl Inner {
             };
             state.finished = true;
             state.recovering = false;
+            self.logs.emit(
+                if result.is_err() {
+                    crate::logging::Event::VpnCleanupFailed
+                } else {
+                    crate::logging::Event::VpnCleanupFinished
+                },
+                Some(id),
+                None,
+                Some(state.status.phase),
+                result.err(),
+            );
             self.changed.notify_waiters();
         }
     }

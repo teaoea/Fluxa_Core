@@ -1,6 +1,6 @@
 # 测试报告：test_error_contract
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_error_contract-0f462867ab6f9023", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.11928666699999724, "status": "PASS", "discovered": ["all_abi_failures_use_segmented_codes_and_nonerrors_remain_states", "diagnostics_remain_fixed_size_and_do_not_hold_error_chains", "embedded_kernel_failure_survives_io_wrapper_without_sensitive_text", "every_internal_error_maps_to_the_independent_protocol_identity", "fixed_integer_protocol_has_no_string_or_heap_representation", "invalid_config_keeps_snapshot_and_machine_failure", "nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded", "real_dns_deadline_and_closed_port_fail_without_policy_success", "registered_contract_and_initial_baseline_are_complete", "safety_filter_preserves_unknown_and_duplicate_classification", "segmented_codes_have_one_category_per_prefix", "serialization_failure_remains_a_failure", "strict_error_schema_rejects_unregistered_or_unbounded_data", "typed_context_is_required_bounded_and_specific_to_code"], "results": {"all_abi_failures_use_segmented_codes_and_nonerrors_remain_states": "PASS", "diagnostics_remain_fixed_size_and_do_not_hold_error_chains": "PASS", "embedded_kernel_failure_survives_io_wrapper_without_sensitive_text": "PASS", "every_internal_error_maps_to_the_independent_protocol_identity": "PASS", "fixed_integer_protocol_has_no_string_or_heap_representation": "PASS", "invalid_config_keeps_snapshot_and_machine_failure": "PASS", "nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded": "PASS", "real_dns_deadline_and_closed_port_fail_without_policy_success": "PASS", "registered_contract_and_initial_baseline_are_complete": "PASS", "safety_filter_preserves_unknown_and_duplicate_classification": "PASS", "segmented_codes_have_one_category_per_prefix": "PASS", "serialization_failure_remains_a_failure": "PASS", "strict_error_schema_rejects_unregistered_or_unbounded_data": "PASS", "typed_context_is_required_bounded_and_specific_to_code": "PASS"}, "fingerprint": "aa9f6c4327536aec204a0b04e8af4fc4520df6d68f3147b036fde368a950f85d", "time": "2026-10-24T15:34:16.503103+08:00", "attempt": 1, "suite": "test_error_contract", "file": "tests/test_error_contract.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "47a309276237ff09a422e7d962fd2db4a7543f06", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/test_error_contract-e40b755368879df9", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.14442749999999904, "status": "PASS", "discovered": ["all_abi_failures_use_segmented_codes_and_nonerrors_remain_states", "diagnostics_only_send_live_and_leave_buffering_to_receiver", "embedded_kernel_failure_survives_io_wrapper_without_sensitive_text", "every_internal_error_maps_to_the_independent_protocol_identity", "fixed_integer_protocol_has_no_string_or_heap_representation", "invalid_config_keeps_snapshot_and_machine_failure", "nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded", "real_dns_deadline_and_closed_port_fail_without_policy_success", "registered_contract_and_initial_baseline_are_complete", "safety_filter_preserves_unknown_and_duplicate_classification", "segmented_codes_have_one_category_per_prefix", "serialization_failure_remains_a_failure", "strict_error_schema_rejects_unregistered_or_unbounded_data", "typed_context_is_required_bounded_and_specific_to_code"], "results": {"all_abi_failures_use_segmented_codes_and_nonerrors_remain_states": "PASS", "diagnostics_only_send_live_and_leave_buffering_to_receiver": "PASS", "embedded_kernel_failure_survives_io_wrapper_without_sensitive_text": "PASS", "every_internal_error_maps_to_the_independent_protocol_identity": "PASS", "fixed_integer_protocol_has_no_string_or_heap_representation": "PASS", "invalid_config_keeps_snapshot_and_machine_failure": "PASS", "nested_and_cyclic_io_causes_preserve_classification_and_remain_bounded": "PASS", "real_dns_deadline_and_closed_port_fail_without_policy_success": "PASS", "registered_contract_and_initial_baseline_are_complete": "PASS", "safety_filter_preserves_unknown_and_duplicate_classification": "PASS", "segmented_codes_have_one_category_per_prefix": "PASS", "serialization_failure_remains_a_failure": "PASS", "strict_error_schema_rejects_unregistered_or_unbounded_data": "PASS", "typed_context_is_required_bounded_and_specific_to_code": "PASS"}, "fingerprint": "b7bc57f342b032d047f7e777f6d2b411c9dd7a9095658d68f7e07cb7d80d2396", "time": "2026-10-24T19:15:31.886720+08:00", "attempt": 1, "suite": "test_error_contract", "file": "tests/test_error_contract.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "867077280c32f31b53a10ad45776eb44da3cc243", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/error.rs
 - 执行机制：integration
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_error_contract-0f462867ab6f9023 --test-threads=1`
-- 执行时间：2026-10-24T15:34:16.503103+08:00
-- 实际耗时：0.11928666699999724 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "47a309276237ff09a422e7d962fd2db4a7543f06", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`aa9f6c4327536aec204a0b04e8af4fc4520df6d68f3147b036fde368a950f85d`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/test_error_contract-e40b755368879df9 --test-threads=1`
+- 执行时间：2026-10-24T19:15:31.886720+08:00
+- 实际耗时：0.14442749999999904 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "867077280c32f31b53a10ad45776eb44da3cc243", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`b7bc57f342b032d047f7e777f6d2b411c9dd7a9095658d68f7e07cb7d80d2396`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -21,7 +21,7 @@
 | 实际发现的用例 | 独立目标 | 状态 |
 | --- | --- | --- |
 | `all_abi_failures_use_segmented_codes_and_nonerrors_remain_states` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
-| `diagnostics_remain_fixed_size_and_do_not_hold_error_chains` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
+| `diagnostics_only_send_live_and_leave_buffering_to_receiver` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `embedded_kernel_failure_survives_io_wrapper_without_sensitive_text` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `every_internal_error_maps_to_the_independent_protocol_identity` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
 | `fixed_integer_protocol_has_no_string_or_heap_representation` | 对应同名函数中保留的契约、输入和独立断言；详见测试源文件 | PASS |
@@ -59,7 +59,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/nodus-config-location-after/test_error_contract.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-logging-final-evidence/test_error_contract.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

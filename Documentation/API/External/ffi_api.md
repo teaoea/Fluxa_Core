@@ -285,3 +285,7 @@ Rust 调用方式见 [check_api.md](configuration/check_api.md)。
 - 不存在的默认节点拒绝候选：`tests/test_vpn.rs` 及同名报告。
 
 测试报告以实际源码指纹及退出状态为准。本页不宣称 App 已接入、最低系统或真机已验收，也不代表二进制已发布。
+
+## 实时日志（2.16.0-dev）
+
+当前结构化事件、connection_id、非阻塞消费者接口及可选加密协议见[日志API](logging_api.md)。消费者拥有持久化与访问；Core不提供历史查询。日志事件不提升配置候选或VPN阶段的实际成功等级。

@@ -54,13 +54,50 @@ pub struct NetworkSnapshot {
     pub outbounds: Arc<std::collections::HashMap<String, Arc<crate::protocol::config::Node>>>,
 }
 impl Manager {
+    fn configure_committed_log(&self, snapshot: &NetworkSnapshot) {
+        if snapshot.configuration_complete
+            && let Some(document) = &snapshot.configuration
+        {
+            self.logs.apply_settings(document.log_settings());
+            self.logs.configure(document.log_filter());
+            self.logs.emit(
+                crate::logging::Event::ConfigurationCommitted,
+                None,
+                Some(snapshot.revision),
+                None,
+                None,
+            );
+        }
+    }
+    fn log_configuration_result<T>(&self, result: Result<T>) -> Result<T> {
+        if let Err(error) = &result {
+            self.logs.emit(
+                crate::logging::Event::ConfigurationFailed,
+                None,
+                None,
+                None,
+                Some(*error),
+            );
+        }
+        result
+    }
     /// 提交主配置意图；准备在锁外完成，锁内核对基线并一次发布整份快照。
     /// 成功仅代表配置提交，不创建监听或接管 VPN。失败保留旧配置和已建立连接。
     /// 示例：manager.apply_configuration("rules: ['final,reject']")?。
     pub fn apply_configuration(&self, yaml: &str) -> Result<u64> {
-        let revision = self.network_snapshot()?.revision;
-        let prepared = crate::configuration::Document::from_yaml(yaml)?.prepare()?;
-        self.commit_configuration(revision, prepared)
+        self.logs.emit(
+            crate::logging::Event::ConfigurationRequested,
+            None,
+            None,
+            None,
+            None,
+        );
+        let result = (|| {
+            let revision = self.network_snapshot()?.revision;
+            let prepared = crate::configuration::Document::from_yaml(yaml)?.prepare()?;
+            self.commit_configuration(revision, prepared)
+        })();
+        self.log_configuration_result(result)
     }
     fn commit_configuration(
         &self,
@@ -280,6 +317,7 @@ impl Manager {
         });
         commit()?;
         state.network = replacement;
+        self.configure_committed_log(&state.network);
         Ok(revision)
     }
     fn replace_network(
@@ -324,6 +362,7 @@ impl Manager {
             old.retire()?;
         }
         state.network = replacement;
+        self.configure_committed_log(&state.network);
         Ok(revision)
     }
 }
@@ -426,22 +465,33 @@ impl Manager {
     /// 异步主配置意图：DNS 和内存快照由内核拥有，磁盘资源由宿主提供，失败保留旧配置。
     /// 仅不需要异步子系统且没有活动控制器时可使用同步 apply_configuration。
     pub async fn apply_configuration_async(self: &Arc<Self>, yaml: &str) -> Result<u64> {
-        let document = Arc::new(crate::configuration::Document::from_yaml(yaml)?);
-        if !document.needs_runtime()
-            && document.provider_settings().is_empty()
-            && self
-                .state
-                .lock()
-                .map_err(|_| Error::Internal)?
-                .providers
-                .is_none()
-        {
-            let revision = self.network_snapshot()?.revision;
-            return self.commit_configuration(revision, document.prepare_shared(Vec::new())?);
+        self.logs.emit(
+            crate::logging::Event::ConfigurationRequested,
+            None,
+            None,
+            None,
+            None,
+        );
+        let result = async {
+            let document = Arc::new(crate::configuration::Document::from_yaml(yaml)?);
+            if !document.needs_runtime()
+                && document.provider_settings().is_empty()
+                && self
+                    .state
+                    .lock()
+                    .map_err(|_| Error::Internal)?
+                    .providers
+                    .is_none()
+            {
+                let revision = self.network_snapshot()?.revision;
+                return self.commit_configuration(revision, document.prepare_shared(Vec::new())?);
+            }
+            let client = crate::https::HttpsClient::system()?;
+            self.apply_provider_document(document, client, crate::storage::Resources::default())
+                .await
         }
-        let client = crate::https::HttpsClient::system()?;
-        self.apply_provider_document(document, client, crate::storage::Resources::default())
-            .await
+        .await;
+        self.log_configuration_result(result)
     }
     /// TLS 配置沿用 HTTPS 客户端的系统/企业根，忽略其网络对象；业务路由由内核候选配置生成。
     pub async fn apply_configuration_with_client(
@@ -459,12 +509,23 @@ impl Manager {
         path: &str,
         resources: crate::storage::Resources,
     ) -> Result<u64> {
-        resources.validate()?;
-        let yaml = crate::storage::read_configuration(path)?;
-        let document = Arc::new(crate::configuration::Document::from_yaml(yaml.as_str())?);
-        let client = crate::https::HttpsClient::system()?;
-        self.apply_provider_document(document, client, resources)
-            .await
+        self.logs.emit(
+            crate::logging::Event::ConfigurationRequested,
+            None,
+            None,
+            None,
+            None,
+        );
+        let result = async {
+            resources.validate()?;
+            let yaml = crate::storage::read_configuration(path)?;
+            let document = Arc::new(crate::configuration::Document::from_yaml(yaml.as_str())?);
+            let client = crate::https::HttpsClient::system()?;
+            self.apply_provider_document(document, client, resources)
+                .await
+        }
+        .await;
+        self.log_configuration_result(result)
     }
     pub(crate) async fn apply_provider_document(
         self: &Arc<Self>,
@@ -641,6 +702,7 @@ impl Manager {
             commit()?;
         }
         state.network = replacement;
+        self.configure_committed_log(&state.network);
         Ok(next)
     }
 }

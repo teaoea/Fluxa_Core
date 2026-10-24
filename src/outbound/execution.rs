@@ -27,6 +27,7 @@ pub struct RoutedOpened {
 /// 只能由内核入口补充的报文/系统元组，不参与公开请求反序列化。
 #[derive(Clone, Copy, Default)]
 struct FlowFacts<'a> {
+    connection_id: Option<u64>,
     datagram: Option<&'a [u8]>,
     source: Option<crate::platform::process::Flow>,
     permission: Option<&'a crate::dns::ResolverOperation>,
@@ -128,6 +129,7 @@ impl Manager {
             snapshot.clone(),
             None,
             FlowFacts {
+                connection_id: None,
                 datagram: None,
                 source: Some(flow),
                 permission: None,
@@ -183,6 +185,7 @@ impl Manager {
             snapshot.clone(),
             None,
             FlowFacts {
+                connection_id: None,
                 datagram: Some(bytes),
                 source: Some(flow),
                 permission: None,
@@ -199,34 +202,63 @@ impl Manager {
         hop: Option<SocketAddr>,
         facts: FlowFacts<'_>,
     ) -> Result<RoutedOpened> {
-        // 两族尝试属于同一建连事务；退休仅禁止新的请求，不能在族切换时取消已准入请求。
-        let admitted = snapshot
-            .resolver
-            .as_ref()
-            .map(|r| r.operation())
-            .transpose()?;
-        let facts = FlowFacts {
-            permission: admitted.as_ref(),
-            ..facts
-        };
-        use crate::configuration::models::IpStrategy;
-        if snapshot.configuration_complete {
-            let enforced = match snapshot.ip_strategy {
-                IpStrategy::OnlyIpv4 => Some(Family::Ipv4),
-                IpStrategy::OnlyIpv6 => Some(Family::Ipv6),
-                _ => None,
+        let connection_id = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        let revision = snapshot.revision;
+        self.logs.event(
+            crate::logging::Event::ConnectionCreated,
+            None,
+            Some(revision),
+            None,
+            None,
+            crate::logging::Context {
+                connection_id: Some(connection_id),
+                ..Default::default()
+            },
+        );
+        let result = async {
+            // 两族尝试属于同一建连事务；退休仅禁止新的请求，不能在族切换时取消已准入请求。
+            let admitted = snapshot
+                .resolver
+                .as_ref()
+                .map(|r| r.operation())
+                .transpose()?;
+            let facts = FlowFacts {
+                connection_id: Some(connection_id),
+                permission: admitted.as_ref(),
+                ..facts
             };
-            if let Some(family) = enforced
-                && !matches!(request.family, Family::Auto)
-                && std::mem::discriminant(&request.family) != std::mem::discriminant(&family)
-            {
-                return Err(Error::InvalidInput);
-            }
-            if request.target.address.is_some() && request.mapping_generation.is_none() {
-                let mut request = request;
-                if let Some(family) = enforced {
-                    request.family = family;
+            use crate::configuration::models::IpStrategy;
+            if snapshot.configuration_complete {
+                let enforced = match snapshot.ip_strategy {
+                    IpStrategy::OnlyIpv4 => Some(Family::Ipv4),
+                    IpStrategy::OnlyIpv6 => Some(Family::Ipv6),
+                    _ => None,
+                };
+                if let Some(family) = enforced
+                    && !matches!(request.family, Family::Auto)
+                    && std::mem::discriminant(&request.family) != std::mem::discriminant(&family)
+                {
+                    return Err(Error::InvalidInput);
                 }
+                if request.target.address.is_some() && request.mapping_generation.is_none() {
+                    let mut request = request;
+                    if let Some(family) = enforced {
+                        request.family = family;
+                    }
+                    return self
+                        .connect_family(
+                            router,
+                            resolver,
+                            request,
+                            snapshot,
+                            (hop, facts),
+                            &mut false,
+                        )
+                        .await;
+                }
+            }
+            // 主配置的地址族策略由内核裁决；不能由普通 API 的 Auto 实现并发查询两族。
+            if !snapshot.configuration_complete || !matches!(request.family, Family::Auto) {
                 return self
                     .connect_family(
                         router,
@@ -238,64 +270,70 @@ impl Manager {
                     )
                     .await;
             }
-        }
-        // 主配置的地址族策略由内核裁决；不能由普通 API 的 Auto 实现并发查询两族。
-        if !snapshot.configuration_complete || !matches!(request.family, Family::Auto) {
-            return self
+            let (first, second) = match snapshot.ip_strategy {
+                IpStrategy::PreferIpv4 => (Family::Ipv4, Some(Family::Ipv6)),
+                IpStrategy::PreferIpv6 => (Family::Ipv6, Some(Family::Ipv4)),
+                IpStrategy::OnlyIpv4 => (Family::Ipv4, None),
+                IpStrategy::OnlyIpv6 => (Family::Ipv6, None),
+            };
+            let mut attempt = request.clone();
+            attempt.family = first;
+            let mut empty = false;
+            let result = self
                 .connect_family(
                     router,
                     resolver,
-                    request,
-                    snapshot,
+                    attempt,
+                    snapshot.clone(),
                     (hop, facts),
-                    &mut false,
+                    &mut empty,
                 )
                 .await;
+            let retry = empty
+                || matches!(
+                    result,
+                    Err(Error::Network
+                        | Error::NetworkTimeout
+                        | Error::NetworkConnectRefused
+                        | Error::DnsTimeout)
+                );
+            // NXDOMAIN、DNSSEC、资源/状态失败以及所有候选被拦截均不可触发另一族放行。
+            if result.is_err()
+                && retry
+                && let Some(second) = second
+            {
+                let mut request = request;
+                request.family = second;
+                return self
+                    .connect_family(
+                        router,
+                        resolver,
+                        request,
+                        snapshot,
+                        (hop, facts),
+                        &mut false,
+                    )
+                    .await;
+            }
+            result
         }
-        let (first, second) = match snapshot.ip_strategy {
-            IpStrategy::PreferIpv4 => (Family::Ipv4, Some(Family::Ipv6)),
-            IpStrategy::PreferIpv6 => (Family::Ipv6, Some(Family::Ipv4)),
-            IpStrategy::OnlyIpv4 => (Family::Ipv4, None),
-            IpStrategy::OnlyIpv6 => (Family::Ipv6, None),
-        };
-        let mut attempt = request.clone();
-        attempt.family = first;
-        let mut empty = false;
-        let result = self
-            .connect_family(
-                router,
-                resolver,
-                attempt,
-                snapshot.clone(),
-                (hop, facts),
-                &mut empty,
-            )
-            .await;
-        let retry = empty
-            || matches!(
-                result,
-                Err(Error::Network
-                    | Error::NetworkTimeout
-                    | Error::NetworkConnectRefused
-                    | Error::DnsTimeout)
+        .await;
+        if let Err(error) = result {
+            self.logs.event(
+                if error == Error::Rejected {
+                    crate::logging::Event::PolicyBlocked
+                } else {
+                    crate::logging::Event::ConnectionFailed
+                },
+                None,
+                Some(revision),
+                None,
+                Some(error),
+                crate::logging::Context {
+                    connection_id: Some(connection_id),
+                    ..Default::default()
+                },
             );
-        // NXDOMAIN、DNSSEC、资源/状态失败以及所有候选被拦截均不可触发另一族放行。
-        if result.is_err()
-            && retry
-            && let Some(second) = second
-        {
-            let mut request = request;
-            request.family = second;
-            return self
-                .connect_family(
-                    router,
-                    resolver,
-                    request,
-                    snapshot,
-                    (hop, facts),
-                    &mut false,
-                )
-                .await;
         }
         result
     }
@@ -310,10 +348,12 @@ impl Manager {
     ) -> Result<RoutedOpened> {
         let (hop, facts) = context;
         let FlowFacts {
+            connection_id,
             datagram,
             source,
             permission: admitted,
         } = facts;
+        let connection_id = connection_id.ok_or(Error::Internal)?;
         snapshot.ensure_operation(admitted)?;
         let deadline = duration(request.timeout_ms)?;
         let mut metadata = request.target.clone();
@@ -377,6 +417,7 @@ impl Manager {
                 std::sync::Arc::clone(&snapshot),
                 deadline,
                 admitted,
+                connection_id,
                 async |permission| {
                     // 系统归属查询也属于本次准入/总超时，不在会话取消与建连截止之外运行。
                     let identity = if router.needs_process() {
@@ -392,6 +433,14 @@ impl Manager {
                         datagram,
                         identity.name.as_deref(),
                     )? {
+                        self.logs.event(
+                            crate::logging::Event::RouteMatched,
+                            None,
+                            Some(snapshot.revision),
+                            None,
+                            None,
+                            crate::logging::Context::route(connection_id, &early),
+                        );
                         check(&snapshot, &early, metadata.transport)?;
                     }
                     let addresses = if let Some(ip) = numeric {
@@ -459,6 +508,14 @@ impl Manager {
                     } else {
                         preferred
                     };
+                    self.logs.event(
+                        crate::logging::Event::RouteMatched,
+                        None,
+                        Some(snapshot.revision),
+                        None,
+                        None,
+                        crate::logging::Context::route(connection_id, &first.1),
+                    );
                     // 路由优先级只计算一次；显式候选顺序在同一操作/预算/总截止内执行。
                     let chain = first.1.outbound.as_deref().is_some_and(|v| v.contains(','));
                     let members = if first.1.policy == Policy::Proxy {
@@ -472,6 +529,33 @@ impl Manager {
                     let mut last = Error::Network;
                     for (index, candidate) in members.iter().copied().enumerate() {
                         snapshot.ensure_operation(permission)?;
+                        if index > 0 {
+                            self.logs.event(
+                                crate::logging::Event::NodeRetry,
+                                None,
+                                Some(snapshot.revision),
+                                None,
+                                Some(last),
+                                crate::logging::Context {
+                                    connection_id: Some(connection_id),
+                                    node: crate::logging::NodeName::new(members[index - 1]),
+                                    next_node: crate::logging::NodeName::new(candidate),
+                                    ..Default::default()
+                                },
+                            );
+                        }
+                        self.logs.event(
+                            crate::logging::Event::NodeConnecting,
+                            None,
+                            Some(snapshot.revision),
+                            None,
+                            None,
+                            crate::logging::Context {
+                                connection_id: Some(connection_id),
+                                node: crate::logging::NodeName::new(candidate),
+                                ..Default::default()
+                            },
+                        );
                         let direct =
                             first.1.policy == Policy::Direct || (chain && candidate == "direct");
                         if chain && candidate == "reject" {
@@ -546,6 +630,18 @@ impl Manager {
                                 }
                                 let socket = connected.ok_or(Error::Network)?;
                                 socket.set_nodelay(true)?;
+                                self.logs.event(
+                                    crate::logging::Event::NodeHandshake,
+                                    None,
+                                    Some(snapshot.revision),
+                                    None,
+                                    None,
+                                    crate::logging::Context {
+                                        connection_id: Some(connection_id),
+                                        node: crate::logging::NodeName::new(candidate),
+                                        ..Default::default()
+                                    },
+                                );
                                 // 已检查的真实候选作为 VLESS 目标，不让远端重新解析后切换到未经检查的地址。
                                 // 协议 future 独立置于有界连接预算内，避免放大 Swift 宿主线程的调用栈。
                                 let outbound = match retry_request.target.transport {
@@ -587,10 +683,34 @@ impl Manager {
                         .unwrap_or(Err(Error::NetworkTimeout));
                         match attempt {
                             Ok(dialed) => {
+                                self.logs.event(
+                                    crate::logging::Event::NodeConnected,
+                                    None,
+                                    Some(snapshot.revision),
+                                    None,
+                                    None,
+                                    crate::logging::Context {
+                                        connection_id: Some(connection_id),
+                                        node: crate::logging::NodeName::new(candidate),
+                                        ..Default::default()
+                                    },
+                                );
                                 selected = Some((dialed, direct, candidate.to_owned()));
                                 break;
                             }
                             Err(error) => {
+                                self.logs.event(
+                                    crate::logging::Event::NodeFailed,
+                                    None,
+                                    Some(snapshot.revision),
+                                    None,
+                                    Some(error),
+                                    crate::logging::Context {
+                                        connection_id: Some(connection_id),
+                                        node: crate::logging::NodeName::new(candidate),
+                                        ..Default::default()
+                                    },
+                                );
                                 // 只允许尚未交付业务流时的建连故障切换；状态/预算/取消绝不重试。
                                 if direct
                                     || !matches!(
@@ -642,6 +762,14 @@ impl Manager {
                     } else {
                         Policy::Proxy
                     };
+                    self.logs.event(
+                        crate::logging::Event::RouteSelected,
+                        None,
+                        Some(snapshot.revision),
+                        None,
+                        None,
+                        crate::logging::Context::route(connection_id, &actual),
+                    );
                     actual.outbound = (!direct).then_some(candidate);
                     decision = Some(actual);
                     Ok((dialed, protection))

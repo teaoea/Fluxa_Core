@@ -240,3 +240,41 @@ Nodus自有代码采用 MIT 许可协议；第三方依赖适用各自的上游�
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
 | shlex | 1.3.0 | MIT OR Apache-2.0 |
 | errno | 0.3.14 | MIT OR Apache-2.0 |
+
+## 实时日志加密新增依赖（Cargo.lock固定）
+
+| 组件 | 版本 | SPDX |
+|---|---|---|
+| aead | 0.5.2 | MIT OR Apache-2.0 |
+| aes | 0.8.4 | MIT OR Apache-2.0 |
+| aes-gcm | 0.10.3 | Apache-2.0 OR MIT |
+| base16ct | 0.2.0 | Apache-2.0 OR MIT |
+| block-buffer | 0.10.4 | MIT OR Apache-2.0 |
+| chacha20 | 0.9.1 | Apache-2.0 OR MIT |
+| chacha20poly1305 | 0.10.1 | Apache-2.0 OR MIT |
+| cipher | 0.4.4 | MIT OR Apache-2.0 |
+| const-oid | 0.9.6 | Apache-2.0 OR MIT |
+| crypto-bigint | 0.5.5 | Apache-2.0 OR MIT |
+| crypto-common | 0.1.7 | MIT OR Apache-2.0 |
+| ctr | 0.9.2 | MIT OR Apache-2.0 |
+| der | 0.7.10 | Apache-2.0 OR MIT |
+| digest | 0.10.7 | MIT OR Apache-2.0 |
+| elliptic-curve | 0.13.8 | Apache-2.0 OR MIT |
+| ff | 0.13.1 | MIT/Apache-2.0 |
+| generic-array | 0.14.7 | MIT |
+| ghash | 0.5.1 | Apache-2.0 OR MIT |
+| group | 0.13.0 | MIT/Apache-2.0 |
+| hkdf | 0.12.4 | MIT OR Apache-2.0 |
+| hmac | 0.12.1 | MIT OR Apache-2.0 |
+| hpke | 0.13.0 | MIT/Apache-2.0 |
+| inout | 0.1.4 | MIT OR Apache-2.0 |
+| opaque-debug | 0.3.1 | MIT OR Apache-2.0 |
+| p256 | 0.13.2 | Apache-2.0 OR MIT |
+| poly1305 | 0.8.0 | Apache-2.0 OR MIT |
+| polyval | 0.6.2 | Apache-2.0 OR MIT |
+| primeorder | 0.13.6 | Apache-2.0 OR MIT |
+| rand_core | 0.9.3 | MIT OR Apache-2.0 |
+| sec1 | 0.7.3 | Apache-2.0 OR MIT |
+| sha2 | 0.10.9 | MIT OR Apache-2.0 |
+| universal-hash | 0.5.1 | MIT OR Apache-2.0 |
+| version_check | 0.9.5 | MIT/Apache-2.0 |

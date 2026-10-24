@@ -8,7 +8,11 @@
 # debug: record debug logs only.
 # warn: record warning logs only.
 # error: record error logs only.
-log-level: silent # Default: silent.
+# Encryption defaults to off. Public keys use Base64 P-256 X9.63 uncompressed encoding.
+log:
+  encryption: false
+  public-key: ""
+  level: silent
 
 system-proxy:
   # System proxy listening port. Default: 0 (disabled). HTTP, HTTPS, and SOCKS5 share this port.

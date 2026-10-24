@@ -33,6 +33,13 @@ uint32_t nodus_core_abi_version(void);
 uint64_t nodus_core_capabilities(void);
 /* 返回零表示失败；非零句柄应调用 destroy 一次，不可复用。 */
 uint64_t nodus_core_create(void);
+#if defined(__unix__) || defined(__APPLE__)
+/* 实时日志能力位33。调用期间descriptor必须有效且不被并发关闭/重用；
+ * 复制已连接AF_UNIX SOCK_DGRAM发送端，设置非阻塞（共享FD标志）。
+ * Core不拥有调用者原FD，无历史读取；完整协议见logging_api.md。 */
+int32_t nodus_core_log_attach_unix(uint64_t handle, int32_t descriptor);
+#endif
+
 /* 句柄立即失效；按顺序尝试全部独立关闭步骤并等待可完成的释放。
    任一步失败返回首个错误，其他失败记受限诊断；失败不能视为全部资源关闭成功。 */
 int32_t nodus_core_destroy(uint64_t handle);

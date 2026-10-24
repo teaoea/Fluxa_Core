@@ -1,6 +1,6 @@
 # 测试报告：test_outbound_resources
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-915003f7fa5ba4b5", "::test_outbound_resources::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.6594102090000007, "status": "PASS", "discovered": ["outbound::resources::test_outbound_resources::public_contract::atomic_network_replacement_keeps_snapshot_and_live_endpoint", "outbound::resources::test_outbound_resources::public_contract::datagram_activity_and_timeout_have_distinct_idle_semantics", "outbound::resources::test_outbound_resources::public_contract::idle_expiry_cancels_blocked_read_and_releases_peer", "outbound::resources::test_outbound_resources::public_contract::in_flight_dns_retains_original_network_snapshot", "outbound::resources::test_outbound_resources::public_contract::quota_reconfiguration_preserves_live_connections_and_isolation"], "results": {"outbound::resources::test_outbound_resources::public_contract::atomic_network_replacement_keeps_snapshot_and_live_endpoint": "PASS", "outbound::resources::test_outbound_resources::public_contract::datagram_activity_and_timeout_have_distinct_idle_semantics": "PASS", "outbound::resources::test_outbound_resources::public_contract::idle_expiry_cancels_blocked_read_and_releases_peer": "PASS", "outbound::resources::test_outbound_resources::public_contract::in_flight_dns_retains_original_network_snapshot": "PASS", "outbound::resources::test_outbound_resources::public_contract::quota_reconfiguration_preserves_live_connections_and_isolation": "PASS"}, "fingerprint": "6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243", "time": "2026-10-24T13:41:42.348500+08:00", "attempt": 1, "suite": "test_outbound_resources", "file": "tests/test_outbound_resources.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-81ae8f5f888050a0", "::test_outbound_resources::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.6486704590000016, "status": "PASS", "discovered": ["outbound::resources::test_outbound_resources::public_contract::atomic_network_replacement_keeps_snapshot_and_live_endpoint", "outbound::resources::test_outbound_resources::public_contract::datagram_activity_and_timeout_have_distinct_idle_semantics", "outbound::resources::test_outbound_resources::public_contract::idle_expiry_cancels_blocked_read_and_releases_peer", "outbound::resources::test_outbound_resources::public_contract::in_flight_dns_retains_original_network_snapshot", "outbound::resources::test_outbound_resources::public_contract::quota_reconfiguration_preserves_live_connections_and_isolation"], "results": {"outbound::resources::test_outbound_resources::public_contract::atomic_network_replacement_keeps_snapshot_and_live_endpoint": "PASS", "outbound::resources::test_outbound_resources::public_contract::datagram_activity_and_timeout_have_distinct_idle_semantics": "PASS", "outbound::resources::test_outbound_resources::public_contract::idle_expiry_cancels_blocked_read_and_releases_peer": "PASS", "outbound::resources::test_outbound_resources::public_contract::in_flight_dns_retains_original_network_snapshot": "PASS", "outbound::resources::test_outbound_resources::public_contract::quota_reconfiguration_preserves_live_connections_and_isolation": "PASS"}, "fingerprint": "b7bc57f342b032d047f7e777f6d2b411c9dd7a9095658d68f7e07cb7d80d2396", "time": "2026-10-24T19:15:31.886720+08:00", "attempt": 1, "suite": "test_outbound_resources", "file": "tests/test_outbound_resources.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "867077280c32f31b53a10ad45776eb44da3cc243", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/outbound/resources.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-915003f7fa5ba4b5 ::test_outbound_resources:: --test-threads=1`
-- 执行时间：2026-10-24T13:41:42.348500+08:00
-- 实际耗时：0.6594102090000007 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-81ae8f5f888050a0 ::test_outbound_resources:: --test-threads=1`
+- 执行时间：2026-10-24T19:15:31.886720+08:00
+- 实际耗时：0.6486704590000016 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "867077280c32f31b53a10ad45776eb44da3cc243", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`b7bc57f342b032d047f7e777f6d2b411c9dd7a9095658d68f7e07cb7d80d2396`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -50,7 +50,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/claude-501/-Users-klee-Documents-Fluxa/dd1504c4-f781-4692-b482-4e9c216c95e1/scratchpad/core-evidence/test_outbound_resources.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-logging-final-evidence/test_outbound_resources.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

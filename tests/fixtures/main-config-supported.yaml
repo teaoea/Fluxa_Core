@@ -8,7 +8,7 @@
 # debug，仅记录调试日志
 # warn，仅记录警告日志
 # error，仅记录错误日志
-log-level: silent
+log: {encryption: false, public-key: "", level: silent}
 
 # 已支持规则夹具：使用最新嵌套字段，保留认证关闭和独立端口约束。
 system-proxy:

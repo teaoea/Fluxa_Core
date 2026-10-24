@@ -253,9 +253,9 @@ GeoIP 行只在 enabled=true、有效 URL 和同来源 Ready 数据库时可执�
 
 进程规则来源约束：process-name 只在 macOS 本地配置参与；iOS/iPadOS/tvOS 本地编译忽略；远程规则集一律单行忽略（direct、reject 或节点策略均相同）。无法由操作系统确定流归属时跳过进程规则继续匹配，禁止接受远程自报进程身份。
 
-## 文件日志路径（第 6 项待实现）
+## 日志职责与配置
 
-日志文件默认路径是 系统共享容器 log/<日志等级>/<YYYY-MM-DD>/<HH>:00.jsonl，例如 容器内 log/info/2026-10-17/15:00.jsonl；按设备本地日期和小时分文件，每个小时独立 JSONL。等级目录取当前配置 log-level，不将 silent 固定为其他等级的目录；silent 不记录、不生成文件。字段校验已存在，文件写入、时段切换、预算及清理仍属第 6 项，不能把示例注释当作日志功能已完成。
+Core仅实时输出，不负责日志文件、轮转或历史查询；这些职责由消费者实现。主配置采用log.encryption/public-key/level，默认false/空/silent，等级使用精确类别。公钥与加密协议见[日志API](../Documentation/API/External/logging_api.md)。旧log-level不再接受。
 
 ## 第 4 项当前契约
 

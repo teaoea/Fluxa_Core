@@ -36,7 +36,7 @@ fn default_matches_host_templates_and_starts_direct() {
         assert!(yaml.contains("final,direct"));
         assert!(yaml.contains("https://github.com/teaoea/Nodus-Core/issues"));
         for key in [
-            "log-level:",
+            "log:",
             "system-proxy:",
             "lan-share:",
             "mode:",

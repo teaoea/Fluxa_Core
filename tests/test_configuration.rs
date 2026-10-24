@@ -269,7 +269,21 @@ fn complete_examples_are_accepted() {
     let _gate = GATE.lock().unwrap();
     {
         let text = include_str!("../example_config.yaml");
-        assert!(Document::from_yaml(text).is_ok());
+        // 用户示例显式启用加密并保留待替换公钥；占位符必须拒绝，不能放宽正式公钥校验。
+        assert!(Document::from_yaml(text).is_err());
+        use base64::Engine;
+        use hpke::{Kem, Serializable};
+        let (_, public) = hpke::kem::DhP256HkdfSha256::derive_keypair(
+            b"independent public test key material for configuration fixture",
+        );
+        let key = base64::engine::general_purpose::STANDARD.encode(public.to_bytes());
+        assert!(Document::from_yaml(&text.replace("BASE64_PUBLIC_KEY", &key)).is_ok());
+        for default in [
+            include_str!("../default_config.yaml"),
+            include_str!("../default_config_en.yaml"),
+        ] {
+            assert!(Document::from_yaml(default).is_ok());
+        }
     }
 }
 

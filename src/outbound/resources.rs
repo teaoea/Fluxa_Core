@@ -30,6 +30,7 @@ impl Default for Usage {
 #[derive(Debug, Serialize)]
 pub struct SessionStatus {
     pub id: u64,
+    pub connection_id: u64,
     pub address: String,
     pub transport: Transport,
     pub revision: u64,
@@ -136,6 +137,7 @@ impl Manager {
             let usage = connection.usage.lock().map_err(|_| Error::Internal)?;
             sessions.push(SessionStatus {
                 id,
+                connection_id: connection.connection_id,
                 address: connection.address.to_string(),
                 transport: connection.transport,
                 revision: connection.revision,

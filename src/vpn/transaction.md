@@ -66,3 +66,7 @@ Core 保持唯一启动事务及其配置身份、资源预算、取消、阶段
 `current_status`、`status`、`stop`、`retry_cleanup` 与 `begin_preflight`、`preflight_status` 经 `src/ffi.rs` 的 JSON 命令暴露，契约见 [ffi_api.md](../../Documentation/API/External/ffi_api.md)。`begin` 仍无 FFI 入口，Steps 仍不能由外部实现。新增 crate 内部 `stop_owned`：只停止本控制器受理、仍在槽中的事务并等待确定清理，供句柄销毁使用；槽中是其他事务或尚未受理时直接返回成功。测试闸门 `TEST_GATE` 改为 crate 内测试可见，使 FFI 测试与本模块测试串行使用同一事务槽。
 
 新增 crate 内部 `stop_status`、`retry_cleanup_status`：等待期间持有该事务的内部引用，在同一次操作中返回其终态（`Inner::snapshot`），供 FFI 回复使用；之后槽被替换不影响结果，引用只读取状态。公开 `stop`／`retry_cleanup` 改为调用它们并丢弃状态，行为不变。
+
+## 实时日志（2.16.0-dev）
+
+当前结构化事件、connection_id、非阻塞消费者接口及可选加密协议见`Documentation/API/External/logging_api.md`。消费者拥有持久化与访问；Core不提供历史查询。日志事件不提升配置候选或VPN阶段的实际成功等级。

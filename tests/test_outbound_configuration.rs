@@ -68,10 +68,6 @@ fn failed_preparation_preserves_previous_configuration() {
             Error::Unsupported,
         ),
         (
-            "rules: ['final,direct']\nlog-level: info",
-            Error::Unsupported,
-        ),
-        (
             "rules: ['final,direct']\nip-strategy: prefer-ipv6",
             Error::Unsupported,
         ),

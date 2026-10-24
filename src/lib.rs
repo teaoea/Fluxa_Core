@@ -20,6 +20,7 @@ pub mod geoip;
 pub mod http;
 pub mod https;
 mod lifecycle;
+pub mod logging;
 pub mod mitm;
 mod network;
 // 仅系统身份适配边界允许必要 FFI，业务模块仍禁止 unsafe。

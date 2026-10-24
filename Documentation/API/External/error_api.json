@@ -533,7 +533,7 @@
     "modules": "geoip、ffi",
     "detail": "来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。",
     "trigger": "HTTPS 数据源访问失败或 GET 最终状态非 200。",
-    "effect": "ERROR，下载返回 Err，底层类型保留在固定诊断环；不默认下载或静默启用旧库。",
+    "effect": "ERROR，下载返回 Err，底层类型仅向已注册接收方实时输出，不保留诊断历史；不默认下载或静默启用旧库。",
     "params": "{}（不接受任何参数键）",
     "parameters": [],
     "source": "src/geoip.rs access_error；src/https.rs execute_inner",

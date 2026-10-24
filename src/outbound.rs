@@ -87,6 +87,9 @@ impl Drop for SocketResources {
     }
 }
 struct Connection {
+    connection_id: u64,
+    logs: Arc<crate::logging::Journal>,
+    opened_at: std::time::Instant,
     resources: Mutex<Option<Arc<SocketResources>>>,
     authority: Arc<Authority>,
     owner: Option<Arc<Authority>>,
@@ -161,8 +164,32 @@ impl Connection {
                     Ok(())
                 }
                 .await;
+                let completion = own.authority.complete(result);
+                if completion.is_ok() && result.is_ok() {
+                    let metrics = own
+                        .usage
+                        .try_lock()
+                        .ok()
+                        .map(|v| (v.uploaded, v.downloaded));
+                    own.logs.event(
+                        crate::logging::Event::ConnectionClosed,
+                        None,
+                        Some(own.revision),
+                        None,
+                        None,
+                        crate::logging::Context {
+                            connection_id: Some(own.connection_id),
+                            uploaded: metrics.map(|v| v.0),
+                            downloaded: metrics.map(|v| v.1),
+                            duration_ms: Some(
+                                own.opened_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                            ),
+                            ..Default::default()
+                        },
+                    );
+                }
                 let _ = crate::error::diagnostics::observe(
-                    own.authority.complete(result),
+                    completion,
                     crate::error::diagnostics::DiagnosticSite::Cleanup,
                 );
             });
@@ -203,6 +230,7 @@ struct State {
     network: Arc<NetworkSnapshot>,
 }
 pub struct Manager {
+    pub(crate) logs: Arc<crate::logging::Journal>,
     state: Arc<Mutex<State>>,
     reaper: Mutex<Option<tokio::task::JoinHandle<()>>>,
     generation: watch::Sender<u64>,
@@ -213,6 +241,7 @@ impl Default for Manager {
     fn default() -> Self {
         let (generation, _) = watch::channel(0);
         Self {
+            logs: Arc::new(crate::logging::Journal::default()),
             state: Arc::new(Mutex::new(State {
                 debug: None,
                 providers: None,
@@ -228,6 +257,30 @@ impl Default for Manager {
     }
 }
 impl Manager {
+    /// 接收方创建并拥有有界队列；Core仅非阻塞发送，不保留或读取历史。
+    pub fn set_log_output(
+        &self,
+        sender: std::sync::mpsc::SyncSender<crate::logging::Record>,
+    ) -> Result<()> {
+        let state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.stopped {
+            return Err(Error::InvalidState);
+        }
+        self.logs.attach(sender)
+    }
+    /// 动态级别只控制后续事件，不改变网络状态或重新应用配置。
+    pub fn set_log_level(&self, filter: crate::configuration::LogFilter) -> Result<()> {
+        let state = self.state.lock().map_err(|_| Error::Internal)?;
+        if state.stopped {
+            return Err(Error::InvalidState);
+        }
+        self.logs.configure(filter);
+        Ok(())
+    }
+    /// 返回后Core不再向原接收方发送；不会清理接收方已经保存的记录。
+    pub fn detach_log_output(&self) -> Result<()> {
+        self.logs.detach()
+    }
     pub async fn open(
         &self,
         address: SocketAddr,
@@ -282,33 +335,68 @@ impl Manager {
         deadline: Duration,
         future: impl AsyncFnOnce(Option<&crate::dns::ResolverOperation>) -> Result<Dialed>,
     ) -> Result<Opened> {
+        let connection_id = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
+        let revision = snapshot.revision;
+        self.logs.event(
+            crate::logging::Event::ConnectionCreated,
+            None,
+            Some(revision),
+            None,
+            None,
+            crate::logging::Context {
+                connection_id: Some(connection_id),
+                ..Default::default()
+            },
+        );
         let configuration = snapshot.clone();
-        self.establish_guarded(snapshot, deadline, None, async |permission| {
-            let dialed = future(permission).await?;
-            let target = crate::routing::Target {
-                domain: None,
-                address: Some(dialed.2.ip().to_string()),
-                port: dialed.2.port(),
-                transport: match &dialed.0 {
-                    Socket::Tcp { .. } => Transport::Tcp,
-                    _ => Transport::Udp,
+        let result = self
+            .establish_guarded(
+                snapshot,
+                deadline,
+                None,
+                connection_id,
+                async |permission| {
+                    let dialed = future(permission).await?;
+                    let target = crate::routing::Target {
+                        domain: None,
+                        address: Some(dialed.2.ip().to_string()),
+                        port: dialed.2.port(),
+                        transport: match &dialed.0 {
+                            Socket::Tcp { .. } => Transport::Tcp,
+                            _ => Transport::Udp,
+                        },
+                    };
+                    let protection = configuration
+                        .router
+                        .as_ref()
+                        .map(|router| router.protection(target))
+                        .transpose()?
+                        .unwrap_or_default();
+                    Ok((dialed, protection))
                 },
-            };
-            let protection = configuration
-                .router
-                .as_ref()
-                .map(|router| router.protection(target))
-                .transpose()?
-                .unwrap_or_default();
-            Ok((dialed, protection))
-        })
-        .await
+            )
+            .await;
+        if let Err(error) = result {
+            self.logs.event(
+                crate::logging::Event::ConnectionFailed,
+                None,
+                Some(revision),
+                None,
+                Some(error),
+                crate::logging::Context {
+                    connection_id: Some(connection_id),
+                    ..Default::default()
+                },
+            );
+        }
+        result
     }
     async fn establish_guarded(
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
         admitted: Option<&crate::dns::ResolverOperation>,
+        connection_id: u64,
         future: impl AsyncFnOnce(
             Option<&crate::dns::ResolverOperation>,
         ) -> Result<(Dialed, crate::routing::TrafficProtection)>,
@@ -381,6 +469,9 @@ impl Manager {
             state
                 .registry
                 .create(Arc::new(Connection {
+                    connection_id,
+                    logs: self.logs.clone(),
+                    opened_at: std::time::Instant::now(),
                     resources: Mutex::new(Some(Arc::new(SocketResources {
                         socket,
                         _lease: lease,
@@ -418,8 +509,20 @@ impl Manager {
                 }
             });
         }
+        self.logs.event(
+            crate::logging::Event::ConnectionEstablished,
+            None,
+            Some(snapshot.revision),
+            None,
+            None,
+            crate::logging::Context {
+                connection_id: Some(connection_id),
+                ..Default::default()
+            },
+        );
         Ok(Opened {
             id,
+            connection_id,
             address: address.to_string(),
         })
     }

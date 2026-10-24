@@ -12,7 +12,7 @@ pub enum Mode {
     Direct,
 }
 /// 日志选择是精确类别，不是按严重程度向上筛选；Info 表示完整记录。
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LogFilter {
     #[default]
@@ -21,6 +21,34 @@ pub enum LogFilter {
     Debug,
     Warn,
     Error,
+}
+/// encryption仅控制加密；level独立决定是否输出日志，默认不输出。
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub(crate) struct Log {
+    #[serde(default)]
+    pub encryption: bool,
+    #[serde(default)]
+    pub public_key: String,
+    #[serde(default)]
+    pub level: LogFilter,
+    #[serde(skip)]
+    pub cipher: Option<std::sync::Arc<crate::logging::Cipher>>,
+}
+impl Log {
+    pub(crate) fn validate(&mut self) -> crate::error::Result<()> {
+        if self.public_key.len() > 1024 {
+            return Err(crate::error::Error::ResourceLimit);
+        }
+        self.cipher = if self.encryption {
+            Some(std::sync::Arc::new(crate::logging::Cipher::new(
+                &self.public_key,
+            )?))
+        } else {
+            None
+        };
+        Ok(())
+    }
 }
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -35,7 +63,7 @@ pub(crate) enum IpStrategy {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub(crate) struct Raw {
     #[serde(default)]
-    pub log_level: LogFilter,
+    pub log: Log,
     #[serde(default)]
     pub system_proxy: SystemProxy,
     #[serde(default)]

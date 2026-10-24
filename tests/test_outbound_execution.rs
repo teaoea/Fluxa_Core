@@ -69,6 +69,7 @@ async fn scoped_quic_is_decided_before_real_udp_outbound() {
             manager.network_snapshot().unwrap(),
             None,
             FlowFacts {
+                connection_id: None,
                 permission: None,
                 datagram: payload,
                 source: None,
@@ -116,6 +117,7 @@ async fn scoped_quic_is_decided_before_real_udp_outbound() {
                 manager.network_snapshot().unwrap(),
                 None,
                 FlowFacts {
+                    connection_id: None,
                     permission: None,
                     datagram: Some(&quic),
                     source: None
@@ -184,6 +186,7 @@ async fn process_proof_admits_new_flow_without_owning_live_connection() {
             manager.network_snapshot().unwrap(),
             None,
             FlowFacts {
+                connection_id: None,
                 permission: None,
                 datagram: None,
                 source: Some(flow),
@@ -215,6 +218,7 @@ async fn process_proof_admits_new_flow_without_owning_live_connection() {
                     manager.network_snapshot().unwrap(),
                     None,
                     FlowFacts {
+                        connection_id: None,
                         permission: None,
                         datagram: None,
                         source: Some(flow)
@@ -292,10 +296,33 @@ async fn ordered_node_failures_use_only_explicit_direct() {
             ],
         )
         .unwrap();
+    let (log_tx, log_rx) = std::sync::mpsc::sync_channel(64);
+    manager.set_log_output(log_tx).unwrap();
+    manager
+        .set_log_level(crate::configuration::LogFilter::Info)
+        .unwrap();
     let opened = manager
         .connect_configured(mixed_request(target_port))
         .await
         .unwrap();
+    let events: Vec<_> = log_rx.try_iter().collect();
+    assert!(
+        events
+            .iter()
+            .any(|v| v.event == crate::logging::Event::NodeRetry)
+    );
+    assert!(
+        events
+            .iter()
+            .all(|v| v.context.connection_id == Some(opened.connection.connection_id))
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|v| v.event == crate::logging::Event::ConnectionCreated)
+            .count(),
+        1
+    );
     assert!(accepted.load(std::sync::atomic::Ordering::SeqCst));
     assert_eq!(opened.decision.policy, Policy::Direct);
     assert_eq!(opened.decision.outbound, None);

@@ -12,7 +12,7 @@
 //! - all_abi_failures_use_segmented_codes_and_nonerrors_remain_states：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - every_internal_error_maps_to_the_independent_protocol_identity：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - invalid_config_keeps_snapshot_and_machine_failure：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
-//! - diagnostics_remain_fixed_size_and_do_not_hold_error_chains：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
+//! - diagnostics_only_send_live_and_leave_buffering_to_receiver：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - segmented_codes_have_one_category_per_prefix：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - typed_context_is_required_bounded_and_specific_to_code：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
 //! - safety_filter_preserves_unknown_and_duplicate_classification：保留原用例的独立预期和全部断言；具体输入及判定见同名函数。
@@ -29,11 +29,19 @@ use nodus_core::{
     routing::{Config, Policy, Transport},
 };
 use std::collections::HashSet;
-// 改名只迁移源码定位中的 C 符号；历史基线文件保持原文，业务字段逐字比较。
+// 历史基线保留原文；C符号迁移和2403已授权存储边界迁移之外，所有字段逐字比较。
 fn renamed_source(entry: &serde_json::Value) -> serde_json::Value {
     let mut entry = entry.clone();
     if entry["source"] == "src/ffi.rs fluxa_engine_command" {
         entry["source"] = "src/ffi.rs nodus_core_command".into();
+    }
+    // 2.16用户明确移除Core诊断历史；仅迁移2403的存储副作用描述，代码/分类/原因等仍逐字比较。
+    if entry["code"] == 2403 {
+        assert_eq!(
+            entry["effect"],
+            "ERROR，下载返回 Err，底层类型保留在固定诊断环；不默认下载或静默启用旧库。"
+        );
+        entry["effect"] = "ERROR，下载返回 Err，底层类型仅向已注册接收方实时输出，不保留诊断历史；不默认下载或静默启用旧库。".into();
     }
     entry
 }
@@ -407,16 +415,25 @@ fn invalid_config_keeps_snapshot_and_machine_failure() {
     assert!(!path.exists(), "纯内存规则更新不能创建目录");
 }
 #[test]
-fn diagnostics_remain_fixed_size_and_do_not_hold_error_chains() {
-    use nodus_core::error::diagnostics::{self, DIAGNOSTIC_CAPACITY, DiagnosticSite};
-    let (_, before) = diagnostics::snapshot();
-    for _ in 0..DIAGNOSTIC_CAPACITY * 3 {
-        diagnostics::record(Error::ResourceLimit, DiagnosticSite::Cleanup);
-    }
-    let (records, after) = diagnostics::snapshot();
-    assert_eq!(records.len(), 64);
-    assert!(records.iter().all(Option::is_some));
-    assert!(after.saturating_sub(before) >= 128);
+fn diagnostics_only_send_live_and_leave_buffering_to_receiver() {
+    use nodus_core::error::diagnostics::{self, DiagnosticSite};
+    diagnostics::set_output(None).unwrap();
+    diagnostics::record(Error::ResourceLimit, DiagnosticSite::Cleanup);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    diagnostics::set_output(Some(sender)).unwrap();
+    assert!(
+        receiver.try_recv().is_err(),
+        "新接收方不能取得注册前的历史诊断"
+    );
+    diagnostics::record(Error::InvalidInput, DiagnosticSite::Abi);
+    diagnostics::record(Error::ResourceLimit, DiagnosticSite::Cleanup);
+    let record = receiver.try_recv().unwrap();
+    assert_eq!(record.code, Error::InvalidInput.code());
+    assert_eq!(record.site, DiagnosticSite::Abi);
+    assert!(receiver.try_recv().is_err(), "背压事件不能留在Core等待补发");
+    diagnostics::set_output(None).unwrap();
+    diagnostics::record(Error::ResourceLimit, DiagnosticSite::Cleanup);
+    assert!(receiver.try_recv().is_err());
 }
 
 #[test]

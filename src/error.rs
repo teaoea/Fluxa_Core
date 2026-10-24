@@ -204,7 +204,7 @@ define_codes! {
     /// GeoIP 数据源使用不允许的协议，当前仅接受 HTTPS。
     GeoipUrlScheme => (2402, "GeoIP URL 协议不允许", "GEOIP", "GeoIP 数据源使用不允许的协议，当前仅接受 HTTPS。", "URL 已解析但 scheme 不是 https。", "ERROR，拒绝整次配置，不降级 HTTP。", "src/geoip.rs Config::validate"),
     /// 来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。
-    GeoipDownloadFailed => (2403, "GeoIP 数据库下载失败", "GEOIP", "来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。", "HTTPS 数据源访问失败或 GET 最终状态非 200。", "ERROR，下载返回 Err，底层类型保留在固定诊断环；不默认下载或静默启用旧库。", "src/geoip.rs access_error；src/https.rs execute_inner"),
+    GeoipDownloadFailed => (2403, "GeoIP 数据库下载失败", "GEOIP", "来源 DNS、连接、TLS、HTTP 状态或其他访问失败，未取得完整下载结果。", "HTTPS 数据源访问失败或 GET 最终状态非 200。", "ERROR，下载返回 Err，底层类型仅向已注册接收方实时输出，不保留诊断历史；不默认下载或静默启用旧库。", "src/geoip.rs access_error；src/https.rs execute_inner"),
     /// 数据库下载超出共用 HTTPS 的 60 秒总期限。
     GeoipDownloadTimeout => (2404, "GeoIP 数据库下载超时", "GEOIP", "数据库下载超出共用 HTTPS 的 60 秒总期限。", "下载流程返回 NetworkTimeout。", "ERROR，取消下载，返回 Err；临时预算释放。", "src/geoip.rs access_error；src/https.rs download_database"),
     /// 下载数据不是可识别的原始 MMDB 格式或使用不支持的内容编码。

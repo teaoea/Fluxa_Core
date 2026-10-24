@@ -5,6 +5,7 @@
 //! 测试类型：单元测试、迁移回归
 //! 测试对象：src/ffi.rs
 //! 测试内容：
+//! - log_unix_registration_validates_fd_and_owns_duplicate：拒绝非法FD/非Unix/流套接字，复制发送端并保留调用者所有权。
 //! - error_query_contains_serializer_panic_and_preserves_state：编码 panic 被捕获，查询容量不足不写入也不清除原错误。
 //! - destroy_continues_after_failed_close_with_retained_engine：毒化准备槽后仍停止出站并释放真实代理监听，旧 Arc 不保持活动资源。
 //! - storage_commands_reject_unentitled_hosts_and_role_injection：真实小栈 ABI 拒绝无共享组宿主、越界文件名与自报写权限。
@@ -41,6 +42,52 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    #[cfg(unix)]
+    #[test]
+    fn log_unix_registration_validates_fd_and_owns_duplicate() {
+        use std::os::fd::AsRawFd;
+        let handle = nodus_core_create();
+        assert_ne!(handle, 0);
+        let (tx, rx) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        let stream = std::os::unix::net::UnixStream::pair().unwrap();
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        udp.connect(udp.local_addr().unwrap()).unwrap();
+        for fd in [-1, stream.0.as_raw_fd(), udp.as_raw_fd()] {
+            // SAFETY: 非负FD均在本作用域持有，不被并发关闭；负值用于拒绝路径。
+            assert_ne!(unsafe { nodus_core_log_attach_unix(handle, fd) }, 0);
+        }
+        // SAFETY: 已连接AF_UNIX数据报FD在调用期间保持有效。
+        assert_eq!(
+            // SAFETY: 本作用域持有FD，调用期间无并发关闭。
+            unsafe { nodus_core_log_attach_unix(handle, tx.as_raw_fd()) },
+            0
+        );
+        engine(handle)
+            .unwrap()
+            .outbound
+            .set_log_level(crate::configuration::LogFilter::Info)
+            .unwrap();
+        drop(tx); // Core复制端仍有效，调用者关闭自己的FD不撤销Core所有权。
+        engine(handle).unwrap().outbound.logs.emit(
+            crate::logging::Event::ConfigurationCommitted,
+            None,
+            None,
+            None,
+            None,
+        );
+        rx.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let mut bytes = [0u8; 4096];
+        assert!(rx.recv(&mut bytes).unwrap() > 0);
+        assert_eq!(nodus_core_destroy(handle), 0);
+        let (tx, _) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        // SAFETY: FD有效；只传入已销毁句柄测试注册表拒绝。
+        assert_ne!(
+            // SAFETY: 本作用域持有FD，调用期间无并发关闭。
+            unsafe { nodus_core_log_attach_unix(handle, tx.as_raw_fd()) },
+            0
+        );
+    }
     #[test]
     fn error_query_contains_serializer_panic_and_preserves_state() {
         struct Panicking;
@@ -712,11 +759,11 @@ mod tests {
         // 保留既有能力，位 29 只表示候选资产准备；仍精确检查完整掩码。
         assert_eq!(
             nodus_core_capabilities(),
-            // 位 32 为 VPN 前置检查事务命令，不改变其他位的含义。
+            // 位32为VPN前置检查事务，位33为实时日志消费者，不改变其他位含义。
             if cfg!(target_os = "macos") {
-                3221225471 | 1 << 32
+                3221225471 | 1 << 32 | 1 << 33
             } else {
-                3154116607 | 1 << 32
+                3154116607 | 1 << 32 | 1 << 33
             }
         );
     }

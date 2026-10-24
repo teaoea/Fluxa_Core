@@ -708,7 +708,8 @@ mod task_registration_contract {
     #[tokio::test]
     async fn completed_worker_panic_is_observed_once() {
         let owner = session();
-        let before = format!("{:?}", crate::error::diagnostics::snapshot());
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
+        crate::error::diagnostics::set_output(Some(tx)).unwrap();
         let task = owner
             .spawn(async {
                 panic!("注入工作任务故障，验证受控诊断");
@@ -728,13 +729,17 @@ mod task_registration_contract {
         })
         .await
         .unwrap();
-        let after = format!("{:?}", crate::error::diagnostics::snapshot());
-        assert_ne!(before, after);
-        assert!(owner.receive().unwrap().is_none());
+        let records: Vec<_> = rx.try_iter().collect();
         assert_eq!(
-            after,
-            format!("{:?}", crate::error::diagnostics::snapshot())
+            records
+                .iter()
+                .filter(|v| v.code == crate::error::Error::Internal.code())
+                .count(),
+            1
         );
+        assert!(owner.receive().unwrap().is_none());
+        assert!(rx.try_recv().is_err());
+        crate::error::diagnostics::set_output(None).unwrap();
         assert!(owner.inner.tasks.lock().unwrap().is_empty());
         owner.close().await.unwrap();
     }

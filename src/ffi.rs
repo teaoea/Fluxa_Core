@@ -66,7 +66,6 @@ impl ManagedTun {
         }
     }
 }
-#[derive(Default)]
 struct Engine {
     #[cfg(unix)]
     debug_ipc: Mutex<Option<crate::routing::debug::ipc::Service>>,
@@ -88,6 +87,32 @@ struct Engine {
     proxy: Mutex<Option<MitmProxy>>,
     captures: Arc<CaptureStore>,
     runtime_rules: Mutex<Option<crate::routing::background::Service>>,
+}
+impl Default for Engine {
+    fn default() -> Self {
+        let outbound = Arc::new(crate::outbound::Manager::default());
+        let vpn_transactions =
+            crate::vpn::transaction::Controller::with_logs(outbound.logs.clone());
+        Self {
+            outbound,
+            vpn_transactions,
+            #[cfg(unix)]
+            debug_ipc: Default::default(),
+            client: Default::default(),
+            geoip: Default::default(),
+            busy: Default::default(),
+            vpn_preparation: Default::default(),
+            vpn_closed: Default::default(),
+            vpn_transaction_admission: Default::default(),
+            dns_service: Default::default(),
+            packet_session: Default::default(),
+            tun_udp: Default::default(),
+            authority: Default::default(),
+            proxy: Default::default(),
+            captures: Default::default(),
+            runtime_rules: Default::default(),
+        }
+    }
 }
 impl Engine {
     fn close_vpn_preparation(&self) -> Result<(), Error> {
@@ -337,6 +362,10 @@ fn store(bytes: Vec<u8>) -> Option<u64> {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    LogConfigure {
+        filter: crate::configuration::LogFilter,
+    },
+    LogDetach {},
     /// 只读主配置校验；不创建监听、下载或修改运行状态。
     ConfigurationValidate {
         yaml: String,
@@ -752,6 +781,8 @@ struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     outbound_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    connection_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     outbound_peer: Option<String>,
     dns_generation: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -827,6 +858,7 @@ impl From<crate::outbound::Opened> for Reply {
         Self {
             success: true,
             outbound_id: Some(opened.id),
+            connection_id: Some(opened.connection_id),
             outbound_peer: Some(opened.address),
             ..Self::default()
         }
@@ -1165,7 +1197,9 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     // 出站连接自身管理读写锁与取消；允许 TCP 同时读写，其余业务保持原有排他。
     let concurrent = matches!(
         &command,
-        Command::OutboundOpen { .. }
+        Command::LogConfigure { .. }
+            | Command::LogDetach {}
+            | Command::OutboundOpen { .. }
             | Command::OutboundConnect(_)
             | Command::OutboundRoute(_)
             | Command::OutboundConnectFakeIp(_)
@@ -1197,6 +1231,8 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
     };
     let checked_route = matches!(&command, Command::RouteCheck(_));
     bounded_commands!(engine, command, checked_route;
+        Command::LogConfigure { filter } => { engine.outbound.set_log_level(filter)?; Ok(Reply { success: true, ..Reply::default() }) },
+        Command::LogDetach {} => { engine.outbound.detach_log_output()?; Ok(Reply { success: true, ..Reply::default() }) },
         Command::SubscriptionRules {
             yaml,
             policy,
@@ -2065,11 +2101,14 @@ pub extern "C" fn nodus_core_capabilities() -> u64 {
     const READ_ONLY_FILES_CAPABILITY: u64 = 1 << 31;
     // 位 32：VPN 前置检查事务命令（受理、报告、当前事务、停止与清理重试）；不代表可接管系统 VPN。
     const VPN_PREFLIGHT_CAPABILITY: u64 = 1 << 32;
+    // 位33：实时日志输出与动态级别；没有历史读取或文件写入能力。
+    const RUNTIME_LOG_CAPABILITY: u64 = 1 << 33;
     33554431
         | TUN_TCP_CAPABILITY
         | VPN_CANDIDATE_CAPABILITY
         | READ_ONLY_FILES_CAPABILITY
         | VPN_PREFLIGHT_CAPABILITY
+        | RUNTIME_LOG_CAPABILITY
         | STRUCTURED_ERROR_CAPABILITY
         | DOMAIN_TRANSPORT_CAPABILITY
         | if cfg!(target_os = "macos") {
@@ -2160,6 +2199,16 @@ pub extern "C" fn nodus_core_destroy(handle: u64) -> i32 {
                 }
                 Ok(())
             });
+        }
+        if let Resource::Engine(engine) = &resource {
+            engine.outbound.logs.emit(
+                crate::logging::Event::CoreStopped,
+                None,
+                None,
+                None,
+                first_error,
+            );
+            shutdown_step(&mut first_error, || engine.outbound.detach_log_output());
         }
         drop(resource);
         first_error.map_or(OK, error_status)
@@ -2463,3 +2512,56 @@ mod debug;
 #[cfg(test)]
 #[path = "../tests/test_ffi.rs"]
 mod test_ffi;
+
+/// 注册接收方提供的本地数据报发送端，不接收文件路径。仅Unix平台提供此适配。
+/// # Safety
+/// descriptor在本次调用期间必须保持有效且不得被其他线程关闭/复用；Core复制FD，原FD归调用方。
+/// 复制后发送端被设为非阻塞；这也影响调用方仍持有的同一socket发送端，接收端不受影响。
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nodus_core_log_attach_unix(handle: u64, descriptor: i32) -> i32 {
+    clear_last_error();
+    catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
+        use std::os::fd::BorrowedFd;
+        if descriptor < 0 {
+            return Err(Error::InvalidInput);
+        }
+        let engine = engine(handle)?;
+        // SAFETY: FD有效性由调用方保证；只读取SO_TYPE，不读取文件内容或执行文件写入。
+        let mut kind: libc::c_int = 0;
+        let mut length = std::mem::size_of_val(&kind) as libc::socklen_t;
+        // SAFETY: kind/length是有效栈对象，FD在调用期间由宿主持有；getsockopt只写声明的容量。
+        let result = unsafe {
+            libc::getsockopt(
+                descriptor,
+                libc::SOL_SOCKET,
+                libc::SO_TYPE,
+                (&mut kind as *mut libc::c_int).cast(),
+                &mut length,
+            )
+        };
+        if result != 0
+            || length != std::mem::size_of_val(&kind) as libc::socklen_t
+            || kind != libc::SOCK_DGRAM
+        {
+            return Err(Error::InvalidInput);
+        }
+        // SAFETY: 仅本次调用借用，随后复制所有权；不保存调用方的借用或业务指针。
+        let owned = unsafe { BorrowedFd::borrow_raw(descriptor) }
+            .try_clone_to_owned()
+            .map_err(|_| Error::InvalidInput)?;
+        let socket = std::os::unix::net::UnixDatagram::from(owned);
+        // 标准库peer_addr验证为已连接AF_UNIX，拒绝IP/未连接套接字，无远程收集路径。
+        socket.peer_addr().map_err(|_| Error::InvalidInput)?;
+        let state = engine
+            .vpn_transaction_admission
+            .lock()
+            .map_err(|_| Error::Internal)?;
+        if *state || engine.vpn_closed.load(Ordering::Acquire) {
+            return Err(Error::InvalidState);
+        }
+        engine.outbound.logs.attach_unix(socket)
+    }))
+    .unwrap_or(Err(Error::Internal))
+    .map_or_else(error_status, |_| OK)
+}
