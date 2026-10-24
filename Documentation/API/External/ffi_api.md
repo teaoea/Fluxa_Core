@@ -242,7 +242,7 @@ Rust 调用方式见 [check_api.md](configuration/check_api.md)。
 
 ### `vpn_preflight_status`
 
-请求 `{"operation":"vpn_preflight_status","transaction":<ID>}`。成功响应的 `vpn_preflight` 为检查报告；事务存在但没有报告时不含该字段。报告字段与 [preflight_api.md](vpn/preflight_api.md) 的 `Report` 相同：`transaction`、10 项 `findings`（`check`、`outcome`、`error_info`）、`dns_upstreams_checked`、`required_outbounds`、`verified_outbounds`、`probes_completed`、`network_checks_passed`、`activation_permitted`、`geoip_status`、`platform_check`，不含目标网址和节点名称。
+请求 `{"operation":"vpn_preflight_status","transaction":<ID>}`。成功响应的 `vpn_preflight` 为检查报告；事务存在但没有报告时不含该字段。报告字段与 [preflight_api.md](vpn/preflight_api.md) 的 `Report` 相同：`transaction`、10 项 `findings`（`check`、`outcome`、`error_info`）、`dns_upstreams_checked`、`required_outbounds`、`verified_outbounds`、`probes_completed`、`network_checks_passed`、`activation_permitted`、`geoip_status`、`platform_check`、`startup_budget`，不含目标网址和节点名称。启动预算诊断见 [startup_budget_api.md](vpn/startup_budget_api.md)，当前缺完整计划，仍不授予接管。
 
 `network_checks_passed=true` 只表示本次指定目标和必要代理覆盖通过网络检查；平台检查尚无生产者、整体预算为 Partial、无节点授权未接入，因此 `activation_permitted` 恒为 `false`。报告不是授权凭证，不能提交回内核。
 

@@ -1685,6 +1685,24 @@
         "invalid_or_unbounded_lists_fail",
         "single_proxy_name_is_preserved"
       ]
+    },
+    {
+      "id": "test_vpn_startup_budget",
+      "file": "tests/test_vpn_startup_budget.rs",
+      "kind": "unit",
+      "sources": [
+        "src/vpn/startup_budget.rs"
+      ],
+      "module": "test_vpn_startup_budget",
+      "declared_cases": [
+        "complete_plan_counts_coexisting_and_transient_resources",
+        "each_missing_component_is_unknown_not_zero",
+        "process_and_system_limits_are_independent",
+        "overflow_is_rejected_in_each_dimension",
+        "observations_are_transaction_bound_fresh_and_one_shot",
+        "cancelled_or_absent_observation_never_admits",
+        "summary_is_diagnostic_only"
+      ]
     }
   ]
 }

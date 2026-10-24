@@ -44,3 +44,7 @@ Report兼容新增platform_check可选字段，详见[platform_check_api.md](pla
 ## 2.14.0-dev C ABI 增量
 
 `begin_preflight` 与 `preflight_status` 已经 `nodus_core_command_v2` 的 `vpn_preflight_begin`、`vpn_preflight_status` 命令暴露，能力位 32，契约见 [ffi_api.md](../ffi_api.md)。输入校验、报告字段与 `activation_permitted=false` 的语义不变；仍无平台证据提交入口。
+
+## 2.15.0-dev 启动预算诊断增量
+
+Report新增startup_budget可选只读字段，结构和拒绝原因见[startup_budget_api.md](startup_budget_api.md)。尚未执行预算检查时为null，生产缺完整计划时IncompletePlan，既有resource-budget仍Partial，不扩大启动权限。C ABI同一报告透传该字段。

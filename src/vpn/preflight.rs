@@ -61,6 +61,7 @@ pub struct Report {
     pub activation_permitted: bool,
     pub geoip_status: Option<crate::geoip::Status>,
     pub platform_check: Option<super::platform_check::Assessment>,
+    pub startup_budget: Option<super::startup_budget::Assessment>,
 }
 impl Default for Report {
     fn default() -> Self {
@@ -91,6 +92,7 @@ impl Default for Report {
             activation_permitted: false,
             geoip_status: None,
             platform_check: None,
+            startup_budget: None,
         }
     }
 }
@@ -360,8 +362,18 @@ impl Driver {
         }
         self.finding(*current, Outcome::Passed, None)?;
         self.update(|r| r.network_checks_passed = true)?;
-        // 分模块预算实际生效，但当前没有系统 FD/内存余量及完整启动峰值证明。
+        // 完整生产运行计划和可信OS余量尚未接入，未知量不能用零或组件配额代替。
+        let mut budget = super::startup_budget::Request::new(
+            transaction,
+            super::startup_budget::Plan::incomplete(),
+            std::time::Instant::now(),
+        )?;
+        let assessment = budget.assess(None, std::time::Instant::now(), cancel.requested())?;
+        self.update(|r| r.startup_budget = Some(assessment))?;
         self.finding(Check::ResourceBudget, Outcome::Partial, None)?;
+        if assessment.reason == Some(super::startup_budget::Reason::Cancelled) {
+            return Err(Error::Cancelled);
+        }
         // 真实平台接线尚未提供：不从配置、URL或网络成功伪造平台证据。
         // 必要物理出站地址尚未由平台准备流程固定，None明确表示未解析而非空集合。
         let mut request = super::platform_check::Request::new(

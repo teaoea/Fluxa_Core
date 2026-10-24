@@ -161,6 +161,14 @@ async fn real_https_is_not_full_permission_or_authorization() {
     assert!(report.network_checks_passed);
     assert!(!report.activation_permitted);
     assert_eq!(report.transaction, id);
+    let budget = report.startup_budget.unwrap();
+    assert_eq!(budget.transaction, id);
+    assert!(!budget.budget_satisfied);
+    assert!(budget.peak.is_none());
+    assert_eq!(
+        budget.reason,
+        Some(crate::vpn::startup_budget::Reason::IncompletePlan)
+    );
     let platform = report.platform_check.unwrap();
     assert_eq!(platform.transaction, id);
     assert_eq!(

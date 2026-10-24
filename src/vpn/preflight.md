@@ -43,3 +43,7 @@ Driver 是密封 Steps 的内核实现。外部不能实现步骤或提交“检
 ## 平台证据契约接入（2.11.0-dev）
 
 网络检查后的平台拒绝路径统一经过[platform_check](platform_check.md)。Report.platform_check是新增的无敏感数据摘要。当前无生产证据源、尚未固定物理出站范围，传None明确表示未知；不能因空清单、探测成功或配置的权限字段推进Prepare。整体失败仍为Unsupported，预算Partial和可信无节点授权缺口保持。实际权限与系统能力接线仍待验收。
+
+## 启动预算核算诊断
+
+统一内存/FD峰值核算通过[startup_budget](startup_budget.md)接入。Report.startup_budget在检查尚未执行时为None；当前生产完整需求及可信系统余量未知，生成IncompletePlan而不是用零冒充已检查。ResourceBudget继续Partial，activation_permitted不变；完整预算任务仍待计划归集、平台观测和真实预留。

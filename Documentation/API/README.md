@@ -22,6 +22,8 @@
 | --- | --- | --- | --- |
 | 外部调用 | `src/vpn/platform_check.rs` | [platform_check_api.md](External/vpn/platform_check_api.md) | 只读平台诊断，无证据提交入口 |
 | 内部自用 | `src/vpn/platform_check.rs` | [platform_check_api.md](Internal/vpn/platform_check_api.md) | 单次请求、缺证据拒绝及私有校验边界 |
+| 外部调用 | `src/vpn/startup_budget.rs` | [startup_budget_api.md](External/vpn/startup_budget_api.md) | 统一启动峰值核算的只读诊断，不授予接管 |
+| 内部自用 | `src/vpn/startup_budget.rs` | [startup_budget_api.md](Internal/vpn/startup_budget_api.md) | 内存/FD峰值、系统余量和失败拒绝契约 |
 
 本导航登记实际已编写范围，不代表全部历史内部 API 已补全文档。
 
