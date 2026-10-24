@@ -123,7 +123,12 @@ fn answer(session: &Session) -> Message {
 async fn synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream() {
     let upstream = support::fixture().await;
     let dns = resolver(upstream.port, true);
-    let (_, session) = setup(dns.clone(), 2);
+    let (manager, session) = setup(dns.clone(), 2);
+    let (tx, logs) = std::sync::mpsc::sync_channel(32);
+    manager.set_log_output(tx).unwrap();
+    manager
+        .set_log_level(nodus_core::configuration::LogFilter::Info)
+        .unwrap();
     for (kind, ipv6) in [(RecordType::A, false), (RecordType::AAAA, true)] {
         session
             .submit(&request("connect.example.test", kind, ipv6).bytes, None)
@@ -140,6 +145,26 @@ async fn synthetic_ipv4_ipv6_packets_own_mapping_and_no_upstream() {
         );
     }
     assert_eq!(upstream.count.load(Ordering::SeqCst), 0);
+    let events: Vec<_> = logs.try_iter().collect();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|v| v.event == nodus_core::logging::Event::DnsSynthetic)
+            .count(),
+        2
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|v| v.event == nodus_core::logging::Event::DnsQueryCompleted)
+            .count(),
+        2
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|v| v.event == nodus_core::logging::Event::DnsUpstreamSelected)
+    );
 }
 #[tokio::test]
 async fn fake_packet_resolves_real_and_returns_original_synthetic_endpoint() {

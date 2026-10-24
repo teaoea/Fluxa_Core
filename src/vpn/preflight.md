@@ -47,3 +47,7 @@ Driver 是密封 Steps 的内核实现。外部不能实现步骤或提交“检
 ## 启动预算核算诊断
 
 统一内存/FD峰值核算通过[startup_budget](startup_budget.md)接入。Report.startup_budget在检查尚未执行时为None；当前生产完整需求及可信系统余量未知，生成IncompletePlan而不是用零冒充已检查。ResourceBudget继续Partial，activation_permitted不变；完整预算任务仍待计划归集、平台观测和真实预留。
+
+## DNS日志观察（2.16.1-dev）
+
+Driver独立保留Controller当前Journal，用于候选DNS引导和逐上游实测。候选加密/等级不发布到该Journal；source=preflight保留必须返回真实地址的原检查语义，不因日志成功授予接管。 契约见`Documentation/API/Internal/outbound/configuration_api.md`。

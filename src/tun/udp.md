@@ -63,3 +63,7 @@ TCP DNS 入站、TCP TUN 流、分片、系统 Network Extension 尚未交付。
 不得发送 Fake-IP 到真实网络、把 DNS 执行失败解释成规则未命中并直连，或在会话关闭后继续受理新包／恢复旧任务权限。
 
 违反输入、授权或资源边界时，使用实际模块的既有错误／拒绝路径，不伪造成功或擅自扩大权限；具体失败后果以上文流程和公开契约为准。
+
+## DNS实时日志（2.16.1-dev）
+
+虚拟DNS响应使用respond_logged和同次捕获revision；没有代理出站连接的DNS查询connection_id为空，使用query_id关联。 完整字段及验证边界见`Documentation/API/External/logging_api.md`和`src/dns/logging.md`。

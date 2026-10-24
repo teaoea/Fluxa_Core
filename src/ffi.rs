@@ -846,9 +846,13 @@ impl Reply {
             ..Self::default()
         }
     }
-    fn dns(resolver: &crate::dns::Resolver, query: crate::dns::Query) -> Result<Self, Error> {
+    fn dns(
+        manager: &crate::outbound::Manager,
+        resolver: &crate::dns::Resolver,
+        query: crate::dns::Query,
+    ) -> Result<Self, Error> {
         Ok(Self::dns_result(
-            runtime()?.block_on(resolver.resolve(query))?,
+            runtime()?.block_on(manager.resolve_dns_query(resolver, query, false))?,
             resolver.fake_ip_generation(),
         ))
     }
@@ -1290,10 +1294,10 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
                 let mut selected = None;
                 for kind in ["A", "AAAA"] {
                     let answer = runtime()?
-                        .block_on(resolver.resolve_real(crate::dns::Query {
+                        .block_on(engine.outbound.resolve_dns_query(&resolver,crate::dns::Query {
                             name: name.clone(),
                             query_type: kind.into(),
-                        }))
+                        },true))
                         .map_err(crate::geoip::query_error)?;
                     if answer.rcode != 0 {
                         return Err(crate::geoip::query_error(Error::DnsResponse));
@@ -1801,7 +1805,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
             {
                 return Err(Error::InvalidState);
             }
-            let service = runtime()?.block_on(engine.dns()?.serve())?;
+            let service = runtime()?.block_on(engine.dns()?.serve_logged(Some(crate::dns::logging::Scope::new(engine.outbound.logs.clone(),None,None))))?;
             let status = service.status();
             *engine.dns_service.lock().map_err(|_| Error::Internal)? = Some(service);
             Ok(Reply {
@@ -1858,7 +1862,7 @@ fn command(handle: u64, bytes: &[u8]) -> Result<Reply, Error> {
         }),
         Command::DnsQuery(query) => {
             let resolver = engine.dns()?;
-            Reply::dns(&resolver, query)
+            Reply::dns(&engine.outbound,&resolver, query)
         },
         Command::DnsFakeIpReverse { address } => Ok(Reply {
             success: true,

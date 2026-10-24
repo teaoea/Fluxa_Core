@@ -52,3 +52,7 @@ destroy 先撤销注册表身份和新操作准入，再逐项尝试独立关闭
 ## 实时日志（2.16.0-dev）
 
 当前结构化事件、connection_id、非阻塞消费者接口及可选加密协议见`Documentation/API/External/logging_api.md`。消费者拥有持久化与访问；Core不提供历史查询。日志事件不提升配置候选或VPN阶段的实际成功等级。
+
+## DNS实时日志（2.16.1-dev）
+
+dns_query、GeoIP所需DNS及DNS服务把当前Engine Manager消费者按调用传入，不接收前端自报connection_id；原命令与返回保持不变。 完整字段及验证边界见`Documentation/API/External/logging_api.md`和`src/dns/logging.md`。

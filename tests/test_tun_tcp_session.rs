@@ -299,7 +299,12 @@ async fn dns_tcp_length_framing_and_real_resolver() {
         })
         .unwrap(),
     );
-    let (_, _, session) = setup(Policy::Direct, Some(resolver));
+    let (manager, _, session) = setup(Policy::Direct, Some(resolver));
+    let (tx, logs) = std::sync::mpsc::sync_channel(32);
+    manager.set_log_output(tx).unwrap();
+    manager
+        .set_log_level(crate::configuration::LogFilter::Info)
+        .unwrap();
     let source = "192.0.2.1:12345".parse().unwrap();
     let destination = "192.0.2.53:53".parse().unwrap();
     let mut sequence = handshake(&session, source, destination).await;
@@ -351,6 +356,17 @@ async fn dns_tcp_length_framing_and_real_resolver() {
     }
     assert_eq!(body[2..4], [0x12, 0x34]);
     assert_eq!(&body[body.len() - 4..], [192, 0, 2, 44]);
+    let events: Vec<_> = logs.try_iter().collect();
+    assert!(
+        events
+            .iter()
+            .any(|v| v.event == crate::logging::Event::DnsQueryCompleted)
+    );
+    assert!(
+        events
+            .iter()
+            .any(|v| v.event == crate::logging::Event::DnsUpstreamSelected)
+    );
     session.close().await.unwrap();
 }
 #[tokio::test]

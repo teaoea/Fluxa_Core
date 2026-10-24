@@ -137,7 +137,7 @@ impl Preparation {
                     None => HttpsClient::system()?,
                 };
                 work.manager
-                    .prepare_vpn_candidate(document, client, resources)
+                    .prepare_vpn_candidate(document, client, resources, None)
                     .await?;
                 Ok(())
             };

@@ -295,7 +295,7 @@ impl Manager {
         let snapshot = self.network_snapshot()?;
         snapshot.check_transport(transport)?;
         Ok(self
-            .establish_with(snapshot, duration(milliseconds)?, async |_| {
+            .establish_with(snapshot, duration(milliseconds)?, async |_, _| {
                 dial(address, transport).await
             })
             .await?
@@ -323,7 +323,7 @@ impl Manager {
             return Err(Error::Unsupported);
         }
         Ok(self
-            .establish_with(snapshot, duration(milliseconds)?, async |_| {
+            .establish_with(snapshot, duration(milliseconds)?, async |_, _| {
                 dial(address, transport).await
             })
             .await?
@@ -333,7 +333,7 @@ impl Manager {
         &self,
         snapshot: Arc<NetworkSnapshot>,
         deadline: Duration,
-        future: impl AsyncFnOnce(Option<&crate::dns::ResolverOperation>) -> Result<Dialed>,
+        future: impl AsyncFnOnce(Option<&crate::dns::ResolverOperation>, u64) -> Result<Dialed>,
     ) -> Result<Opened> {
         let connection_id = crate::lifecycle::identifier().ok_or(Error::ResourceLimit)?;
         let revision = snapshot.revision;
@@ -356,7 +356,7 @@ impl Manager {
                 None,
                 connection_id,
                 async |permission| {
-                    let dialed = future(permission).await?;
+                    let dialed = future(permission, connection_id).await?;
                     let target = crate::routing::Target {
                         domain: None,
                         address: Some(dialed.2.ip().to_string()),
@@ -876,8 +876,9 @@ pub(crate) async fn resolve_explicit_system(
 pub(crate) async fn resolve_bootstrap_system(
     name: &str,
     owner: Arc<crate::lifecycle::session::Authority>,
+    scope: Option<crate::dns::logging::Scope>,
 ) -> crate::error::Result<Vec<std::net::IpAddr>> {
-    resolve_explicit_system(name, Family::Auto, owner).await
+    resolution::resolve_system_logged(name, Family::Auto, Some(owner), scope).await
 }
 
 impl Manager {

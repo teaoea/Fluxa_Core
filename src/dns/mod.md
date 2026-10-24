@@ -139,3 +139,7 @@ server 的显式 direct/节点出站不受业务规则改写；bootstrap 仅服�
 ## 真实前置检查增量
 
 内部 preflight_upstreams 逐个实测主配置上游，绕过主配置hosts、Fake-IP及前台缓存，遵循地址族策略。不能用一个成功上游替其他上游通过；system仍不提供DNSSEC证明。完整约束及失败边界见[preflight.md](../vpn/preflight.md)。
+
+## DNS实时日志（2.16.1-dev）
+
+DNS运行查询可经resolve_logged携带本次Scope；该作用域不改变ResolverOperation准入或DNS返回，消费者不存入Resolver。正常resolve/resolve_real保持原签名和无消费者模式。 完整字段、错误和未验收范围见`Documentation/API/External/logging_api.md`与`src/dns/logging.md`。

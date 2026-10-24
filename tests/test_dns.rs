@@ -312,11 +312,37 @@ async fn dnssec_signed_root_valid_tampered_expired_and_untrusted() {
     let mut settings = config(udp(service.port));
     settings.dnssec = true;
     let resolver = Resolver::with_trust_anchors(settings.clone(), service.anchors.clone()).unwrap();
-    let valid = resolver.resolve(query("valid.", "A")).await.unwrap();
+    let manager = nodus_core::outbound::Manager::default();
+    let (tx, logs) = std::sync::mpsc::sync_channel(64);
+    manager.set_log_output(tx).unwrap();
+    manager
+        .set_log_level(nodus_core::configuration::LogFilter::Info)
+        .unwrap();
+    let valid = manager
+        .resolve_dns_query(&resolver, query("valid.", "A"), true)
+        .await
+        .unwrap();
+    let events: Vec<_> = logs.try_iter().collect();
+    assert!(
+        events
+            .iter()
+            .any(|v| v.event == nodus_core::logging::Event::DnsQueryCompleted
+                && v.context.dns.unwrap().validation == Some("secure"))
+    );
     assert_eq!(valid.validation, "secure");
     assert_eq!(valid.addresses, ["192.0.2.55"]);
     for name in ["bogus.", "expired."] {
-        assert!(resolver.resolve(query(name, "A")).await.is_err());
+        assert!(matches!(
+            manager
+                .resolve_dns_query(&resolver, query(name, "A"), true)
+                .await,
+            Err(Error::DnsValidation)
+        ));
+        assert!(logs.try_iter().any(|v| {
+            v.event == nodus_core::logging::Event::DnsQueryFailed
+                && v.error_info
+                    .is_some_and(|e| e.code == Error::DnsValidation.code())
+        }));
         let observation = resolver.last_query().unwrap().unwrap();
         assert!(!observation.successful && !observation.from_cache);
     }

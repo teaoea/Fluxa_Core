@@ -453,13 +453,23 @@ impl Manager {
                                 request.family,
                                 true,
                                 permission,
+                                Some(crate::dns::logging::Scope::new(
+                                    self.logs.clone(),
+                                    Some(connection_id),
+                                    Some(snapshot.revision),
+                                )),
                             )
                             .await?
                         } else if snapshot.system_dns {
-                            super::resolution::resolve_system(
+                            super::resolution::resolve_system_logged(
                                 metadata.domain.as_deref().ok_or(Error::InvalidInput)?,
                                 request.family,
                                 snapshot.owner()?,
+                                Some(crate::dns::logging::Scope::new(
+                                    self.logs.clone(),
+                                    Some(connection_id),
+                                    Some(snapshot.revision),
+                                )),
                             )
                             .await?
                         } else {
@@ -588,13 +598,23 @@ impl Manager {
                                             retry_request.family,
                                             true,
                                             permission,
+                                            Some(crate::dns::logging::Scope::new(
+                                                self.logs.clone(),
+                                                Some(connection_id),
+                                                Some(snapshot.revision),
+                                            )),
                                         )
                                         .await?
                                     } else if snapshot.system_dns {
-                                        super::resolution::resolve_system(
+                                        super::resolution::resolve_system_logged(
                                             &node.host,
                                             retry_request.family,
                                             snapshot.owner()?,
+                                            Some(crate::dns::logging::Scope::new(
+                                                self.logs.clone(),
+                                                Some(connection_id),
+                                                Some(snapshot.revision),
+                                            )),
                                         )
                                         .await?
                                     } else {

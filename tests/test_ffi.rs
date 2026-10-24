@@ -369,11 +369,30 @@ mod tests {
         );
         assert_eq!(result["success"], true, "{result}");
         assert_eq!(result["configuration_status"]["geoip_status"]["code"], 2410);
+        let (tx, logs) = std::sync::mpsc::sync_channel(32);
+        engine(handle).unwrap().outbound.set_log_output(tx).unwrap();
+        engine(handle)
+            .unwrap()
+            .outbound
+            .set_log_level(crate::configuration::LogFilter::Info)
+            .unwrap();
         let query =
             serde_json::json!({"operation":"dns_query","name":"pinned.test","query_type":"A"});
         assert_eq!(
             call(query.clone())["dns_answer"]["addresses"][0],
             "192.0.2.77"
+        );
+        let events: Vec<_> = logs.try_iter().collect();
+        assert!(
+            events
+                .iter()
+                .any(|v| v.event == crate::logging::Event::DnsHostsHit)
+        );
+        assert!(
+            events
+                .iter()
+                .any(|v| v.event == crate::logging::Event::DnsQueryCompleted
+                    && v.context.dns.unwrap().rcode == Some(0))
         );
         let close = call(serde_json::json!({"operation":"dns_close"}));
         assert_eq!(close["success"], false);

@@ -51,3 +51,17 @@ Rust结构化Record字段：schema_version=1、core_version、sequence（实例�
 `tests/test_logging.rs`覆盖精确等级、无消费者无历史、背压/锁竞争、原字段、失败保留、真实Unix输出、加解密/错误私钥/篡改/丢包/乱序、nonce耗尽、密钥轮换、默认配置及真实TCP连接关联。结果见同名报告。GUI/Swift解密互通、独立密码学审计、性能基准、所有P1/P2模块事件及真实系统VPN验收仍未完成。hpke依赖上游声明未审计，不宣称已经第三方安全审计。
 
 兼容性变更：2.16明确移除底层diagnostics历史snapshot。2403错误代码、分类、原因与返回Err保持不变，仅将副作用说明从固定诊断环改为实时输出；历史契约夹具保留原文，测试只对这一项已授权变更作精确迁移比较。示例配置中的BASE64_PUBLIC_KEY是待替换占位符，启用加密时不能直接作为有效配置使用；默认模板关闭加密可直接校验。
+
+## DNS事件补充（2.16.1-dev）
+
+module为dns，新增事件：dns-query-started、dns-hosts-hit、dns-synthetic、dns-cache-hit、dns-upstream-selected、dns-upstream-failed、dns-query-completed、dns-query-failed、dns-query-cancelled。
+
+Record新增可选dns对象；非DNS事件省略该键，既有schema_version=1与其他字段保持不变。dns字段为query_id（进程内唯一、不回绕）、name（原查询文本，253字节）、query_type（原类型文本，16字节）、upstream_index（从0开始）、upstream（原配置地址/URL/含节点策略的配置项，2048字节）、source（hosts/fake-ip/cache/upstream/system/preflight或null）、rcode、records（RR数量）、addresses（地址数量）、ttl、from_cache、validation（实际hosts/synthetic/secure/insecure/disabled或null）。未提供的数据为null，不截断文本伪称完整；字段超限时该字段为null，整条JSON超4096字节仍直接丢弃，DNS结果不变。duration_ms是本次观察的单调经过时间，不等于Answer默认上游统计。
+
+同一查询的所有事件共享query_id；重试上游只改变索引，A/AAAA各有独立ID。连接中的目标/节点解析带真实connection_id；独立API/本地服务/TUN DNS没有代理出站连接时保持null。CacheHit涵盖真实正负TTL缓存；Fake-IP复用单独为synthetic，hosts单独为hosts-hit，不声称联系上游。NXDOMAIN（rcode3）/NODATA是完成的DNS否定结果；非成功响应、超时与DNSSEC失败保留既有错误。已开始查询的Future外部取消时输出一次cancelled；显式close导致InvalidState返回时为failed。协议层畸形/被拒绝报文未进入解析，不制造started事件。
+
+上游selected只表示已实际开始尝试该配置项，不保证已发包，不声称Hickory内部UDP/TCP重传或多个引导IP已逐项可观测；系统解析仅记录system和实际结果，不能获知的OS服务器/TTL/RCODE/DNSSEC不猜测。配置准备的引导查询、运行期端点重建与启动预检也显式传递Scope。预检source=preflight，需要真实地址；否定/无地址结果沿用原预检失败语义，不改变普通查询NXDOMAIN为Answer的规则。候选准备使用当前已生效的消费者与加密策略，不把候选的日志设置提前发布。独立调用未提供消费者Scope时不回放历史。query_id跨进程重启不保证唯一，宿主持久保存后应同时关联自己的Core会话。
+
+加密仍使用同一NCLOG001与HPKE exporter/AES-GCM协议；没有DNS明文旁路。读取、筛选、存储和导出继续由消费者实现。公开Rust调用见[outbound/resolution_api.md](outbound/resolution_api.md)，内部作用域见[内部DNS日志API](../Internal/dns/logging_api.md)。专项验证见test_dns_logging、test_dns、test_logging、test_ffi、test_tun_dns、test_tun_tcp_session各同名报告。
+
+Rust unwind导致未完成作用域销毁时输出dns-query-failed/Internal，普通Future丢弃输出cancelled；不把panic混同用户取消，也不宣称可捕获进程abort或OS崩溃。验证见panic_during_query_trace_is_failed_not_cancelled。

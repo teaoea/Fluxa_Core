@@ -292,7 +292,7 @@ impl SessionInner {
             let response = tokio::select! {
                 biased;
                 _ = cancellation.changed() => return Err(Error::Cancelled),
-                result = resolver.respond(payload, true) => result?,
+                result = resolver.respond_logged(payload,true,Some(crate::dns::logging::Scope::new(self.manager.logs.clone(),None,Some(snapshot.revision)))) => result?,
             };
             self.bound_dns(self.manager.network_snapshot()?.as_ref())?;
             if self.state.lock().map_err(|_| Error::Internal)?.closed {

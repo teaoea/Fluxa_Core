@@ -77,20 +77,19 @@ pub(super) async fn resolve(
     family: Family,
     real: bool,
     permission: Option<&crate::dns::ResolverOperation>,
+    scope: Option<crate::dns::logging::Scope>,
 ) -> Result<Vec<IpAddr>> {
     let query = |kind: &str| Query {
         name: name.into(),
         query_type: kind.into(),
     };
-    let lookup = |query| async move {
-        if let Some(permission) =
-            permission.filter(|permission| resolver.owns_operation(permission))
-        {
-            resolver.resolve_operation(query, !real, permission).await
-        } else if real {
-            resolver.resolve_real(query).await
-        } else {
-            resolver.resolve(query).await
+    let lookup = |query| {
+        let scope = scope.clone();
+        async move {
+            let permission = permission.filter(|permission| resolver.owns_operation(permission));
+            resolver
+                .resolve_logged(query, !real, permission, scope)
+                .await
         }
     };
     let (v4, v6) = match family {
@@ -145,6 +144,32 @@ pub(super) async fn resolve(
     Ok(values)
 }
 impl Manager {
+    /// DNS结果保持解析器既有语义；只将本次查询日志交给本Manager的消费者。
+    pub async fn resolve_dns_query(
+        &self,
+        resolver: &Resolver,
+        query: Query,
+        real: bool,
+    ) -> Result<Answer> {
+        let snapshot = self.network_snapshot()?;
+        let revision = snapshot
+            .resolver
+            .as_deref()
+            .filter(|candidate| std::ptr::eq(*candidate, resolver))
+            .map(|_| snapshot.revision);
+        resolver
+            .resolve_logged(
+                query,
+                !real,
+                None,
+                Some(crate::dns::logging::Scope::new(
+                    self.logs.clone(),
+                    None,
+                    revision,
+                )),
+            )
+            .await
+    }
     pub async fn connect(&self, resolver: &Resolver, target: DomainTarget) -> Result<Opened> {
         self.connect_domain(resolver, target, false, self.network_snapshot()?)
             .await
@@ -212,8 +237,21 @@ impl Manager {
         if name.parse::<IpAddr>().is_ok() {
             return Err(Error::InvalidInput);
         }
-        self.establish_with(snapshot, deadline, async |permission| {
-            let addresses = resolve(resolver, &name, target.family, real, permission).await?;
+        let revision = snapshot.revision;
+        self.establish_with(snapshot, deadline, async |permission, connection_id| {
+            let addresses = resolve(
+                resolver,
+                &name,
+                target.family,
+                real,
+                permission,
+                Some(crate::dns::logging::Scope::new(
+                    self.logs.clone(),
+                    Some(connection_id),
+                    Some(revision),
+                )),
+            )
+            .await?;
             // 底层固定地址族连接没有主配置的换族编排；无记录继续返回既有 DNS 错误，
             // 不能交给空拨号列表而误报 Network，也不能尝试未授权的系统解析。
             if addresses.is_empty() {
@@ -260,6 +298,32 @@ pub(super) async fn candidates(
     }
 }
 
+/// 记录显式系统解析实际结果；不猜测OS使用的DNS服务器、TTL、RCODE或DNSSEC状态。
+pub(super) async fn resolve_system_logged(
+    name: &str,
+    family: Family,
+    owner: Option<std::sync::Arc<crate::lifecycle::session::Authority>>,
+    scope: Option<crate::dns::logging::Scope>,
+) -> Result<Vec<IpAddr>> {
+    let query = Query {
+        name: name.into(),
+        query_type: match family {
+            Family::Ipv4 => "A",
+            Family::Ipv6 => "AAAA",
+            Family::Auto => "A/AAAA",
+        }
+        .into(),
+    };
+    let mut trace = crate::dns::logging::Trace::begin(scope, &query);
+    if let Some(trace) = &trace {
+        trace.upstream(0, "system", None);
+    }
+    let result = resolve_system(name, family, owner).await;
+    if let Some(trace) = &mut trace {
+        trace.finish_system(&result);
+    }
+    result
+}
 // 系统调用不可强行终止：配额与会话操作必须移动进阻塞线程，关闭等待真实退出。
 static SYSTEM_LOOKUPS: crate::budget::ByteBudget = crate::budget::ByteBudget::new(8 * 65536);
 pub(super) async fn resolve_system(

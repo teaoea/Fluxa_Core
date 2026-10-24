@@ -78,3 +78,7 @@ cargo run --locked --example validate_main_configuration -- default_config.yaml
 平台权限与能力结果新增受约束的[只读诊断契约](Documentation/API/External/vpn/platform_check_api.md)。当前缺少真实平台证据时仍拒绝接管，网络检查成功不代表权限或防回环已经通过。
 
 主配置支持有序混合策略与自动连接重试，见[配置契约](Documentation/API/External/configuration/rules_api.md)。仅节点建连失败触发下一候选，不重放业务请求。
+
+## 实时DNS日志
+
+2.16.1-dev的DNS运行查询、缓存、hosts/Fake-IP、上游尝试、引导/端点重建及启动预检可向当前消费者输出结构化事件，并复用可选日志加密。Core不保留日志历史或写文件；无消费者不影响查询。接口与边界见[日志API](Documentation/API/External/logging_api.md)和[DNS查询接口](Documentation/API/External/outbound/resolution_api.md)，本地消费者示例为`cargo run --example dns_logging`。回环验证不代表外部服务、最低系统或系统VPN验收。

@@ -41,6 +41,7 @@ impl Resolver {
         config: &Dns,
         nodes: Arc<std::collections::HashMap<String, Arc<crate::protocol::config::Node>>>,
         tls: rustls::ClientConfig,
+        scope: Option<logging::Scope>,
     ) -> Result<Option<Arc<Self>>> {
         if !config.enable {
             return Ok(None);
@@ -118,7 +119,7 @@ impl Resolver {
             .ok_or(Error::InvalidState)?
             .runtime
             .clone();
-        if let Err(error) = plan.initialize(&runtime).await {
+        if let Err(error) = plan.initialize(&runtime, scope).await {
             plan.close().await?;
             return Err(error);
         }
@@ -155,10 +156,17 @@ impl Plan {
             )?,
         })
     }
+    pub(super) fn setting(&self, index: usize) -> Option<&str> {
+        self.settings.get(index).map(String::as_str)
+    }
     pub(super) fn len(&self) -> usize {
         self.settings.len()
     }
-    async fn bootstrap(&self, host: &str) -> Result<(Vec<IpAddr>, u32)> {
+    async fn bootstrap(
+        &self,
+        host: &str,
+        scope: Option<logging::Scope>,
+    ) -> Result<(Vec<IpAddr>, u32)> {
         if let Ok(ip) = host.parse() {
             return Ok((vec![ip], 3600));
         }
@@ -167,10 +175,15 @@ impl Plan {
             let mut ttl = 3600;
             let mut last = Error::DnsResponse;
             for kind in ["A", "AAAA"] {
-                match Box::pin(resolver.resolve_real(Query {
-                    name: host.into(),
-                    query_type: kind.into(),
-                }))
+                match Box::pin(resolver.resolve_logged(
+                    Query {
+                        name: host.into(),
+                        query_type: kind.into(),
+                    },
+                    false,
+                    None,
+                    scope.clone(),
+                ))
                 .await
                 {
                     Ok(answer) if answer.rcode == 3 => return Err(Error::DnsResponse),
@@ -194,10 +207,15 @@ impl Plan {
             return Ok((addresses, ttl));
         }
         let values =
-            crate::outbound::resolve_bootstrap_system(host, self.authority.clone()).await?;
+            crate::outbound::resolve_bootstrap_system(host, self.authority.clone(), scope).await?;
         Ok((values, 3600))
     }
-    async fn build(&self, index: usize, runtime: &ManagedRuntime) -> Result<Endpoint> {
+    async fn build(
+        &self,
+        index: usize,
+        runtime: &ManagedRuntime,
+        scope: Option<logging::Scope>,
+    ) -> Result<Endpoint> {
         let setting = &self.settings[index];
         if setting == "system" {
             return Ok(Endpoint {
@@ -211,7 +229,7 @@ impl Plan {
         let mut ttl = 3600;
         if route != "direct" {
             let node = self.nodes.get(route).ok_or(Error::InvalidInput)?;
-            let (_node_ips, node_ttl) = self.bootstrap(&node.host).await?;
+            let (_node_ips, node_ttl) = self.bootstrap(&node.host, scope.clone()).await?;
             ttl = ttl.min(node_ttl);
             let resolved = Arc::new(crate::protocol::config::Node {
                 host: node.host.clone(),
@@ -240,7 +258,7 @@ impl Plan {
                 .host_str()
                 .ok_or(Error::InvalidInput)?
                 .trim_matches(['[', ']']);
-            let (ips, life) = self.bootstrap(host).await?;
+            let (ips, life) = self.bootstrap(host, scope.clone()).await?;
             ttl = ttl.min(life);
             let port = target
                 .port()
@@ -285,14 +303,18 @@ impl Plan {
             network,
         })
     }
-    async fn initialize(&self, runtime: &ManagedRuntime) -> Result<()> {
+    async fn initialize(
+        &self,
+        runtime: &ManagedRuntime,
+        scope: Option<logging::Scope>,
+    ) -> Result<()> {
         let mut endpoints = self.endpoints.write().await;
         if !endpoints.is_empty() {
             return Ok(());
         }
         let mut prepared: Vec<Endpoint> = Vec::with_capacity(self.len());
         for index in 0..self.len() {
-            match self.build(index, runtime).await {
+            match self.build(index, runtime, scope.clone()).await {
                 Ok(endpoint) => prepared.push(endpoint),
                 Err(error) => {
                     for endpoint in prepared {
@@ -338,6 +360,7 @@ impl Plan {
         name: &str,
         kind: RecordType,
         runtime: &ManagedRuntime,
+        scope: Option<logging::Scope>,
     ) -> Result<std::result::Result<Lookup, NetError>> {
         if self.settings[index] == "system" {
             // OS 解析接口不提供 DNSSEC 证明；不得把无证明结果标成已验证。
@@ -372,14 +395,14 @@ impl Plan {
             return Ok(Ok(Lookup::new_with_deadline(q, records, Instant::now())));
         }
         if self.endpoints.read().await.is_empty() {
-            self.initialize(runtime).await?;
+            self.initialize(runtime, scope.clone()).await?;
         }
         let mut endpoints = self.endpoints.read().await;
         if endpoints[index].expires <= Instant::now() {
             drop(endpoints);
             let mut update = self.endpoints.write().await;
             if update[index].expires <= Instant::now() {
-                let replacement = self.build(index, runtime).await?;
+                let replacement = self.build(index, runtime, scope.clone()).await?;
                 let old = std::mem::replace(&mut update[index], replacement);
                 if let Some(network) = old.network {
                     network.stop_provider_download().await?;

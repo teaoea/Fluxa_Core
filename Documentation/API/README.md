@@ -33,3 +33,16 @@
 - [规则集正文校验API](External/providers_api.md)
 
 - [YAML动态映射定位内部API](Internal/routing/yaml_api.md)
+
+- [实时日志与DNS事件](External/logging_api.md)
+- [DNS查询消费者Rust接口](External/outbound/resolution_api.md)
+- [DNS内部日志作用域](Internal/dns/logging_api.md)
+- [DNS解析日志准入](Internal/dns/mod_api.md)
+- [DNS报文日志入口](Internal/dns/wire_api.md)
+- [DNS服务日志入口](Internal/dns/service_api.md)
+- [出站DNS关联](Internal/outbound/resolution_api.md)
+
+- [DNS引导与重建](Internal/dns/main_api.md)
+- [配置资源DNS观察](Internal/providers_api.md)
+- [出站连接DNS关联](Internal/outbound_api.md)
+- [候选DNS观察](Internal/outbound/configuration_api.md)

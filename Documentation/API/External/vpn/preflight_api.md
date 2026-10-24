@@ -48,3 +48,7 @@ Report兼容新增platform_check可选字段，详见[platform_check_api.md](pla
 ## 2.15.0-dev 启动预算诊断增量
 
 Report新增startup_budget可选只读字段，结构和拒绝原因见[startup_budget_api.md](startup_budget_api.md)。尚未执行预算检查时为null，生产缺完整计划时IncompletePlan，既有resource-budget仍Partial，不扩大启动权限。C ABI同一报告透传该字段。
+
+## DNS日志观察（2.16.1-dev）
+
+当前Controller消费者可接收候选DNS引导与逐上游探测事件。候选日志设置不提前覆盖活动等级/加密；预检无真实地址仍按原规则失败，普通DNS查询的否定Answer不改义。事件不提升network_checks_passed或activation_permitted。字段见[日志API](../logging_api.md)，验证见test_vpn_preflight。

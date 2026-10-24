@@ -1,6 +1,6 @@
 # 测试报告：test_dns_mod
 
-<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-915003f7fa5ba4b5", "::test_dns_mod::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.2580902500000022, "status": "PASS", "discovered": ["dns::test_dns_mod::drop_waits_for_real_operation_before_releasing_quota", "dns::test_dns_mod::error_semantics_tests::observation_lock_failure_is_internal_not_dns_timeout", "dns::test_dns_mod::retirement_contract::explicit_close_cancels_query_during_retirement", "dns::test_dns_mod::retirement_contract::failed_or_same_resolver_update_keeps_admission_active", "dns::test_dns_mod::retirement_contract::replacement_reclaims_services_and_quota_with_old_snapshots_alive", "dns::test_dns_mod::retirement_contract::retirement_drains_admitted_query_without_cancelling_it"], "results": {"dns::test_dns_mod::drop_waits_for_real_operation_before_releasing_quota": "PASS", "dns::test_dns_mod::error_semantics_tests::observation_lock_failure_is_internal_not_dns_timeout": "PASS", "dns::test_dns_mod::retirement_contract::explicit_close_cancels_query_during_retirement": "PASS", "dns::test_dns_mod::retirement_contract::failed_or_same_resolver_update_keeps_admission_active": "PASS", "dns::test_dns_mod::retirement_contract::replacement_reclaims_services_and_quota_with_old_snapshots_alive": "PASS", "dns::test_dns_mod::retirement_contract::retirement_drains_admitted_query_without_cancelling_it": "PASS"}, "fingerprint": "6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243", "time": "2026-10-24T13:41:42.348500+08:00", "attempt": 1, "suite": "test_dns_mod", "file": "tests/test_dns_mod.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
+<!-- nodus-test-report:{"command": ["/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-e109a20f5477cf6e", "::test_dns_mod::", "--test-threads=1"], "exit_code": 0, "duration_seconds": 0.26416562500000396, "status": "PASS", "discovered": ["dns::test_dns_mod::drop_waits_for_real_operation_before_releasing_quota", "dns::test_dns_mod::error_semantics_tests::observation_lock_failure_is_internal_not_dns_timeout", "dns::test_dns_mod::retirement_contract::explicit_close_cancels_query_during_retirement", "dns::test_dns_mod::retirement_contract::failed_or_same_resolver_update_keeps_admission_active", "dns::test_dns_mod::retirement_contract::replacement_reclaims_services_and_quota_with_old_snapshots_alive", "dns::test_dns_mod::retirement_contract::retirement_drains_admitted_query_without_cancelling_it"], "results": {"dns::test_dns_mod::drop_waits_for_real_operation_before_releasing_quota": "PASS", "dns::test_dns_mod::error_semantics_tests::observation_lock_failure_is_internal_not_dns_timeout": "PASS", "dns::test_dns_mod::retirement_contract::explicit_close_cancels_query_during_retirement": "PASS", "dns::test_dns_mod::retirement_contract::failed_or_same_resolver_update_keeps_admission_active": "PASS", "dns::test_dns_mod::retirement_contract::replacement_reclaims_services_and_quota_with_old_snapshots_alive": "PASS", "dns::test_dns_mod::retirement_contract::retirement_drains_admitted_query_without_cancelling_it": "PASS"}, "fingerprint": "da2f5a38a7946f25e3ec56b8d672e1185f8984902d8fcb5d5512252cee0afa6e", "time": "2026-10-24T20:17:30.808385+08:00", "attempt": 1, "suite": "test_dns_mod", "file": "tests/test_dns_mod.rs", "environment": {"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "7008c5063e30286e844dfd29b40e9776b1bd129e", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}} -->
 
 ## 基本信息
 
@@ -8,11 +8,11 @@
 - 测试对象：src/dns/mod.rs
 - 执行机制：unit
 - 测试范围：本文件登记且在当前平台实际发现的全部用例
-- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-915003f7fa5ba4b5 ::test_dns_mod:: --test-threads=1`
-- 执行时间：2026-10-24T13:41:42.348500+08:00
-- 实际耗时：0.2580902500000022 秒
-- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "2f6cd1e624851636840713246da2f51fa05c86fb", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
-- 代码/测试/配置指纹：`6570db01cac088692214174f3c064ba92f94de504c7ddbad674b6c9a5028d243`
+- 实际命令：`/Users/klee/Documents/Nodus Core/target/debug/deps/nodus_core-e109a20f5477cf6e ::test_dns_mod:: --test-threads=1`
+- 执行时间：2026-10-24T20:17:30.808385+08:00
+- 实际耗时：0.26416562500000396 秒
+- 运行环境：`{"os": "macOS-27.2-arm64-arm-64bit", "architecture": "arm64", "rust": "rustc 1.98.1 (48a229cea 2026-09-01)", "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)", "commit": "7008c5063e30286e844dfd29b40e9776b1bd129e", "dirty": true, "features": "Cargo 默认 features；未启用 --all-features", "optional_environments": {"NODUS_DEBUG_TEST_REQUIREMENT": false, "NODUS_DEBUG_TEST_SWIFT": false, "NODUS_PROTOCOL_PROFILE": false, "NODUS_PROTOCOL_FIXTURE": false}, "ci_run_id": null, "ci_run_attempt": null}`
+- 代码/测试/配置指纹：`da2f5a38a7946f25e3ec56b8d672e1185f8984902d8fcb5d5512252cee0afa6e`
 - 总体状态：**PASS**
 - 原始进程退出状态：0
 
@@ -51,7 +51,7 @@
 
 ## 证据及后续事项
 
-- 原始证据：`/private/tmp/claude-501/-Users-klee-Documents-Fluxa/dd1504c4-f781-4692-b482-4e9c216c95e1/scratchpad/core-evidence/test_dns_mod.json`、对应 `.log`（实际存在时）。
+- 原始证据：`/private/tmp/nodus-dns-commit-evidence/test_dns_mod.json`、对应 `.log`（实际存在时）。
 - CI 工件标识：`本地证据目录；未宣称已上传 CI`
 - 最新报告被后续变更影响时必须重新执行；检查器会拒绝指纹不一致的旧结果。
 - 未运行的 Swift/外部协议或夹具独立目标均保持 NOT RUN；本报告不代表系统 VPN、外部服务端及跨平台已经验收。

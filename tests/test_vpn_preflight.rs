@@ -259,6 +259,10 @@ async fn every_dns_upstream_is_checked_without_hosts_or_fake_ip() {
     let one = crate::test_fixture_https::dns::fixture().await;
     let two = crate::test_fixture_https::dns::fixture().await;
     let owner = Controller::default();
+    let (tx, logs) = std::sync::mpsc::sync_channel(64);
+    owner.logs.attach(tx).unwrap();
+    owner.logs.configure(crate::configuration::LogFilter::Info);
+
     let yaml = format!(
         "rules: ['final,direct']\ndns:\n  enable: true\n  server: ['127.0.0.1:{}','127.0.0.1:{}']\n  hosts: {{connect.example.test: 127.0.0.1}}\n  fake-ip: {{enable: true, ipv4-range: 198.18.0.0/24, ipv6-range: 'fd00::/120'}}\n",
         one.port, two.port
@@ -271,6 +275,23 @@ async fn every_dns_upstream_is_checked_without_hosts_or_fake_ip() {
     );
     let report = finished(&owner, id).await;
     assert_eq!(report.dns_upstreams_checked, 2, "{report:?}");
+    // 候选默认silent不能重置当前消费者的Info；预检仍逐个输出真实上游探测结果。
+    let events: Vec<_> = logs.try_iter().filter(|v| v.module == "dns").collect();
+    let selected: Vec<_> = events
+        .iter()
+        .filter(|v| v.event == crate::logging::Event::DnsUpstreamSelected)
+        .map(|v| v.context.dns.unwrap().upstream_index.unwrap())
+        .collect();
+    assert_eq!(selected, [0, 1]);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|v| v.event == crate::logging::Event::DnsQueryCompleted
+                && v.context.dns.unwrap().source == Some("preflight"))
+            .count(),
+        2
+    );
+
     assert!(report.network_checks_passed);
     assert!(one.count.load(Ordering::SeqCst) > 0);
     assert!(two.count.load(Ordering::SeqCst) > 0);
@@ -288,6 +309,10 @@ async fn one_good_dns_server_does_not_hide_failure() {
         one.port
     );
     let owner = Controller::default();
+    let (tx, logs) = std::sync::mpsc::sync_channel(64);
+    owner.logs.attach(tx).unwrap();
+    owner.logs.configure(crate::configuration::LogFilter::Info);
+
     let id = start(
         &owner,
         &yaml,
@@ -299,6 +324,12 @@ async fn one_good_dns_server_does_not_hide_failure() {
     assert_eq!(outcome(&report, Check::Dns), Outcome::Failed);
     assert!(!report.network_checks_passed);
     assert_eq!(report.probes_completed, 0);
+    let code = owner.status(id).unwrap().failure.unwrap().code();
+    assert!(
+        logs.try_iter()
+            .any(|v| v.event == crate::logging::Event::DnsQueryFailed
+                && v.error_info.is_some_and(|e| e.code == code))
+    );
 }
 #[tokio::test]
 async fn missing_proxy_coverage_is_not_success() {

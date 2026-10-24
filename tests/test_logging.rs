@@ -1,7 +1,7 @@
 //! 测试文件：tests/test_logging.rs
 //! 测试类型：单元测试、实时输出及背压边界
 //! 测试对象：src/logging.rs、src/outbound/configuration.rs
-//! 测试内容：levels_keep_exact_existing_semantics、no_consumer_or_disconnection_never_accumulates_history、full_receiver_and_busy_output_never_wait、structured_fields_are_transferred_without_redaction、configuration_failure_keeps_previous_level_and_revision、unix_output_is_live_datagrams_only、encryption_authenticates_and_survives_missing_packets、encryption_bounds_and_exhaustion_never_emit_plaintext、log_schema_defaults_and_strict_public_key_validation、encrypted_unix_transport_round_trip_and_rotation、connection_events_share_id_and_close_once。
+//! 测试内容：levels_keep_exact_existing_semantics、no_consumer_or_disconnection_never_accumulates_history、full_receiver_and_busy_output_never_wait、structured_fields_are_transferred_without_redaction、configuration_failure_keeps_previous_level_and_revision、unix_output_is_live_datagrams_only、encryption_authenticates_and_survives_missing_packets、encryption_bounds_and_exhaustion_never_emit_plaintext、log_schema_defaults_and_strict_public_key_validation、encrypted_unix_transport_round_trip_and_rotation、connection_events_share_id_and_close_once、dns_records_use_existing_encrypted_datagram_protocol。
 //! 测试依据：用户要求Core仅生成并实时输出、不脱敏/收集/存储/查询历史，不阻塞代理线程；接收方持有缓冲。
 //! 前置条件：本地接收方自建有界队列/Unix数据报，不写文件、不联网或接管VPN。
 use super::*;
@@ -420,4 +420,67 @@ async fn connection_events_share_id_and_close_once() {
         opened.connection.connection_id
     );
     manager.close(second.connection.id).await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn dns_records_use_existing_encrypted_datagram_protocol() {
+    let (secret, public) = test_key();
+    let manager = crate::outbound::Manager::default();
+    let (tx, rx) = UnixDatagram::pair().unwrap();
+    rx.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+        .unwrap();
+    manager.logs.attach_unix(tx).unwrap();
+    manager.apply_configuration(&format!("log: {{encryption: true, public-key: '{public}', level: info}}\nrules: ['final,direct']")).unwrap();
+    let mut packet = [0u8; MAX_EVENT_BYTES + 128];
+    rx.recv(&mut packet).unwrap();
+    let settings: crate::configuration::models::Dns = crate::routing::runtime::yaml::decode(
+        "{enable: true, server: ['127.0.0.1:9'], hosts: {hosts.secret.test: 192.0.2.8}}",
+    )
+    .unwrap();
+    let resolver = crate::dns::Resolver::from_main(
+        &settings,
+        Default::default(),
+        crate::https::HttpsClient::system().unwrap().tls_config(),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    manager
+        .resolve_dns_query(
+            &resolver,
+            crate::dns::Query {
+                name: "hosts.secret.test".into(),
+                query_type: "A".into(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let mut id = None;
+    let mut events = Vec::new();
+    for _ in 0..3 {
+        let size = rx.recv(&mut packet).unwrap();
+        assert!(
+            !packet[..size]
+                .windows(b"hosts.secret.test".len())
+                .any(|v| v == b"hosts.secret.test")
+        );
+        let value: serde_json::Value =
+            serde_json::from_slice(&decrypt_packet(&secret, &packet[..size]).unwrap()).unwrap();
+        assert_eq!(value["module"], "dns");
+        assert_eq!(value["dns"]["name"], "hosts.secret.test");
+        if let Some(id) = id {
+            assert_eq!(value["dns"]["query_id"], id);
+        } else {
+            id = Some(value["dns"]["query_id"].as_u64().unwrap());
+        }
+        events.push(value["event"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(
+        events,
+        ["dns-query-started", "dns-hosts-hit", "dns-query-completed"]
+    );
+    resolver.close().await.unwrap();
 }

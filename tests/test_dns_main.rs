@@ -12,7 +12,7 @@ use super::*;
 async fn hosts_precedes_fake_and_disabled_isolated() {
     let client = crate::https::HttpsClient::system().unwrap();
     let raw:crate::configuration::models::Dns=crate::routing::runtime::yaml::decode(r#"{enable: true, server: ['127.0.0.1:9'], hosts: {example.com: 192.0.2.1}, fake-ip: {enable: true, ipv4-range: 198.18.0.0/24, ipv6-range: 'fd00::/120'}}"#).unwrap();
-    let resolver = Resolver::from_main(&raw, Default::default(), client.tls_config())
+    let resolver = Resolver::from_main(&raw, Default::default(), client.tls_config(), None)
         .await
         .unwrap()
         .unwrap();
@@ -53,7 +53,7 @@ async fn hosts_precedes_fake_and_disabled_isolated() {
     )
     .unwrap();
     assert!(
-        Resolver::from_main(&disabled, Default::default(), client.tls_config())
+        Resolver::from_main(&disabled, Default::default(), client.tls_config(), None)
             .await
             .unwrap()
             .is_none()
@@ -71,10 +71,32 @@ async fn bootstrap_ttl_rebuild_and_system_dnssec_fail_closed() {
         fixture.port, fixture.doh_port
     );
     let config: Dns = crate::routing::runtime::yaml::decode(&yaml).unwrap();
-    let resolver = Resolver::from_main(&config, Default::default(), client.tls_config())
-        .await
-        .unwrap()
+    let manager = crate::outbound::Manager::default();
+    let (tx, logs) = std::sync::mpsc::sync_channel(64);
+    manager.set_log_output(tx).unwrap();
+    manager
+        .set_log_level(crate::configuration::LogFilter::Info)
         .unwrap();
+    let scope = super::logging::Scope::new(manager.logs.clone(), None, None);
+
+    let resolver = Resolver::from_main(
+        &config,
+        Default::default(),
+        client.tls_config(),
+        Some(scope.clone()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let initial: Vec<_> = logs.try_iter().collect();
+    assert_eq!(
+        initial
+            .iter()
+            .filter(|v| v.event == crate::logging::Event::DnsQueryStarted)
+            .count(),
+        2
+    );
+    assert!(initial.iter().all(|v| v.module == "dns"));
     let plan = resolver.main.as_ref().unwrap();
     let before = fixture.count.load(std::sync::atomic::Ordering::Relaxed);
     let bootstrap = plan.bootstrap.as_ref().unwrap();
@@ -85,16 +107,39 @@ async fn bootstrap_ttl_rebuild_and_system_dnssec_fail_closed() {
     }
     plan.endpoints.write().await[0].expires = Instant::now() - Duration::from_secs(1);
     let answer = resolver
-        .resolve_real(Query {
-            name: "connect.example.test".into(),
-            query_type: "A".into(),
-        })
+        .resolve_logged(
+            Query {
+                name: "connect.example.test".into(),
+                query_type: "A".into(),
+            },
+            false,
+            None,
+            Some(scope.clone()),
+        )
         .await
         .unwrap();
     assert_eq!(answer.addresses, ["127.0.0.1"]);
+    let refreshed: Vec<_> = logs.try_iter().collect();
+    assert_eq!(
+        refreshed
+            .iter()
+            .filter(|v| v.event == crate::logging::Event::DnsQueryStarted)
+            .count(),
+        3
+    );
+    assert_eq!(
+        refreshed
+            .iter()
+            .filter(|v| v.event == crate::logging::Event::DnsQueryCompleted)
+            .count(),
+        3
+    );
     assert!(fixture.count.load(std::sync::atomic::Ordering::Relaxed) >= before + 3);
     assert!(plan.endpoints.read().await[0].expires > Instant::now());
-    assert_eq!(plan.bootstrap("zero.example.test").await.unwrap().1, 0);
+    assert_eq!(
+        plan.bootstrap("zero.example.test", None).await.unwrap().1,
+        0
+    );
     assert!(
         crate::outbound::resolve_explicit_system(
             "127.0.0.1",
@@ -109,7 +154,7 @@ async fn bootstrap_ttl_rebuild_and_system_dnssec_fail_closed() {
     let config: Dns =
         crate::routing::runtime::yaml::decode("{enable: true,server: [system],dnssec: true}")
             .unwrap();
-    let resolver = Resolver::from_main(&config, Default::default(), client.tls_config())
+    let resolver = Resolver::from_main(&config, Default::default(), client.tls_config(), None)
         .await
         .unwrap()
         .unwrap();
@@ -160,7 +205,7 @@ async fn initialization_failure_never_publishes_partial_endpoints() {
     };
     // 夹具 nxdomain.* 是 NXDOMAIN；失败发生在第一项已准备之后。
     for _ in 0..2 {
-        assert!(plan.initialize(&runtime).await.is_err());
+        assert!(plan.initialize(&runtime, None).await.is_err());
         assert!(plan.endpoints.read().await.is_empty());
     }
     plan.close().await.unwrap();
@@ -174,7 +219,7 @@ async fn close_stops_idle_dns_transport_before_waiting() {
     let client = crate::https::HttpsClient::system().unwrap();
     let config: Dns =
         crate::routing::runtime::yaml::decode("{enable: true,server: ['127.0.0.1:9']}").unwrap();
-    let resolver = Resolver::from_main(&config, Default::default(), client.tls_config())
+    let resolver = Resolver::from_main(&config, Default::default(), client.tls_config(), None)
         .await
         .unwrap()
         .unwrap();

@@ -2,6 +2,7 @@
 //! Hickory 负责标准报文/密码学验证；不读取系统 DNS 或 hosts，不隐式降级。
 mod config;
 pub mod fake_ip;
+pub(crate) mod logging;
 mod main;
 pub mod observation;
 mod runtime;
@@ -266,18 +267,41 @@ impl Resolver {
         }
         self.authority.with_active(operation.identity, commit)
     }
-    /// 后续查询继承已登记建连事务的准入，避免退休发生在目标解析与节点解析之间时误取消事务。
     pub(crate) async fn resolve_operation(
         &self,
         query: Query,
         synthetic: bool,
         operation: &ResolverOperation,
     ) -> Result<Answer> {
-        if operation.identity != self.identity() {
-            return Err(Error::InvalidState);
+        self.resolve_logged(query, synthetic, Some(operation), None)
+            .await
+    }
+    /// 日志作用域属于本次调用，不改变解析器归属，不保存历史或裁决查询结果。
+    pub(crate) async fn resolve_logged(
+        &self,
+        query: Query,
+        synthetic: bool,
+        operation: Option<&ResolverOperation>,
+        scope: Option<logging::Scope>,
+    ) -> Result<Answer> {
+        let mut trace = logging::Trace::begin(scope, &query);
+        let result = async {
+            let acquired;
+            let operation = if let Some(operation) = operation {
+                operation
+            } else {
+                acquired = self.operation()?;
+                &acquired
+            };
+            self.check_operation(operation)?;
+            self.resolve_admitted(query, synthetic, trace.as_ref())
+                .await
         }
-        self.ensure_running()?;
-        self.resolve_admitted(query, synthetic).await
+        .await;
+        if let Some(trace) = trace.as_mut() {
+            trace.finish(&result);
+        }
+        result
     }
     pub(crate) async fn canceled(&self) {
         self.authority.canceled().await;
@@ -370,9 +394,15 @@ impl Resolver {
         Ok(())
     }
     pub async fn serve(self: std::sync::Arc<Self>) -> Result<service::Service> {
+        self.serve_logged(None).await
+    }
+    pub(crate) async fn serve_logged(
+        self: Arc<Self>,
+        scope: Option<logging::Scope>,
+    ) -> Result<service::Service> {
         self.ensure_active()?;
         let config = self.config.service.clone().ok_or(Error::InvalidState)?;
-        service::Service::start(config, self).await
+        service::Service::start_logged(config, self, scope).await
     }
     pub fn reverse_fake_ip(&self, address: &str) -> Result<Option<String>> {
         self.ensure_active()?;
@@ -425,6 +455,7 @@ impl Resolver {
         &self,
         name: &str,
         strategy: crate::configuration::models::IpStrategy,
+        scope: Option<logging::Scope>,
     ) -> Result<usize> {
         use crate::configuration::models::IpStrategy;
         self.ensure_running()?;
@@ -459,12 +490,41 @@ impl Resolver {
                 for index in 0..count {
                     let mut result = Err(Error::DnsResponse);
                     for &kind in families {
+                        let mut trace = logging::Trace::begin(
+                            scope.clone(),
+                            &Query {
+                                name: name.clone(),
+                                query_type: kind.to_string(),
+                            },
+                        );
+                        if let Some(trace) = &trace {
+                            trace.upstream(
+                                index,
+                                plan.setting(index).ok_or(Error::Internal)?,
+                                None,
+                            );
+                        }
                         let lookup = tokio::time::timeout(
                             Duration::from_millis(self.config.timeout_ms),
-                            plan.lookup(index, &fqdn, kind, &resources.runtime),
+                            plan.lookup(index, &fqdn, kind, &resources.runtime, scope.clone()),
                         )
                         .await
-                        .map_err(|_| Error::DnsTimeout)??;
+                        .map_err(|_| Error::DnsTimeout)
+                        .and_then(|value| value);
+                        let lookup = match lookup {
+                            Ok(value) => value,
+                            Err(error) => {
+                                if let Some(trace) = &mut trace {
+                                    trace.upstream(
+                                        index,
+                                        plan.setting(index).ok_or(Error::Internal)?,
+                                        Some(error),
+                                    );
+                                    trace.finish_probe(&Err(error));
+                                }
+                                return Err(error);
+                            }
+                        };
                         result = match lookup {
                             Ok(answer)
                                 if answer
@@ -475,9 +535,29 @@ impl Resolver {
                                 Ok(())
                             }
                             Err(NetError::Timeout) => Err(Error::DnsTimeout),
-                            Err(_) if self.config.dnssec => return Err(Error::DnsValidation),
+                            Err(_) if self.config.dnssec => {
+                                if let Some(trace) = &mut trace {
+                                    trace.upstream(
+                                        index,
+                                        plan.setting(index).ok_or(Error::Internal)?,
+                                        Some(Error::DnsValidation),
+                                    );
+                                    trace.finish_probe(&Err(Error::DnsValidation));
+                                }
+                                return Err(Error::DnsValidation);
+                            }
                             _ => Err(Error::DnsResponse),
                         };
+                        if let Some(trace) = &mut trace {
+                            if let Err(error) = result {
+                                trace.upstream(
+                                    index,
+                                    plan.setting(index).ok_or(Error::Internal)?,
+                                    Some(error),
+                                );
+                            }
+                            trace.finish_probe(&result);
+                        }
                         if result.is_ok() {
                             break;
                         }
@@ -536,7 +616,12 @@ impl Resolver {
         let operation = self.operation()?;
         self.resolve_operation(query, synthetic, &operation).await
     }
-    async fn resolve_admitted(&self, query: Query, synthetic: bool) -> Result<Answer> {
+    async fn resolve_admitted(
+        &self,
+        query: Query,
+        synthetic: bool,
+        trace: Option<&logging::Trace>,
+    ) -> Result<Answer> {
         let binding = self.binding_authority()?;
         let _binding_operation = binding
             .as_ref()
@@ -545,13 +630,18 @@ impl Resolver {
         tokio::select! {
             biased;
             _ = self.authority.canceled() => Err(Error::InvalidState),
-            result = self.resolve_allowed(query, synthetic) => {
+            result = self.resolve_allowed(query, synthetic, trace) => {
                 self.ensure_running()?;
                 result
             }
         }
     }
-    async fn resolve_allowed(&self, query: Query, synthetic: bool) -> Result<Answer> {
+    async fn resolve_allowed(
+        &self,
+        query: Query,
+        synthetic: bool,
+        trace: Option<&logging::Trace>,
+    ) -> Result<Answer> {
         let guard = self.resources.read().await;
         let resources = guard.as_ref().ok_or(Error::InvalidState)?;
         let inner = &resources.inner;
@@ -560,9 +650,16 @@ impl Resolver {
         if let Some(plan) = &self.main
             && let Some(lookup) = plan.hosts(&name, kind)?
         {
-            return answer_from_hosts(name, kind, lookup);
+            let answer = answer_from_hosts(name, kind, lookup)?;
+            if let Some(trace) = trace {
+                trace.hit(crate::logging::Event::DnsHostsHit, "hosts", &answer);
+            }
+            return Ok(answer);
         }
         if synthetic && let Some(answer) = self.synthetic_answer(&name, kind)? {
+            if let Some(trace) = trace {
+                trace.hit(crate::logging::Event::DnsSynthetic, "fake-ip", &answer);
+            }
             return Ok(answer);
         }
         let key = (name.clone(), kind.to_string());
@@ -579,6 +676,9 @@ impl Resolver {
                     record.ttl = record.ttl.min(answer.ttl);
                 }
                 self.observe(0, true, answer.rcode == 0 || answer.rcode == 3)?;
+                if let Some(trace) = trace {
+                    trace.hit(crate::logging::Event::DnsCacheHit, "cache", &answer);
+                }
                 return Ok(answer);
             }
         }
@@ -595,10 +695,30 @@ impl Resolver {
                 tokio::time::timeout(attempt * count as u32 + Duration::from_millis(50), async {
                     let mut last = Err(NetError::Timeout);
                     for index in 0..count {
+                        let label = self
+                            .main
+                            .as_ref()
+                            .and_then(|p| p.setting(index))
+                            .unwrap_or_else(|| match &self.config.servers[index] {
+                                Server::Udp { address }
+                                | Server::Tcp { address }
+                                | Server::Dot { address, .. } => address,
+                                Server::Doh { url, .. } => url,
+                            });
+                        if let Some(trace) = trace {
+                            trace.upstream(index, label, None);
+                        }
                         let attempt_started = Instant::now();
-                        last = tokio::time::timeout(attempt, async {
+                        let attempted = tokio::time::timeout(attempt, async {
                             if let Some(plan) = &self.main {
-                                plan.lookup(index, &fqdn, kind, &resources.runtime).await
+                                plan.lookup(
+                                    index,
+                                    &fqdn,
+                                    kind,
+                                    &resources.runtime,
+                                    trace.map(logging::Trace::scope),
+                                )
+                                .await
                             } else {
                                 Ok(inner
                                     .get(index)
@@ -608,7 +728,32 @@ impl Resolver {
                             }
                         })
                         .await
-                        .unwrap_or(Ok(Err(NetError::Timeout)))?;
+                        .unwrap_or(Ok(Err(NetError::Timeout)));
+                        last = match attempted {
+                            Ok(value) => value,
+                            Err(error) => {
+                                if let Some(trace) = trace {
+                                    trace.upstream(index, label, Some(error));
+                                }
+                                return Err(error);
+                            }
+                        };
+                        if let Some(trace) = trace {
+                            let error = match &last {
+                                Err(NetError::Dns(DnsError::NoRecordsFound(value)))
+                                    if !matches!(u16::from(value.response_code), 0 | 3) =>
+                                {
+                                    Some(Error::DnsResponse)
+                                }
+                                Ok(_) | Err(NetError::Dns(DnsError::NoRecordsFound(_))) => None,
+                                Err(NetError::Timeout) => Some(Error::DnsTimeout),
+                                Err(_) if self.config.dnssec => Some(Error::DnsValidation),
+                                Err(_) => Some(Error::DnsResponse),
+                            };
+                            if let Some(error) = error {
+                                trace.upstream(index, label, Some(error));
+                            }
+                        }
                         if index == 0 {
                             // 同步写入一条小统计，不创建后台任务；失败保留失败状态，不伪造零延迟成功。
                             self.observe(

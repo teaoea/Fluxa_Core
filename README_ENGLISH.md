@@ -78,3 +78,7 @@ Startup budgets expose [read-only memory/FD peak diagnostics](Documentation/API/
 Platform checks now have a [read-only diagnostic contract](Documentation/API/External/vpn/platform_check_api.md). Production still refuses takeover without a real platform evidence source; network success does not establish permission or loop protection.
 
 Ordered policies support automatic connection retry; see the [configuration contract](Documentation/API/External/configuration/rules_api.md). Only node connection failures qualify; application requests are not replayed.
+
+## Live DNS events
+
+In 2.16.1-dev, DNS queries, caches, hosts/Fake-IP, upstream attempts, bootstrap/endpoint rebuilding and preflight checks can emit structured events to the current consumer using the existing optional log encryption. Core does not retain log history or write log files; a missing consumer does not change DNS results. See the [logging contract](Documentation/API/External/logging_api.md), [DNS consumer API](Documentation/API/External/outbound/resolution_api.md), and `cargo run --example dns_logging` for a local example. Loopback evidence does not establish external-service, minimum-OS or system-VPN acceptance.

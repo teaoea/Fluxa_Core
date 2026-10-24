@@ -389,7 +389,7 @@ async fn relay(
                     context.owner.check_dns_owner()?;
                     let query = tcp.input(length + 2);
                     let resolver = context.dns.as_ref().ok_or(Error::Internal)?;
-                    let bytes = tokio::select! { biased; _ = context.cancel.changed() => return Err(Error::Cancelled), result = resolver.respond(&query[2..], false) => result? };
+                    let bytes = tokio::select! { biased; _ = context.cancel.changed() => return Err(Error::Cancelled), result = resolver.respond_logged(&query[2..],false,Some(crate::dns::logging::Scope::new(context.manager.logs.clone(),None,None))) => result? };
                     context.owner.check_dns_owner()?;
                     if bytes.len() > u16::MAX as usize {
                         return Err(Error::ResourceLimit);

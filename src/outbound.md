@@ -159,3 +159,7 @@ HTTP 主动请求、HTTPS TLS、普通代理转发、CONNECT 透传和 MITM 上�
 ## 实时日志（2.16.0-dev）
 
 当前结构化事件、connection_id、非阻塞消费者接口及可选加密协议见`Documentation/API/External/logging_api.md`。消费者拥有持久化与访问；Core不提供历史查询。日志事件不提升配置候选或VPN阶段的实际成功等级。
+
+## DNS实时日志（2.16.1-dev）
+
+establish_with内部拨号闭包接收预先分配的真实connection_id，域名解析不另外生成连接ID，不改变原准入与释放。 完整字段及验证边界见`Documentation/API/External/logging_api.md`和`src/dns/logging.md`。

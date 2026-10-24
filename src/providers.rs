@@ -46,6 +46,7 @@ pub(crate) struct Runtime {
     owner: Weak<Manager>,
     tls: HttpsClient,
     candidate: bool,
+    dns_logs: Option<Arc<crate::logging::Journal>>,
     authority: Arc<Authority>,
     traffic: Arc<Authority>,
     control: tokio::sync::Mutex<()>,
@@ -54,17 +55,27 @@ pub(crate) struct Runtime {
 }
 impl Runtime {
     pub(crate) fn new(owner: &Arc<Manager>, tls: HttpsClient) -> Result<Arc<Self>> {
-        Self::create(owner, tls, false)
+        Self::create(owner, tls, false, None)
     }
-    pub(crate) fn candidate(owner: &Arc<Manager>, tls: HttpsClient) -> Result<Arc<Self>> {
-        Self::create(owner, tls, true)
+    pub(crate) fn candidate(
+        owner: &Arc<Manager>,
+        tls: HttpsClient,
+        dns_logs: Option<Arc<crate::logging::Journal>>,
+    ) -> Result<Arc<Self>> {
+        Self::create(owner, tls, true, dns_logs)
     }
-    fn create(owner: &Arc<Manager>, tls: HttpsClient, candidate: bool) -> Result<Arc<Self>> {
+    fn create(
+        owner: &Arc<Manager>,
+        tls: HttpsClient,
+        candidate: bool,
+        dns_logs: Option<Arc<crate::logging::Journal>>,
+    ) -> Result<Arc<Self>> {
         crate::lifecycle::runtime()?;
         Ok(Arc::new(Self {
             owner: Arc::downgrade(owner),
             tls,
             candidate,
+            dns_logs,
             authority: Authority::new()?,
             traffic: Authority::new()?,
             control: tokio::sync::Mutex::new(()),
@@ -124,7 +135,7 @@ impl Runtime {
         )?;
         let resolver = tokio::select! { biased;
             _=self.authority.canceled()=>return Err(Error::Cancelled),
-            resolver=crate::dns::Resolver::from_main(configuration.dns_settings(),transport.outbounds.clone(),self.tls.tls_config())=>resolver?,
+            resolver=crate::dns::Resolver::from_main(configuration.dns_settings(),transport.outbounds.clone(),self.tls.tls_config(),Some(crate::dns::logging::Scope::new(self.dns_logs.clone().unwrap_or_else(||owner.logs.clone()),None,None)))=>resolver?,
         };
         drop(transport);
         let doc = configuration.clone();

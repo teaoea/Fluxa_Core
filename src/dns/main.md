@@ -72,3 +72,7 @@ MMDB Reader 持有受预算约束的共享不可变正文；单库最多 256 MiB
 不得用未验证的系统 DNS 结果伪造 DNSSEC 证明，不得跳过显式专用出站或失败后替换原有效网络状态。
 
 违反输入、授权或资源边界时，使用实际模块的既有错误／拒绝路径，不伪造成功或擅自扩大权限；具体失败后果以上文流程和公开契约为准。
+
+## DNS实时日志（2.16.1-dev）
+
+Plan::setting只借用实际配置项供日志标记尝试索引；不改变hosts优先、引导、DNSSEC或重试。配置准备、端点重建和预检显式传入Scope，Plan不保存消费者；独立无Scope调用不回放历史。 完整字段、错误和未验收范围见`Documentation/API/External/logging_api.md`与`src/dns/logging.md`。

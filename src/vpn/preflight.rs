@@ -108,6 +108,7 @@ pub(super) struct Inspection {
     _memory: ByteLease,
 }
 struct Driver {
+    dns_logs: Arc<crate::logging::Journal>,
     input: Mutex<Option<Input>>,
     manager: Arc<Manager>,
     report: Arc<Inspection>,
@@ -223,6 +224,7 @@ pub(super) fn begin(
         _memory: INPUT_MEMORY.reserve(65536)?,
     });
     let driver = Arc::new(Driver {
+        dns_logs: owner.logs.clone(),
         input: Mutex::new(Some(Input {
             yaml: zeroize::Zeroizing::new(text),
             resources,
@@ -287,7 +289,12 @@ impl Driver {
             None => HttpsClient::system()?,
         };
         self.manager
-            .prepare_vpn_candidate(document, client.clone(), input.resources)
+            .prepare_vpn_candidate(
+                document,
+                client.clone(),
+                input.resources,
+                Some(self.dns_logs.clone()),
+            )
             .await?;
         self.finding(*current, Outcome::Passed, None)?;
         let snapshot = self.manager.network_snapshot()?;
@@ -337,7 +344,15 @@ impl Driver {
                 .resolver
                 .as_ref()
                 .ok_or(Error::InvalidState)?
-                .preflight_upstreams(&name, strategy)
+                .preflight_upstreams(
+                    &name,
+                    strategy,
+                    Some(crate::dns::logging::Scope::new(
+                        self.dns_logs.clone(),
+                        None,
+                        None,
+                    )),
+                )
                 .await?;
             self.update(|r| r.dns_upstreams_checked = count)?;
             self.finding(*current, Outcome::Passed, None)?;

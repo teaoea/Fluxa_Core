@@ -182,6 +182,13 @@ impl Control {
 }
 impl Service {
     pub async fn start(config: Config, resolver: Arc<Resolver>) -> Result<Self> {
+        Self::start_logged(config, resolver, None).await
+    }
+    pub(crate) async fn start_logged(
+        config: Config,
+        resolver: Arc<Resolver>,
+        scope: Option<super::logging::Scope>,
+    ) -> Result<Self> {
         let _operation = resolver.operation()?;
         let (address, allowed) = config.build()?;
         let permit = SERVICES.try_acquire().map_err(|_| Error::ResourceLimit)?;
@@ -220,9 +227,9 @@ impl Service {
                         let (len,peer)=match received { Ok(value)=>value, Err(error)=>{crate::error::diagnostics::record(error.into(),crate::error::diagnostics::DiagnosticSite::DnsService);break;} };
                         if len>4096 || !access.allow(peer.ip()) {continue;}
                         let Ok(permit)=REQUESTS.try_acquire() else {crate::error::diagnostics::record(Error::ResourceLimit,crate::error::diagnostics::DiagnosticSite::DnsService);increment(&own_stats.rejected);continue;};
-                        let packet=bytes[..len].to_vec();let udp=udp.clone();let resolver=resolver.clone();let stats=own_stats.clone();
+                        let packet=bytes[..len].to_vec();let udp=udp.clone();let resolver=resolver.clone();let stats=own_stats.clone();let scope=scope.clone();
                         children.spawn(async move {let _permit=permit;increment(&stats.queries);
-                            match resolver.respond(&packet,true).await {
+                            match resolver.respond_logged(&packet,true,scope).await {
                                 Ok(reply) => { if let Err(error) = udp.send_to(&reply,peer).await { crate::error::diagnostics::record(error.into(), crate::error::diagnostics::DiagnosticSite::DnsService); } },
                                 Err(error) => { crate::error::diagnostics::record(error, crate::error::diagnostics::DiagnosticSite::DnsService); increment(&stats.rejected); }
                             }
@@ -232,8 +239,8 @@ impl Service {
                         let (socket,peer)=match accepted {Ok(value)=>value,Err(error)=>{crate::error::diagnostics::record(error.into(),crate::error::diagnostics::DiagnosticSite::DnsService);break;} };
                         if !access.permitted(peer.ip()) {increment(&own_stats.rejected);continue;}
                         let Ok(permit)=CONNECTIONS.try_acquire() else {crate::error::diagnostics::record(Error::ResourceLimit,crate::error::diagnostics::DiagnosticSite::DnsService);increment(&own_stats.rejected);continue;};
-                        let resolver=resolver.clone();let access=access.clone();
-                        children.spawn(async move {let _permit=permit;let _=crate::error::diagnostics::observe(tcp_session(socket,peer,resolver,access).await,crate::error::diagnostics::DiagnosticSite::DnsService);});
+                        let resolver=resolver.clone();let access=access.clone();let scope=scope.clone();
+                        children.spawn(async move {let _permit=permit;let _=crate::error::diagnostics::observe(tcp_session(socket,peer,resolver,access,scope).await,crate::error::diagnostics::DiagnosticSite::DnsService);});
                     }
                     joined=children.join_next(),if !children.is_empty()=>{if let Some(result)=joined {crate::error::diagnostics::observe_join(result,crate::error::diagnostics::DiagnosticSite::DnsService);}}
                 }
@@ -297,6 +304,7 @@ async fn tcp_session(
     peer: SocketAddr,
     resolver: Arc<Resolver>,
     access: Arc<Access>,
+    scope: Option<super::logging::Scope>,
 ) -> Result<()> {
     // 空闲与持续请求都设置期限，防止缓慢客户端无限占用连接。
     tokio::time::timeout(Duration::from_secs(60), async {
@@ -313,7 +321,9 @@ async fn tcp_session(
                 .map_err(|_| Error::DnsTimeout)??;
             let _permit = REQUESTS.try_acquire().map_err(|_| Error::ResourceLimit)?;
             increment(&access.stats.queries);
-            let reply = resolver.respond(&bytes, false).await?;
+            let reply = resolver
+                .respond_logged(&bytes, false, scope.clone())
+                .await?;
             tokio::time::timeout(Duration::from_secs(5), async {
                 socket
                     .write_all(&(reply.len() as u16).to_be_bytes())

@@ -65,3 +65,7 @@ rules: ['final,direct']
 违反输入、授权或资源边界时，使用实际模块的既有错误／拒绝路径，不伪造成功或擅自扩大权限；具体失败后果以上文流程和公开契约为准。
 
 规则集policy支持有序候选；enable省略默认true。配置权威策略完整继承到来源规则，远程正文不能自带候选或更改顺序。详细契约见[routing/strategy.md](routing/strategy.md)。
+
+## DNS日志观察（2.16.1-dev）
+
+配置准备的DNS观察Journal与候选管理器日志状态分离；Runtime只传Scope，不发布候选加密/等级。 接口及边界见`Documentation/API/Internal/providers_api.md`和`Documentation/API/External/logging_api.md`。

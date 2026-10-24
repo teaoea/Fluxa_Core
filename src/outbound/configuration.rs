@@ -714,9 +714,10 @@ impl Manager {
         document: Arc<crate::configuration::Document>,
         client: crate::https::HttpsClient,
         resources: crate::storage::Resources,
+        dns_logs: Option<Arc<crate::logging::Journal>>,
     ) -> Result<u64> {
         document.preparation_preflight(crate::configuration::PreparationPurpose::VpnCandidate)?;
-        let runtime = crate::providers::Runtime::candidate(self, client)?;
+        let runtime = crate::providers::Runtime::candidate(self, client, dns_logs)?;
         {
             let mut state = self.state.lock().map_err(|_| Error::Internal)?;
             if state.stopped || state.providers.is_some() || state.network.configuration_complete {

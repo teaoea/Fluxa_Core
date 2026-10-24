@@ -55,6 +55,15 @@ pub enum Event {
     NodeFailed,
     NodeRetry,
     CoreStopped,
+    DnsQueryStarted,
+    DnsHostsHit,
+    DnsSynthetic,
+    DnsCacheHit,
+    DnsUpstreamSelected,
+    DnsUpstreamFailed,
+    DnsQueryCompleted,
+    DnsQueryFailed,
+    DnsQueryCancelled,
 }
 impl Event {
     fn module(self) -> &'static str {
@@ -72,6 +81,15 @@ impl Event {
             }
             Self::NodeRetry => "failover",
             Self::CoreStopped => "core",
+            Self::DnsQueryStarted
+            | Self::DnsHostsHit
+            | Self::DnsSynthetic
+            | Self::DnsCacheHit
+            | Self::DnsUpstreamSelected
+            | Self::DnsUpstreamFailed
+            | Self::DnsQueryCompleted
+            | Self::DnsQueryFailed
+            | Self::DnsQueryCancelled => "dns",
             _ => "vpn",
         }
     }
@@ -105,9 +123,55 @@ impl Serialize for NodeName {
         serializer.serialize_str(value)
     }
 }
+/// 原始DNS文本的有界值；超限返回None，禁止截断后伪称完整字段。
+#[derive(Clone, Copy, Debug)]
+pub struct DnsText<const N: usize> {
+    bytes: [u8; N],
+    len: usize,
+}
+impl<const N: usize> DnsText<N> {
+    pub(crate) fn new(value: &str) -> Option<Self> {
+        if value.len() > N {
+            return None;
+        }
+        let mut bytes = [0; N];
+        bytes[..value.len()].copy_from_slice(value.as_bytes());
+        Some(Self {
+            bytes,
+            len: value.len(),
+        })
+    }
+}
+impl<const N: usize> Serialize for DnsText<N> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(
+            std::str::from_utf8(&self.bytes[..self.len]).map_err(serde::ser::Error::custom)?,
+        )
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct DnsDetails {
+    pub query_id: u64,
+    pub name: Option<DnsText<253>>,
+    pub query_type: Option<DnsText<16>>,
+    pub upstream_index: Option<usize>,
+    pub upstream: Option<DnsText<2048>>,
+    pub source: Option<&'static str>,
+    pub rcode: Option<u16>,
+    pub records: Option<usize>,
+    pub addresses: Option<usize>,
+    pub ttl: Option<u32>,
+    pub from_cache: Option<bool>,
+    pub validation: Option<&'static str>,
+}
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct Context {
     pub connection_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns: Option<DnsDetails>,
     pub node: Option<NodeName>,
     pub next_node: Option<NodeName>,
     pub policy: Option<crate::routing::Policy>,
