@@ -1180,7 +1180,8 @@
         "scoped_rules_and_unscoped_reject",
         "malformed_rules_are_not_partially_accepted",
         "process_rule_syntax_is_exact_case_preserving_and_not_wildcard",
-        "mixed_actions_validate_compile_and_keep_references"
+        "mixed_actions_validate_compile_and_keep_references",
+        "provider_policy_list_requires_every_node"
       ]
     },
     {

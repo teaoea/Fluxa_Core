@@ -2,7 +2,8 @@
 //! 测试类型：单元测试、规则输入契约
 //! 测试对象：src/configuration/rules.rs
 //! 测试内容：
-//! - mixed_actions_validate_compile_and_keep_references：括号逗号策略与顺序编译，缺失节点及非末尾reject拒绝。
+//! - mixed_actions_validate_compile_and_keep_references：括号逗号策略与顺序编译，缺失节点（含首个有效、后续缺失）及非末尾reject拒绝。
+//! - provider_policy_list_requires_every_node：规则集不带括号的候选列表中任一节点未定义即 InvalidInput。
 //! - process_rule_syntax_is_exact_case_preserving_and_not_wildcard：按新配置契约独立验证正反边界。
 //! - final_is_unique_last_and_required：兜底唯一且末尾必填。
 //! - scoped_rules_and_unscoped_reject：组合条件合法、全域协议仅拦截。
@@ -90,6 +91,9 @@ fn mixed_actions_validate_compile_and_keep_references() {
     assert!(check(&["domain,example.com,(PROXY,direct)", "final,(PROXY,reject)"]).is_ok());
     for rule in [
         "final,(missing,reject)",
+        // 首个候选有效也不能掩盖后续无效节点。
+        "final,(PROXY,missing)",
+        "domain,example.com,(PROXY,missing,direct)",
         "final,(PROXY,PROXY)",
         "final,(PROXY,)",
         "final,(reject,PROXY)",
@@ -102,4 +106,24 @@ fn mixed_actions_validate_compile_and_keep_references() {
         (crate::routing::Policy::Proxy, Some("(节点1,节点2)".into()))
     );
     assert_eq!(fields("final,(PROXY,reject)").unwrap().1, 2);
+}
+
+#[test]
+fn provider_policy_list_requires_every_node() {
+    let nodes = HashSet::from(["PROXY", "节点1"]);
+    for value in ["PROXY", "节点1,PROXY", "PROXY,direct", "节点1,reject"] {
+        assert!(policy(value, &nodes).is_ok(), "{value}");
+    }
+    // 规则集 policy 允许不带括号的列表；任一节点未在 proxies 中定义都走错误流程，不忽略或降级。
+    for value in [
+        "节点1,节点2",
+        "节点2,节点1",
+        "PROXY,missing,reject",
+        "missing",
+    ] {
+        assert!(
+            matches!(policy(value, &nodes), Err(Error::InvalidInput)),
+            "{value}"
+        );
+    }
 }

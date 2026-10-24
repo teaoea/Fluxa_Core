@@ -27,7 +27,7 @@ rules:
 
 `Rule.policy`／`Config.fallback`与`Decision.policy`保留direct/reject/proxy枚举；Proxy的outbound可携带规范化`(节点1,节点2)`表达式。纯路由查询展示计划；实际出站成功后decision为实际选中节点或direct。结构化输入、缓存和本地规则共用同一解析约束。
 
-无效语法、空项、重复及缺失节点使用既有InvalidInput，超限使用ResourceLimit；配置检查保留具体rules[index]或rule-providers[index].policy字段与原文位置。取消、状态、预算、TLS等错误不改号改义。所有候选失败返回实际建连失败；显式reject返回Rejected。Core不写配置、不下载文件；主配置检查只返回首个错误。可运行完整样例为仓库example_config.yaml，连接前替换虚构节点信息。
+候选列表中的每个节点都必须在proxies中定义：只要有一个未定义（包括首个有效、后续缺失，以及规则集policy不带括号的列表），配置检查与加载即以InvalidInput整体拒绝；运行时路由给出的列表含未配置节点时，在任何拨号之前返回Unsupported，不忽略无效项、不只用有效部分、不降级direct。无效语法、空项、重复及缺失节点使用既有InvalidInput，超限使用ResourceLimit；配置检查保留具体rules[index]或rule-providers[index].policy字段与原文位置。取消、状态、预算、TLS等错误不改号改义。所有候选失败返回实际建连失败；显式reject返回Rejected。Core不写配置、不下载文件；主配置检查只返回首个错误。可运行完整样例为仓库example_config.yaml，连接前替换虚构节点信息。
 
 成功的TCP/UDP回环测试覆盖显式direct候选；未执行真实外部节点间的成功切换矩阵。
 

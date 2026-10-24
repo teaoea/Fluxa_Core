@@ -5,7 +5,7 @@
 //! - udp_node_connect_failure_retries_before_datagram_send：UDP代理承载建连失败才尝试显式direct，不复制业务报文。
 //! - cancel_during_node_connect_never_reaches_direct：节点阶段取消及时退出，无下一候选拨号。
 //! - destination_connect_failure_does_not_try_next_node：请求接收方失败不触发节点自动连接重试。
-//! - ordered_node_failures_use_only_explicit_direct：真实拒绝/超时按顺序尝试，显式直连才可用，reject终止。
+//! - ordered_node_failures_use_only_explicit_direct：真实拒绝/超时按顺序尝试，显式直连才可用，reject终止；列表中任一节点未配置（含首个有效、后续缺失）时拨号前整体报 Unsupported。
 //! - successful_direct_stream_never_replays_on_failure：成功选中后读写不切换其他候选。
 //! - process_proof_admits_new_flow_without_owning_live_connection：旧源 FD 不能授权新流，已建立流继续完成。
 //! - scoped_quic_is_decided_before_real_udp_outbound：真实首包决定出站，普通 UDP/缺首包/错误节点不得直连。
@@ -320,7 +320,13 @@ async fn ordered_node_failures_use_only_explicit_direct() {
     manager.close(opened.connection.id).await.unwrap();
     peer.abort();
     let _ = peer.await;
-    for chain in ["(one,reject)", "(one,three)", "(missing,direct)"] {
+    // (one,missing)：首个候选是已配置节点、后续候选不存在；必须在任何拨号前整体报错，不能只用有效部分。
+    for chain in [
+        "(one,reject)",
+        "(one,three)",
+        "(missing,direct)",
+        "(one,missing)",
+    ] {
         manager
             .configure_network_with_outbounds(
                 None,
@@ -332,7 +338,7 @@ async fn ordered_node_failures_use_only_explicit_direct() {
         let result = manager.connect_configured(mixed_request(target_port)).await;
         if chain.ends_with("reject)") {
             assert!(matches!(result, Err(Error::Rejected)));
-        } else if chain.starts_with("(missing") {
+        } else if chain.contains("missing") {
             assert!(matches!(result, Err(Error::Unsupported)));
         } else {
             assert!(matches!(result, Err(Error::Network)));
